@@ -540,7 +540,7 @@ jobs:
             - name: Clone FEX source if not cached
               if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-fex-source.outputs.cache-hit != 'true'
               run: |
-                  git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
+                  rm -rf /tmp/fex-source && git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
 
             - name: Build and push ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
