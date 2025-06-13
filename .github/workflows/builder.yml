@@ -70,37 +70,58 @@ jobs:
                   CURRENT_DATE=$(date +%Y-%m-%d)
                   echo "Current date: $CURRENT_DATE"
 
-                  # Ubuntu EOL filtering with corrected jq syntax
+                  # Ubuntu: Get SUPPORTED versions first, then exclude them from all versions
                   echo "📦 Processing Ubuntu versions..."
-                  UBUNTU_EOL_LIST=$(curl -s https://endoflife.date/api/ubuntu.json | \
-                      jq -r --arg current_date "$CURRENT_DATE" '
-                      .[] | 
-                      select(
-                          # Primary EOL date has passed
-                          (.eol | type == "string" and . < $current_date) and
-                          # AND if extended support exists as a date, it must also have passed
-                          # If extended support is false/null, ignore it
-                          (
-                              if (.extendedSupport | type == "string") 
-                              then (.extendedSupport < $current_date)
-                              else true
-                              end
-                          )
-                      ) | 
-                      .cycle' | \
-                      paste -sd '|' -)
 
-                  # Fedora EOL filtering 
-                  echo "🎩 Processing Fedora versions..."
-                  FEDORA_EOL_LIST=$(curl -s https://endoflife.date/api/fedora.json | \
+                  # Get all Ubuntu versions
+                  ALL_UBUNTU=$(curl -s https://endoflife.date/api/ubuntu.json | jq -r '.[].cycle')
+
+                  # Get currently SUPPORTED Ubuntu versions
+                  SUPPORTED_UBUNTU=$(curl -s https://endoflife.date/api/ubuntu.json | \
                       jq -r --arg current_date "$CURRENT_DATE" '
                       .[] | 
                       select(
-                          # EOL date has passed
-                          (.eol | type == "string" and . < $current_date)
+                          (.eol | type == "string" and . >= $current_date) or
+                          ((.extendedSupport | type == "string") and .extendedSupport >= $current_date)
                       ) | 
-                      .cycle' | \
-                      paste -sd '|' -)
+                      .cycle')
+
+                  # Create EOL list by excluding supported versions
+                  UBUNTU_EOL_LIST=""
+                  for version in $ALL_UBUNTU; do
+                      if ! echo "$SUPPORTED_UBUNTU" | grep -q "^${version}$"; then
+                          if [ -z "$UBUNTU_EOL_LIST" ]; then
+                              UBUNTU_EOL_LIST="$version"
+                          else
+                              UBUNTU_EOL_LIST="$UBUNTU_EOL_LIST|$version"
+                          fi
+                      fi
+                  done
+
+                  # Fedora: Get SUPPORTED versions first, then exclude them from all versions
+                  echo "🎩 Processing Fedora versions..."
+
+                  # Get all Fedora versions
+                  ALL_FEDORA=$(curl -s https://endoflife.date/api/fedora.json | jq -r '.[].cycle')
+
+                  # Get currently SUPPORTED Fedora versions
+                  SUPPORTED_FEDORA=$(curl -s https://endoflife.date/api/fedora.json | \
+                      jq -r --arg current_date "$CURRENT_DATE" '
+                      .[] | 
+                      select(.eol | type == "string" and . >= $current_date) | 
+                      .cycle')
+
+                  # Create EOL list by excluding supported versions
+                  FEDORA_EOL_LIST=""
+                  for version in $ALL_FEDORA; do
+                      if ! echo "$SUPPORTED_FEDORA" | grep -q "^${version}$"; then
+                          if [ -z "$FEDORA_EOL_LIST" ]; then
+                              FEDORA_EOL_LIST="$version"
+                          else
+                              FEDORA_EOL_LIST="$FEDORA_EOL_LIST|$version"
+                          fi
+                      fi
+                  done
 
                   # Fallback lists if API fails
                   if [ -z "$UBUNTU_EOL_LIST" ] || [ "$UBUNTU_EOL_LIST" = "" ]; then
@@ -133,24 +154,13 @@ jobs:
                       echo "$FEDORA_EOL_LIST" | tr '|' '\n' | sed 's/^/  - /'
                   fi
 
-                  # Debug: Show currently supported versions with corrected syntax
+                  # Debug: Show currently supported versions
                   echo "🟢 Currently supported versions:"
                   echo "Ubuntu:"
-                  curl -s https://endoflife.date/api/ubuntu.json | \
-                      jq -r --arg current_date "$CURRENT_DATE" '
-                      .[] | 
-                      select(
-                          (.eol | type == "string" and . >= $current_date) or
-                          ((.extendedSupport | type == "string") and .extendedSupport >= $current_date)
-                      ) | 
-                      "  - " + .cycle + " (EOL: " + .eol + ", Extended: " + (.extendedSupport | tostring) + ")"'
+                  echo "$SUPPORTED_UBUNTU" | sed 's/^/  - /'
 
                   echo "Fedora:"
-                  curl -s https://endoflife.date/api/fedora.json | \
-                      jq -r --arg current_date "$CURRENT_DATE" '
-                      .[] | 
-                      select(.eol | type == "string" and . >= $current_date) | 
-                      "  - " + .cycle + " (EOL: " + .eol + ")"'
+                  echo "$SUPPORTED_FEDORA" | sed 's/^/  - /'
 
     fetch-rootfs-matrix:
         runs-on: ubuntu-24.04-arm
