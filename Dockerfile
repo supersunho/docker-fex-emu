@@ -22,6 +22,14 @@ RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
         echo "PKG_MANAGER=unknown" >> /etc/distro-info; \
     fi
 
+# Handle EOL Ubuntu versions (XX.10 releases) BEFORE package installation
+RUN if [ "${ROOTFS_OS}" = "ubuntu" ] && [[ "${ROOTFS_VERSION}" =~ ^[0-9]{2}\.10$ ]]; then \
+        echo "⚠️ EOL Ubuntu interim release detected: ${ROOTFS_VERSION}" && \
+        echo "🔄 Switching to old-releases repository" && \
+        sed -i 's|http://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list && \
+        sed -i 's|https://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list; \
+    fi
+
 # Install packages based on detected OS
 RUN . /etc/distro-info && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
