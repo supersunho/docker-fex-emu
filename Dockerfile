@@ -54,7 +54,7 @@ RUN . /etc/distro-info && \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
         if dnf list available llvm18 2>/dev/null; then \
-            dnf install -y llvm18 llvm18-devel clang18 clang18-devel lld18; \
+            dnf install -y llvm18* clang18* lld18* compiler-rt18* libomp18*; \
         else \
             dnf install -y llvm llvm-devel clang clang-devel lld; \
         fi && \
