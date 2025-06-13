@@ -104,11 +104,14 @@ jobs:
                   # Get all Fedora versions
                   ALL_FEDORA=$(curl -s https://endoflife.date/api/fedora.json | jq -r '.[].cycle')
 
-                  # Get currently SUPPORTED Fedora versions
+                  # Get currently SUPPORTED Fedora versions 
                   SUPPORTED_FEDORA=$(curl -s https://endoflife.date/api/fedora.json | \
                       jq -r --arg current_date "$CURRENT_DATE" '
                       .[] | 
-                      select(.eol | type == "string" and . >= $current_date) | 
+                      select(
+                          (.eol | type == "string") and 
+                          ((.eol | strptime("%Y-%m-%d") | mktime) > (($current_date | strptime("%Y-%m-%d") | mktime) - (730 * 24 * 3600)))
+                      ) | 
                       .cycle')
 
                   # Create EOL list by excluding supported versions
