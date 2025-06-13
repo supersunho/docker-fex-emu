@@ -64,9 +64,9 @@ RUN . /etc/distro-info && \
     fi
 
 # Clone and build FEX from source
-COPY --from=fex-sources / /tmp/FEX
+COPY --from=fex-sources / /tmp/fex-source
 
-RUN cd /tmp/FEX && \
+RUN cd /tmp/fex-source/Build && \
     mkdir -p Build && \
     cd Build && \
     CC=clang CXX=clang++ cmake \
@@ -80,8 +80,7 @@ RUN cd /tmp/FEX && \
         .. && \
     ninja && \
     ninja install && \
-    cd / && \
-    rm -rf /tmp/FEX
+    rm -rf /tmp/fex-source/Build
 
 # Create user with OS-specific commands
 RUN . /etc/distro-info && \
