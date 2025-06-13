@@ -664,9 +664,6 @@ jobs:
                       -DENABLE_LTO=True \
                       -DBUILD_TESTS=False \
                       -DENABLE_ASSERTIONS=False \
-                      -DBUILD_THUNKS=False \
-                      -DENABLE_FEXCONFIG=False \
-                      -DENABLE_FEXMOUNT=False \
                       -G Ninja ..
 
                   ccache -z && ninja -j$(nproc) install
