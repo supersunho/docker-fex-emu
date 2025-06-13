@@ -180,7 +180,10 @@ jobs:
                   curl -s https://endoflife.date/api/fedora.json | \
                       jq -r --arg current_date "$CURRENT_DATE" '
                       .[] | 
-                      select(.eol | type == "string" and . >= $current_date) | 
+                      select(
+                          (.eol | type == "string") and 
+                          ((.eol | strptime("%Y-%m-%d") | mktime) > (($current_date | strptime("%Y-%m-%d") | mktime) - (730 * 24 * 3600)))
+                      ) | 
                       "  - " + .cycle + " (EOL: " + .eol + ")"'
     fetch-rootfs-matrix:
         runs-on: ubuntu-24.04-arm
