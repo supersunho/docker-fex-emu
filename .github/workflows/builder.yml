@@ -122,16 +122,16 @@ jobs:
                           {
                           "include": [
                               # Ubuntu latest version (excluding EOL)
-                              (.v1 | to_entries | 
+                              ((.v1 | to_entries | 
                               map(select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")) |
-                              map(select(($eol_versions | split("|") | index(.value.DistroVersion)) == null)) |
+                              map(select(($eol_versions | split("|") | index(.value.DistroVersion)) == null))) | 
                               sort_by(.value.DistroVersion | split(".") | map(tonumber)) | 
-                              last | .value),
+                              last // null | .value),
                               # Fedora latest version (no EOL filtering needed)
-                              (.v1 | to_entries | 
-                              map(select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")) |
+                              ((.v1 | to_entries | 
+                              map(select(.value.DistroMatch == "fedora" and .value.Type == "squashfs"))) |
                               sort_by(.value.DistroVersion | tonumber) |
-                              last | .value)
+                              last // null | .value)
                           ] | map(select(. != null) | {
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
@@ -161,13 +161,12 @@ jobs:
                               .v1 | to_entries[] | 
                               select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") |
                               select(($eol_versions | split("|") | index(.value.DistroVersion)) == null) |
-                              .value |
                               {
-                              "ROOTFS_OS": .DistroMatch,
-                              "ROOTFS_VERSION": .DistroVersion,
-                              "ROOTFS_TYPE": .Type,
-                              "BASE_IMAGE": "ubuntu:" + .DistroVersion,
-                              "TAG_VERSION": (.DistroVersion | gsub("\\."; ""))
+                              "ROOTFS_OS": .value.DistroMatch,
+                              "ROOTFS_VERSION": .value.DistroVersion,
+                              "ROOTFS_TYPE": .value.Type,
+                              "BASE_IMAGE": "ubuntu:" + .value.DistroVersion,
+                              "TAG_VERSION": (.value.DistroVersion | gsub("\\."; ""))
                               }
                           ]
                           }
@@ -181,13 +180,12 @@ jobs:
                           "include": [
                               .v1 | to_entries[] | 
                               select(.value.DistroMatch == "fedora" and .value.Type == "squashfs") |
-                              .value |
                               {
-                              "ROOTFS_OS": .DistroMatch,
-                              "ROOTFS_VERSION": .DistroVersion,
-                              "ROOTFS_TYPE": .Type,
-                              "BASE_IMAGE": "fedora:" + .DistroVersion,
-                              "TAG_VERSION": "f" + .DistroVersion
+                              "ROOTFS_OS": .value.DistroMatch,
+                              "ROOTFS_VERSION": .value.DistroVersion,
+                              "ROOTFS_TYPE": .value.Type,
+                              "BASE_IMAGE": "fedora:" + .value.DistroVersion,
+                              "TAG_VERSION": "f" + .value.DistroVersion
                               }
                           ]
                           }
@@ -209,20 +207,19 @@ jobs:
                                   else true
                                   end
                               ) |
-                              .value |
                               {
-                              "ROOTFS_OS": .DistroMatch,
-                              "ROOTFS_VERSION": .DistroVersion,
-                              "ROOTFS_TYPE": .Type,
+                              "ROOTFS_OS": .value.DistroMatch,
+                              "ROOTFS_VERSION": .value.DistroVersion,
+                              "ROOTFS_TYPE": .value.Type,
                               "BASE_IMAGE": (
-                                  if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
-                                  elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
+                                  if .value.DistroMatch == "ubuntu" then "ubuntu:" + .value.DistroVersion
+                                  elif .value.DistroMatch == "fedora" then "fedora:" + .value.DistroVersion
                                   else "ubuntu:24.04"
                                   end
                               ),
                               "TAG_VERSION": (
-                                  if .DistroMatch == "ubuntu" then (.DistroVersion | gsub("\\."; ""))
-                                  elif .DistroMatch == "fedora" then "f" + .DistroVersion
+                                  if .value.DistroMatch == "ubuntu" then (.value.DistroVersion | gsub("\\."; ""))
+                                  elif .value.DistroMatch == "fedora" then "f" + .value.DistroVersion
                                   else "unknown"
                                   end
                               )
