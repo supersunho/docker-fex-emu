@@ -1,13 +1,13 @@
-# 🚀 FEXBash Multi-Platform Container Builder
+# 🚀 FEXBash Base Images for arm64
 
 [![Build Status](https://github.com/supersunho/docker-fex-emu/actions/workflows/builder.yml/badge.svg)](https://github.com/supersunho/docker-fex-emu/actions)
 [![GitHub Release](https://img.shields.io/github/v/release/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/releases/latest)
 [![License](https://img.shields.io/github/license/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/blob/main/LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/stargazers)
 
-> **High-performance ARM64 container images featuring FEX-Emu for running x86 applications natively on ARM architectures across multiple Linux distributions.**
+> **Production-ready arm64 base images with pre-configured FEXBash runtime for seamless x86 application deployment across multiple Linux distributions**
 
-## ✨ Key Features
+## ✨ Build Features
 
 -   🏗️ **Native ARM64 Compilation**: Source-built FEX emulator optimized for ARM64 with LTO optimization
 -   🌍 **Multi-Distribution Support**: Ubuntu and Fedora with comprehensive SquashFS RootFS support
