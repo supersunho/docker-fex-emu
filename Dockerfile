@@ -8,6 +8,14 @@ ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 ARG LLM_VERSION=18
 
+# Clone and build FEX from source
+COPY --from=fex-sources / /tmp/fex-source
+COPY --from=fex-build-helper /usr/bin/clang-$LLM_VERSION /tmp/llvm-tools/
+COPY --from=fex-build-helper /usr/bin/clang++-$LLM_VERSION /tmp/llvm-tools/
+COPY --from=fex-build-helper /usr/bin/lld-$LLM_VERSION /tmp/llvm-tools/
+COPY --from=fex-build-helper /usr/lib/llvm-$LLM_VERSION /tmp/llvm-tools/
+# COPY --from=fex-build-helper /usr/share/llvm-$LLM_VERSION /usr/share
+
 # Detect OS type and set package manager
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
         echo "DISTRO_TYPE=fedora" > /etc/distro-info && \
@@ -34,6 +42,15 @@ RUN . /etc/distro-info && \
             linux-headers-generic qtbase5-dev qtdeclarative5-dev \
             squashfs-tools squashfuse openssl libssl-dev \
             curl wget jq sudo binfmt-support software-properties-common && \
+            echo "📦 Installing LLVM tools for Debian/Ubuntu..." && \
+            mv /tmp/llvm-tools/clang-$LLM_VERSION /usr/bin/ && \
+            mv /tmp/llvm-tools/clang++-$LLM_VERSION /usr/bin/ && \
+            mv /tmp/llvm-tools/llvm-$LLM_VERSION /usr/lib/ && \
+            ln -sf /usr/bin/lld-$LLM_VERSION /usr/bin/ld.lld && \
+            ln -sf /usr/bin/lld-$LLM_VERSION /usr/bin/lld && \
+            which ld.lld && \
+            ld.lld --version && \
+            echo "✅ LLVM tools installed"; && \
         if [ "${ROOTFS_OS}" = "ubuntu" ] && [ "${ROOTFS_VERSION}" != "24.04" ]; then \
             echo "Installing latest libstdc++6 for Ubuntu ${ROOTFS_VERSION}" && \
             add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
@@ -44,7 +61,7 @@ RUN . /etc/distro-info && \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
         dnf install -y \
-            git cmake ninja-build pkg-config ccache clang lld llvm llvm-devel \
+            git cmake ninja-build pkg-config ccache clang$LLM_VERSION lld$LLM_VERSION llvm$LLM_VERSION llvm$LLM_VERSION-devel \
             openssl-devel nasm python3-clang python3-setuptools \
             squashfs-tools squashfuse erofs-fuse erofs-utils \
             qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
@@ -63,20 +80,7 @@ RUN . /etc/distro-info && \
     else \
         echo "❌ Unsupported distribution type: $DISTRO_TYPE" && exit 1; \
     fi
-
-# Clone and build FEX from source
-COPY --from=fex-sources / /tmp/fex-source
-COPY --from=fex-build-helper /usr/bin/clang-$LLM_VERSION /usr/bin
-COPY --from=fex-build-helper /usr/bin/clang++-$LLM_VERSION /usr/bin
-COPY --from=fex-build-helper /usr/bin/lld-$LLM_VERSION /usr/bin
-COPY --from=fex-build-helper /usr/lib/llvm-$LLM_VERSION /usr/lib
-COPY --from=fex-build-helper /usr/share/llvm-$LLM_VERSION /usr/share
-
-RUN ln -sf /usr/bin/lld-$LLM_VERSION /usr/bin/ld.lld && \
-    ln -sf /usr/bin/lld-$LLM_VERSION /usr/bin/lld && \
-    which ld.lld && \
-    ld.lld --version
-
+ 
 RUN cd /tmp/fex-source && \
     mkdir -p Build && \
     cd Build && \
