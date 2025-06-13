@@ -729,11 +729,11 @@ jobs:
 
                   # Test FEX configuration
                   echo "FEX configuration test:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /home/steam/.fex-emu/Config.json && echo "✅ FEX config exists" || echo "❌ FEX config missing"
+                  docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /home/fex/.fex-emu/Config.json && echo "✅ FEX config exists" || echo "❌ FEX config missing"
 
                   # Test RootFS
                   echo "RootFS test:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" ls -la /home/steam/.fex-emu/RootFS/ || echo "RootFS directory check completed"
+                  docker run --rm --platform 'linux/arm64' "$IMAGE" ls -la /home/fex/.fex-emu/RootFS/ || echo "RootFS directory check completed"
 
                   # Test FEX execution only if binary exists
                   if docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /usr/bin/FEXBash; then
