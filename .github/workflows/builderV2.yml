@@ -542,35 +542,6 @@ jobs:
               run: |
                   git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
 
-            - name: Cache LLVM binaries
-              if: steps.eol-check.outputs.skip_build == 'false'
-              id: cache-llvm
-              uses: actions/cache@v4
-              with:
-                  path: |
-                      /usr/bin/clang-${{ env.LLVM_VERSION }}
-                      /usr/bin/clang++-${{ env.LLVM_VERSION }}
-                      /usr/bin/lld-${{ env.LLVM_VERSION }}
-                      /usr/lib/llvm-${{ env.LLVM_VERSION }}
-                      /usr/share/llvm-${{ env.LLVM_VERSION }}
-                  key: llvm-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}
-                  restore-keys: |
-                      llvm-${{ runner.os }}-${{ runner.arch }}-
-
-            - name: Install LLVM if not cached
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-llvm.outputs.cache-hit != 'true'
-              run: |
-                  wget https://apt.llvm.org/llvm.sh
-                  chmod +x llvm.sh
-                  sudo ./llvm.sh ${{ env.LLVM_VERSION }}
-                  rm llvm.sh
-                  sudo ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/ld.lld
-                  sudo ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/lld
-
-                  # Check linker
-                  which ld.lld
-                  ld.lld --version
-
             - name: Build and push ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               id: build

@@ -9,12 +9,7 @@ ARG ROOTFS_TYPE=squashfs
 ARG LLM_VERSION=18
 
 # Clone and build FEX from source
-COPY --from=fex-sources / /tmp/fex-source
-COPY --from=fex-build-helper /usr/bin/clang-$LLM_VERSION /tmp/llvm-tools/
-COPY --from=fex-build-helper /usr/bin/clang++-$LLM_VERSION /tmp/llvm-tools/
-COPY --from=fex-build-helper /usr/bin/lld-$LLM_VERSION /tmp/llvm-tools/
-COPY --from=fex-build-helper /usr/lib/llvm-$LLM_VERSION /tmp/llvm-tools/
-# COPY --from=fex-build-helper /usr/share/llvm-$LLM_VERSION /usr/share
+COPY --from=fex-sources / /tmp/fex-source  
 
 # Detect OS type and set package manager
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
@@ -41,22 +36,20 @@ RUN . /etc/distro-info && \
             libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
             linux-headers-generic qtbase5-dev qtdeclarative5-dev \
             squashfs-tools squashfuse openssl libssl-dev \
-            curl wget jq sudo binfmt-support software-properties-common && \
-            echo "📦 Installing LLVM tools for Debian/Ubuntu..." && \
-            mv /tmp/llvm-tools/clang-$LLM_VERSION /usr/bin/ && \
-            mv /tmp/llvm-tools/clang++-$LLM_VERSION /usr/bin/ && \
-            mv /tmp/llvm-tools/llvm-$LLM_VERSION /usr/lib/ && \
-            ln -sf /usr/bin/lld-$LLM_VERSION /usr/bin/ld.lld && \
-            ln -sf /usr/bin/lld-$LLM_VERSION /usr/bin/lld && \
-            which ld.lld && \
-            ld.lld --version && \
-            echo "✅ LLVM tools installed"; && \
+            curl wget jq sudo binfmt-support software-properties-common && \ 
         if [ "${ROOTFS_OS}" = "ubuntu" ] && [ "${ROOTFS_VERSION}" != "24.04" ]; then \
             echo "Installing latest libstdc++6 for Ubuntu ${ROOTFS_VERSION}" && \
             add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
             apt-get update && \
             apt-get install --only-upgrade libstdc++6 -y; \
         fi && \
+        wget https://apt.llvm.org/llvm.sh && \
+        chmod +x llvm.sh && \
+        ./llvm.sh ${LLM_VERSION} && \
+        ln -sf /usr/bin/lld-${LLM_VERSION} /usr/bin/ld.lld && \
+        ln -sf /usr/bin/lld-${LLM_VERSION} /usr/bin/lld && \
+        which ld.lld && \
+        ld.lld --version && \
         rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
