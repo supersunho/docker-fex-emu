@@ -75,40 +75,42 @@ RUN . /etc/distro-info && \
     fi
  
 # Setup RootFS with automatic extraction for container compatibility
-RUN echo "Setting up RootFS: ${ROOTFS_OS} ${ROOTFS_VERSION} (${ROOTFS_TYPE})" && \
-    mkdir -p /home/fex/.fex-emu/RootFS && \
-    curl -s https://rootfs.fex-emu.gg/RootFS_links.json > /tmp/rootfs_links.json && \
-    # Handle latest version
-    if [ "$ROOTFS_VERSION" = "latest" ]; then \
-        ACTUAL_VERSION=$(jq -r --arg os "$ROOTFS_OS" --arg type "$ROOTFS_TYPE" \
-            '.v1[] | select(.DistroMatch == $os and .Type == $type) | .DistroVersion' \
-            /tmp/rootfs_links.json | sort -V | tail -1); \
-    else \
-        ACTUAL_VERSION="$ROOTFS_VERSION"; \
-    fi && \
-    echo "Target: $ROOTFS_OS $ACTUAL_VERSION ($ROOTFS_TYPE)" && \
-    # Direct search
-    ROOTFS_URL=$(jq -r --arg os "$ROOTFS_OS" --arg version "$ACTUAL_VERSION" --arg type "$ROOTFS_TYPE" \
-        '.v1[] | select(.DistroMatch == $os and .DistroVersion == $version and .Type == $type) | .URL' \
-        /tmp/rootfs_links.json) && \
-    if [ -z "$ROOTFS_URL" ] || [ "$ROOTFS_URL" = "null" ]; then \
-        echo "❌ $ROOTFS_OS $ACTUAL_VERSION ($ROOTFS_TYPE) not found" && \
-        exit 1; \
-    fi && \
-    echo "Download URL: $ROOTFS_URL" && \
-    FILENAME=$(basename "$ROOTFS_URL") && \
-    wget -q "$ROOTFS_URL" -O "/home/fex/.fex-emu/RootFS/${FILENAME}" && \
-    # Extract for container compatibility (critical fix)
-    cd /home/fex/.fex-emu/RootFS && \
-    EXTRACT_DIR="${FILENAME%.*}" && \
-    echo "🔧 Extracting ${FILENAME} for container compatibility..." && \
-    unsquashfs -f -d "$EXTRACT_DIR" "$FILENAME" && \
-    echo "{\"Config\":{\"RootFS\":\"$EXTRACT_DIR\"}}" > /home/fex/.fex-emu/Config.json && \
-    rm "$FILENAME" && \
-    chown -R fex:fex /home/fex/.fex-emu && \
-    rm /tmp/rootfs_links.json && \
-    echo "✅ RootFS extracted and ready: ${EXTRACT_DIR}"
-
+# RUN echo "Setting up RootFS: ${ROOTFS_OS} ${ROOTFS_VERSION} (${ROOTFS_TYPE})" && \
+#     mkdir -p /home/fex/.fex-emu/RootFS && \
+#     curl -s https://rootfs.fex-emu.gg/RootFS_links.json > /tmp/rootfs_links.json && \
+#     # Handle latest version
+#     if [ "$ROOTFS_VERSION" = "latest" ]; then \
+#         ACTUAL_VERSION=$(jq -r --arg os "$ROOTFS_OS" --arg type "$ROOTFS_TYPE" \
+#             '.v1[] | select(.DistroMatch == $os and .Type == $type) | .DistroVersion' \
+#             /tmp/rootfs_links.json | sort -V | tail -1); \
+#     else \
+#         ACTUAL_VERSION="$ROOTFS_VERSION"; \
+#     fi && \
+#     echo "Target: $ROOTFS_OS $ACTUAL_VERSION ($ROOTFS_TYPE)" && \
+#     # Direct search
+#     ROOTFS_URL=$(jq -r --arg os "$ROOTFS_OS" --arg version "$ACTUAL_VERSION" --arg type "$ROOTFS_TYPE" \
+#         '.v1[] | select(.DistroMatch == $os and .DistroVersion == $version and .Type == $type) | .URL' \
+#         /tmp/rootfs_links.json) && \
+#     if [ -z "$ROOTFS_URL" ] || [ "$ROOTFS_URL" = "null" ]; then \
+#         echo "❌ $ROOTFS_OS $ACTUAL_VERSION ($ROOTFS_TYPE) not found" && \
+#         exit 1; \
+#     fi && \
+#     echo "Download URL: $ROOTFS_URL" && \
+#     FILENAME=$(basename "$ROOTFS_URL") && \
+#     wget -q "$ROOTFS_URL" -O "/home/fex/.fex-emu/RootFS/${FILENAME}" && \
+#     # Extract for container compatibility (critical fix)
+#     cd /home/fex/.fex-emu/RootFS && \
+#     EXTRACT_DIR="${FILENAME%.*}" && \
+#     echo "🔧 Extracting ${FILENAME} for container compatibility..." && \
+#     unsquashfs -f -d "$EXTRACT_DIR" "$FILENAME" && \
+#     echo "{\"Config\":{\"RootFS\":\"$EXTRACT_DIR\"}}" > /home/fex/.fex-emu/Config.json && \
+#     rm "$FILENAME" && \
+#     chown -R fex:fex /home/fex/.fex-emu && \
+#     rm /tmp/rootfs_links.json && \
+#     echo "✅ RootFS extracted and ready: ${EXTRACT_DIR}"
 
 USER fex
 WORKDIR /home/fex
+RUN FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
+    chown -R fex:fex /home/fex/.fex-emu && \
+    echo "✅ RootFS extracted "

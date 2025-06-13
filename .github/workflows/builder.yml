@@ -663,10 +663,10 @@ jobs:
                       -DUSE_LINKER=lld \
                       -DENABLE_LTO=True \
                       -DBUILD_TESTS=False \
-                      -DENABLE_ASSERTIONS=False \
+                      -DENABLE_ASSERTIONS=False  
                       -G Ninja ..
 
-                  ccache -z && ninja -j$(nproc) install
+                  ccache -z && ninja -j$(nproc) && ninja -j$(nproc) install
 
             - name: Show ccache debug info
               if: steps.eol-check.outputs.skip_build == 'false'
