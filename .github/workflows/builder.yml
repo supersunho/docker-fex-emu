@@ -124,7 +124,7 @@ jobs:
                               # Ubuntu latest version (excluding EOL)
                               ([.v1 | to_entries[] | 
                               select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") |
-                              select(($eol_versions | split("|") | index(.value.DistroVersion)) == null)] |
+                              select(($eol_versions | contains(.value.DistroVersion)) | not)] |
                               sort_by(.value.DistroVersion | split(".") | map(tonumber)) | 
                               last // null),
                               # Fedora latest version (no EOL filtering needed)
@@ -160,7 +160,7 @@ jobs:
                           "include": [
                               .v1 | to_entries[] | 
                               select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") |
-                              select(($eol_versions | split("|") | index(.value.DistroVersion)) == null) |
+                              select(($eol_versions | contains(.value.DistroVersion)) | not) |
                               {
                               "ROOTFS_OS": .value.DistroMatch,
                               "ROOTFS_VERSION": .value.DistroVersion,
@@ -200,10 +200,10 @@ jobs:
                               .v1 | to_entries[] | 
                               select(.value.Type == "squashfs") |
                               select(.value.DistroMatch == "ubuntu" or .value.DistroMatch == "fedora") |
-                              # Ubuntu EOL filtering, Fedora remains unchanged
+                              # Ubuntu EOL filtering using contains instead of index
                               select(
                                   if .value.DistroMatch == "ubuntu" 
-                                  then ($eol_versions | split("|") | index(.value.DistroVersion)) == null
+                                  then ($eol_versions | contains(.value.DistroVersion)) | not
                                   else true
                                   end
                               ) |
