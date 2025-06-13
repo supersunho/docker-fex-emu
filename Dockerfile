@@ -28,6 +28,7 @@ RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
     fi
 
 # Install build dependencies based on detected OS
+# Install build dependencies based on detected OS
 RUN . /etc/distro-info && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         apt-get update && apt-get install -y \
@@ -48,24 +49,24 @@ RUN . /etc/distro-info && \
         ./llvm.sh ${LLVM_VERSION} && \
         ln -sf /usr/bin/lld-${LLVM_VERSION} /usr/bin/ld.lld && \
         ln -sf /usr/bin/lld-${LLVM_VERSION} /usr/bin/lld && \
-        which ld.lld && \
-        ld.lld --version && \
+        rm llvm.sh && \
         rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
-        if dnf list available llvm18 2>/dev/null; then \
+        if dnf list available llvm${LLVM_VERSION} 2>/dev/null; then \
             dnf install -y \
-            @development-tools \
-            llvm${LLVM_VERSION}* clang${LLVM_VERSION}* lld${LLVM_VERSION}* \
-            compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} && \
-            # 누락된 심볼릭 링크 생성
+                @development-tools \
+                llvm${LLVM_VERSION}* clang${LLVM_VERSION}* lld${LLVM_VERSION}* \
+                compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} && \
+            # 누락된 도구 심볼릭 링크 생성
             for tool in ar nm objdump strip; do \
                 if [ ! -f "/usr/bin/llvm-$tool-${LLVM_VERSION}" ] && [ -f "/usr/bin/llvm-$tool" ]; then \
-                    ln -s "/usr/bin/llvm-$tool" "/usr/bin/llvm-$tool-${LLVM_VERSION}" \
-                    echo "ln -s /usr/bin/llvm-$tool => /usr/bin/llvm-$tool-${LLVM_VERSION}"; \
-                fi \
-            done && \
+                    ln -s "/usr/bin/llvm-$tool" "/usr/bin/llvm-$tool-${LLVM_VERSION}"; \
+                    echo "Created symlink: /usr/bin/llvm-$tool => /usr/bin/llvm-$tool-${LLVM_VERSION}"; \
+                fi; \
+            done; \
         else \
+            echo "LLVM ${LLVM_VERSION} not available, installing default LLVM" && \
             dnf install -y llvm llvm-devel clang clang-devel lld; \
         fi && \
         dnf install -y \
