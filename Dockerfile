@@ -128,5 +128,6 @@ WORKDIR /home/fex
 RUN FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
     chown -R fex:fex /home/fex/.fex-emu && \
     rm -rf /home/fex/.fex-emu/RootFS/*.sqsh && \
+    rm -rf /home/fex/.fex-emu/RootFS/*.ero && \
     echo "✅ RootFS extracted and configured"
 
