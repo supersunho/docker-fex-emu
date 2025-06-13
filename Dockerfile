@@ -64,7 +64,7 @@ RUN . /etc/distro-info && \
     fi
 
 # Clone and build FEX from source
-COPY --from=fex-source / /tmp/FEX
+COPY --from=fex-sources / /tmp/FEX
 
 RUN cd /tmp/FEX && \
     mkdir -p Build && \
