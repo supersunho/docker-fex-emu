@@ -61,22 +61,22 @@ RUN chmod +x /usr/bin/FEX* 2>/dev/null || true
 # Create user with OS-specific commands
 RUN . /etc/distro-info && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
-        useradd -m -s /bin/bash steam && \
-        usermod -aG sudo steam && \
-        echo "steam ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/steam; \
+        useradd -m -s /bin/bash fex && \
+        usermod -aG sudo fex && \
+        echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
-        useradd -m -s /bin/bash steam && \
-        usermod -aG wheel steam && \
-        echo "steam ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/steam; \
+        useradd -m -s /bin/bash fex && \
+        usermod -aG wheel fex && \
+        echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex; \
     elif [ "$DISTRO_TYPE" = "arch" ]; then \
-        useradd -m -s /bin/bash steam && \
-        usermod -aG wheel steam && \
-        echo "steam ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/steam; \
+        useradd -m -s /bin/bash fex && \
+        usermod -aG wheel fex && \
+        echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex; \
     fi
 
 # Setup RootFS with dynamic version selection (OS-agnostic)
 RUN echo "Setting up RootFS: ${ROOTFS_OS} ${ROOTFS_VERSION} (${ROOTFS_TYPE})" && \
-    mkdir -p /home/steam/.fex-emu/RootFS && \
+    mkdir -p /home/fex/.fex-emu/RootFS && \
     curl -s https://rootfs.fex-emu.gg/RootFS_links.json > /tmp/rootfs_links.json && \
     # Handle latest version
     if [ "$ROOTFS_VERSION" = "latest" ]; then \
@@ -99,11 +99,11 @@ RUN echo "Setting up RootFS: ${ROOTFS_OS} ${ROOTFS_VERSION} (${ROOTFS_TYPE})" &&
     fi && \
     echo "Download URL: $ROOTFS_URL" && \
     FILENAME=$(basename "$ROOTFS_URL") && \
-    wget -q "$ROOTFS_URL" -O "/home/steam/.fex-emu/RootFS/${FILENAME}" && \
-    echo "{\"Config\":{\"RootFS\":\"${FILENAME%.*}\"}}" > /home/steam/.fex-emu/Config.json && \
-    chown -R steam:steam /home/steam/.fex-emu && \
+    wget -q "$ROOTFS_URL" -O "/home/fex/.fex-emu/RootFS/${FILENAME}" && \
+    echo "{\"Config\":{\"RootFS\":\"${FILENAME%.*}\"}}" > /home/fex/.fex-emu/Config.json && \
+    chown -R fex:fex /home/fex/.fex-emu && \
     rm /tmp/rootfs_links.json && \
     echo "✅ RootFS installed: ${FILENAME}"
 
-USER steam
-WORKDIR /home/steam
+USER fex
+WORKDIR /home/fex
