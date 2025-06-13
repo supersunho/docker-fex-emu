@@ -15,6 +15,7 @@
 -   ⚡ **Selective Build System**: Resource-efficient build management with configurable scope options
 -   🔄 **Daily Automatic Builds**: Latest candidates (Ubuntu 24.04, Fedora 40) built automatically
 -   📦 **Zero-Maintenance Matrix**: Self-updating build matrix from upstream FEX RootFS API
+-   🚫 **EOL Filtering**: Automatically excludes end-of-life distributions for reliable builds
 
 ## 🚀 Quick Start
 
@@ -28,14 +29,19 @@ docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:latest
 ### Distribution-Specific Images
 
 ```bash
-# Ubuntu 24.04 (Recommended)
+
+# Ubuntu 24.04 (Recommended LTS)
 docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.04
 
-# Fedora 40
+# Ubuntu 22.04 (LTS)
+docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-22.04
+
+# Fedora 40 (Current)
 docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:fedora-40
 
 # Specific FEX version (Current: FEX-25.06)
 docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.04-fex-25.06
+
 ```
 
 ## 📦 Available Images
@@ -46,12 +52,47 @@ docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.0
 | :------------- | :---------------------------- | :----- | :----------- |
 | `latest`       | Multi-platform auto-selection | ~200MB | ARM64        |
 | `ubuntu-24.04` | Ubuntu 24.04 LTS              | ~200MB | ARM64        |
+| `ubuntu-22.04` | Ubuntu 22.04 LTS              | ~200MB | ARM64        |
+| `ubuntu-20.04` | Ubuntu 20.04 LTS              | ~200MB | ARM64        |
 | `fedora-40`    | Fedora 40                     | ~220MB | ARM64        |
+| `fedora-38`    | Fedora 38                     | ~220MB | ARM64        |
+
+### Additional Ubuntu Versions
+
+| Tag            | Description            | Size   | Architecture |
+| :------------- | :--------------------- | :----- | :----------- |
+| `ubuntu-23.10` | Ubuntu 23.10 (Mantic)  | ~200MB | ARM64        |
+| `ubuntu-23.04` | Ubuntu 23.04 (Lunar)   | ~200MB | ARM64        |
+| `ubuntu-22.10` | Ubuntu 22.10 (Kinetic) | ~200MB | ARM64        |
 
 ### Version-Specific Tags
 
 -   `ubuntu-{version}-fex-{semantic}` - Ubuntu with specific FEX version
 -   `fedora-{version}-fex-{semantic}` - Fedora with specific FEX version
+
+**All images available with FEX-25.06 semantic versioning**
+
+### Available Image Tags
+
+**Primary Images**
+
+```bash
+
+ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:latest
+ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.04
+ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-22.04
+ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:fedora-40
+
+```
+
+**FEX Version-Specific Images**
+
+```bash
+
+ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.04-fex-25.06
+ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:fedora-40-fex-25.06
+
+```
 
 ## 🏗️ Build Architecture
 
@@ -62,12 +103,29 @@ docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.0
 -   **RootFS**: SquashFS with ZSTD compression
 -   **Emulation**: Near-native x86 execution performance
 -   **Caching**: Multi-layer GitHub Actions caching strategy
+-   **EOL Management**: Automatic filtering of end-of-life distributions
 
-### Supported Distributions
+### Currently Built Distributions
 
--   **Ubuntu**: 20.04, 22.04, 22.10, 23.04, 23.10, 24.04
--   **Fedora**: 38, 40
--   **RootFS Types**: SquashFS (EroFS support planned)
+**Ubuntu Versions** (6 distributions):
+
+-   **24.04 LTS** (Noble Numbat) - Recommended
+-   **22.04 LTS** (Jammy Jellyfish) - Long-term support
+-   **20.04 LTS** (Focal Fossa) - Extended support
+-   **23.10** (Mantic Minotaur) - Recent release
+-   **23.04** (Lunar Lobster) - Previous release
+-   **22.10** (Kinetic Kudu) - Previous release
+
+**Fedora Versions** (2 distributions):
+
+-   **40** - Current stable release
+-   **38** - Previous stable release
+
+**Total**: 8 distributions successfully built and verified
+
+**RootFS Types**: SquashFS with ZSTD compression
+
+> **Note**: All distributions have been tested and verified with FEX-25.06. EOL filtering ensures only buildable versions are included.
 
 ## 🔧 Advanced Usage
 
@@ -148,6 +206,7 @@ docker run --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:latest FEXBash 
 -   **API-Driven Matrix**: Zero-maintenance build automation
 -   **Advanced Caching**: Multi-layer caching for 10x faster rebuilds
 -   **Conditional Building**: Skip existing images to save resources
+-   **EOL Filtering**: Automatic exclusion of unsupported distributions
 
 ### Runtime Optimizations
 
@@ -193,6 +252,7 @@ We welcome contributions! Please see our [Contributing Guidelines](https://githu
 -   **Image Size**: ~200-220MB per distribution
 -   **Cache Hit Rate**: >90% for incremental builds
 -   **Verification Coverage**: 100% automated testing
+-   **EOL Filtering**: Automatic exclusion of unsupported versions
 
 ### Supported Architectures
 
@@ -207,6 +267,7 @@ We welcome contributions! Please see our [Contributing Guidelines](https://githu
 -   **Selective Build System**: Resource-efficient build management
 -   **Multi-Platform Latest Tag**: Intelligent distribution selection
 -   **Zero-Maintenance Matrix**: Self-updating from FEX RootFS API
+-   **Smart EOL Management**: Automatic filtering of end-of-life distributions
 
 ## 📋 System Requirements
 
