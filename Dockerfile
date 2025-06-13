@@ -23,17 +23,19 @@ RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
     fi
 
 # Handle EOL Ubuntu versions (XX.10 releases) BEFORE package installation
+# Get current EOL status dynamically
 RUN if [ "${ROOTFS_OS}" = "ubuntu" ]; then \
-        case "${ROOTFS_VERSION}" in \
-            *.10) \
-                echo "⚠️ EOL Ubuntu interim release detected: ${ROOTFS_VERSION}" && \
-                echo "🔄 Switching to old-releases repository" && \
-                sed -i 's|http://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list && \
-                sed -i 's|https://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list;; \
-            *) \
-                echo "Using standard repositories for Ubuntu ${ROOTFS_VERSION}";; \
-        esac; \
+        EOL_STATUS=$(curl -s "https://endoflife.date/api/ubuntu/${ROOTFS_VERSION}.json" | jq -r '.eol // "false"') && \
+        if [ "$EOL_STATUS" != "false" ] && [ "$EOL_STATUS" != "null" ]; then \
+            echo "⚠️ EOL Ubuntu release detected: ${ROOTFS_VERSION} (EOL: $EOL_STATUS)" && \
+            echo "🔄 Switching to old-releases repository" && \
+            sed -i 's|http://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list && \
+            sed -i 's|https://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list; \
+        else \
+            echo "✅ Using standard repositories for supported Ubuntu ${ROOTFS_VERSION}"; \
+        fi; \
     fi
+
 
 # Install packages based on detected OS
 RUN . /etc/distro-info && \
