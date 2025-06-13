@@ -510,42 +510,6 @@ jobs:
               with:
                   install: true
 
-            - name: Cache LLVM binaries
-              if: steps.eol-check.outputs.skip_build == 'false'
-              id: cache-llvm
-              uses: actions/cache@v4
-              with:
-                  path: |
-                      /usr/bin/clang-${{ env.LLVM_VERSION }}
-                      /usr/bin/clang++-${{ env.LLVM_VERSION }}
-                      /usr/bin/lld-${{ env.LLVM_VERSION }}
-                      /usr/lib/llvm-${{ env.LLVM_VERSION }}
-                      /usr/share/llvm-${{ env.LLVM_VERSION }}
-                  key: llvm-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}
-                  restore-keys: |
-                      llvm-${{ runner.os }}-${{ runner.arch }}-
-
-            - name: Install LLVM if not cached
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-llvm.outputs.cache-hit != 'true'
-              run: |
-                  wget https://apt.llvm.org/llvm.sh
-                  chmod +x llvm.sh
-                  sudo ./llvm.sh ${{ env.LLVM_VERSION }}
-                  rm llvm.sh
-                  sudo ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/ld.lld
-                  sudo ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/lld
-
-                  # Check linker
-                  which ld.lld
-                  ld.lld --version
-
-            - name: Set LLVM environment variables
-              if: steps.eol-check.outputs.skip_build == 'false'
-              run: |
-                  echo "CLANG_PATH=/usr/bin/clang-${{ env.LLVM_VERSION }}" >> $GITHUB_ENV
-                  echo "CLANGXX_PATH=/usr/bin/clang++-${{ env.LLVM_VERSION }}" >> $GITHUB_ENV
-                  echo "LLD_PATH=/usr/bin/lld-${{ env.LLVM_VERSION }}" >> $GITHUB_ENV
-
             - name: Log in to Container Registry
               if: steps.eol-check.outputs.skip_build == 'false'
               uses: docker/login-action@v3
@@ -597,7 +561,6 @@ jobs:
                       type=gha,mode=max,scope=${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}
                       type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
                   build-contexts: |
-                      fex-binaries=/tmp/fex-build
                       fex-sources=/tmp/fex-source
                   build-args: |
                       TARGETPLATFORM='linux/arm64' 
