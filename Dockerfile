@@ -24,8 +24,7 @@ RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
         echo "DISTRO_TYPE=unknown" > /etc/distro-info && \
         echo "PKG_MANAGER=unknown" >> /etc/distro-info; \
     fi
-
-# Install build dependencies based on detected OS
+ 
 # Install build dependencies based on detected OS
 RUN . /etc/distro-info && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
@@ -55,7 +54,7 @@ RUN . /etc/distro-info && \
             dnf install -y \
                 @development-tools \
                 llvm${LLVM_VERSION}* clang${LLVM_VERSION}* lld${LLVM_VERSION}* \
-                compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} && \
+                compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION}; \
         else \
             echo "LLVM ${LLVM_VERSION} not available, installing default LLVM" && \
             dnf install -y llvm llvm-devel clang clang-devel lld; \
@@ -65,7 +64,7 @@ RUN . /etc/distro-info && \
                 ln -s "/usr/bin/llvm-$tool" "/usr/bin/llvm-$tool-${LLVM_VERSION}"; \
                 echo "Created symlink: /usr/bin/llvm-$tool => /usr/bin/llvm-$tool-${LLVM_VERSION}"; \
             fi; \
-        done; && \
+        done && \
         dnf install -y \
             git cmake ninja-build pkg-config ccache \
             openssl-devel nasm python3-clang python3-setuptools \
@@ -86,6 +85,7 @@ RUN . /etc/distro-info && \
     else \
         echo "❌ Unsupported distribution type: $DISTRO_TYPE" && exit 1; \
     fi
+
 
 # Clone and build FEX from source
 COPY --from=fex-sources / /tmp/fex-source  
