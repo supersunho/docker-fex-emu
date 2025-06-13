@@ -58,17 +58,16 @@ RUN . /etc/distro-info && \
                 @development-tools \
                 llvm${LLVM_VERSION}* clang${LLVM_VERSION}* lld${LLVM_VERSION}* \
                 compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} && \
-            # 누락된 도구 심볼릭 링크 생성
-            for tool in ar nm objdump strip; do \
-                if [ ! -f "/usr/bin/llvm-$tool-${LLVM_VERSION}" ] && [ -f "/usr/bin/llvm-$tool" ]; then \
-                    ln -s "/usr/bin/llvm-$tool" "/usr/bin/llvm-$tool-${LLVM_VERSION}"; \
-                    echo "Created symlink: /usr/bin/llvm-$tool => /usr/bin/llvm-$tool-${LLVM_VERSION}"; \
-                fi; \
-            done; \
         else \
             echo "LLVM ${LLVM_VERSION} not available, installing default LLVM" && \
             dnf install -y llvm llvm-devel clang clang-devel lld; \
         fi && \
+        for tool in ar nm objdump strip; do \
+            if [ ! -f "/usr/bin/llvm-$tool-${LLVM_VERSION}" ] && [ -f "/usr/bin/llvm-$tool" ]; then \
+                ln -s "/usr/bin/llvm-$tool" "/usr/bin/llvm-$tool-${LLVM_VERSION}"; \
+                echo "Created symlink: /usr/bin/llvm-$tool => /usr/bin/llvm-$tool-${LLVM_VERSION}"; \
+            fi; \
+        done; && \
         dnf install -y \
             git cmake ninja-build pkg-config ccache \
             openssl-devel nasm python3-clang python3-setuptools \
