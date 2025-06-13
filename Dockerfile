@@ -8,8 +8,6 @@ ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 ARG LLVM_VERSION=18
 
-# Clone and build FEX from source
-COPY --from=fex-sources / /tmp/fex-source  
 
 # Detect OS type and set package manager
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
@@ -88,7 +86,9 @@ RUN . /etc/distro-info && \
     else \
         echo "❌ Unsupported distribution type: $DISTRO_TYPE" && exit 1; \
     fi
- 
+
+# Clone and build FEX from source
+COPY --from=fex-sources / /tmp/fex-source  
 RUN cd /tmp/fex-source && \
     mkdir -p Build && \
     cd Build && \
