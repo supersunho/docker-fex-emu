@@ -70,7 +70,7 @@ jobs:
                   CURRENT_DATE=$(date +%Y-%m-%d)
                   echo "Current date: $CURRENT_DATE"
 
-                  # Ubuntu EOL filtering with corrected logic
+                  # Ubuntu EOL filtering with corrected jq syntax
                   echo "📦 Processing Ubuntu versions..."
                   UBUNTU_EOL_LIST=$(curl -s https://endoflife.date/api/ubuntu.json | \
                       jq -r --arg current_date "$CURRENT_DATE" '
@@ -84,6 +84,7 @@ jobs:
                               if (.extendedSupport | type == "string") 
                               then (.extendedSupport < $current_date)
                               else true
+                              end
                           )
                       ) | 
                       .cycle' | \
@@ -101,38 +102,38 @@ jobs:
                       .cycle' | \
                       paste -sd '|' -)
 
-                      # Fallback lists if API fails
-                      if [ -z "$UBUNTU_EOL_LIST" ] || [ "$UBUNTU_EOL_LIST" = "" ]; then
-                          echo "⚠️ Ubuntu API failed, using fallback EOL list"
-                          UBUNTU_EOL_LIST="23.10|23.04|22.10|21.10|21.04|20.10|19.10|19.04|18.10|17.10|17.04|16.10|15.10|15.04|14.10|13.10|13.04|12.10|11.10|11.04|10.10|9.10|9.04|8.10|7.10|7.04|6.10|5.10|5.04|4.10"
-                      fi
+                  # Fallback lists if API fails
+                  if [ -z "$UBUNTU_EOL_LIST" ] || [ "$UBUNTU_EOL_LIST" = "" ]; then
+                      echo "⚠️ Ubuntu API failed, using fallback EOL list"
+                      UBUNTU_EOL_LIST="23.10|23.04|22.10|21.10|21.04|20.10|19.10|19.04|18.10|17.10|17.04|16.10|15.10|15.04|14.10|13.10|13.04|12.10|11.10|11.04|10.10|9.10|9.04|8.10|7.10|7.04|6.10|5.10|5.04|4.10"
+                  fi
 
-                      if [ -z "$FEDORA_EOL_LIST" ] || [ "$FEDORA_EOL_LIST" = "" ]; then
-                          echo "⚠️ Fedora API failed, using fallback EOL list"
-                          FEDORA_EOL_LIST="38|37|36|35|34|33|32|31|30|29|28|27|26|25|24|23|22|21|20|19|18|17|16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1"
-                      fi
+                  if [ -z "$FEDORA_EOL_LIST" ] || [ "$FEDORA_EOL_LIST" = "" ]; then
+                      echo "⚠️ Fedora API failed, using fallback EOL list"
+                      FEDORA_EOL_LIST="38|37|36|35|34|33|32|31|30|29|28|27|26|25|24|23|22|21|20|19|18|17|16|15|14|13|12|11|10|9|8|7|6|5|4|3|2|1"
+                  fi
 
-                      # Count filtered versions
-                      UBUNTU_COUNT=$(echo "$UBUNTU_EOL_LIST" | tr '|' '\n' | grep -v '^$' | wc -l)
-                      FEDORA_COUNT=$(echo "$FEDORA_EOL_LIST" | tr '|' '\n' | grep -v '^$' | wc -l)
+                  # Count filtered versions
+                  UBUNTU_COUNT=$(echo "$UBUNTU_EOL_LIST" | tr '|' '\n' | grep -v '^$' | wc -l)
+                  FEDORA_COUNT=$(echo "$FEDORA_EOL_LIST" | tr '|' '\n' | grep -v '^$' | wc -l)
 
-                      # Output results
-                      echo "ubuntu-eol-versions=$UBUNTU_EOL_LIST" >> $GITHUB_OUTPUT
-                      echo "fedora-eol-versions=$FEDORA_EOL_LIST" >> $GITHUB_OUTPUT
-                      echo "ubuntu-count=$UBUNTU_COUNT" >> $GITHUB_OUTPUT
-                      echo "fedora-count=$FEDORA_COUNT" >> $GITHUB_OUTPUT
+                  # Output results
+                  echo "ubuntu-eol-versions=$UBUNTU_EOL_LIST" >> $GITHUB_OUTPUT
+                  echo "fedora-eol-versions=$FEDORA_EOL_LIST" >> $GITHUB_OUTPUT
+                  echo "ubuntu-count=$UBUNTU_COUNT" >> $GITHUB_OUTPUT
+                  echo "fedora-count=$FEDORA_COUNT" >> $GITHUB_OUTPUT
 
-                      echo "✅ Ubuntu: Found $UBUNTU_COUNT EOL versions to filter:"
-                      if [ -n "$UBUNTU_EOL_LIST" ]; then
-                          echo "$UBUNTU_EOL_LIST" | tr '|' '\n' | sed 's/^/  - /'
-                      fi
+                  echo "✅ Ubuntu: Found $UBUNTU_COUNT EOL versions to filter:"
+                  if [ -n "$UBUNTU_EOL_LIST" ]; then
+                      echo "$UBUNTU_EOL_LIST" | tr '|' '\n' | sed 's/^/  - /'
+                  fi
 
-                      echo "✅ Fedora: Found $FEDORA_COUNT EOL versions to filter:"
-                      if [ -n "$FEDORA_EOL_LIST" ]; then
-                          echo "$FEDORA_EOL_LIST" | tr '|' '\n' | sed 's/^/  - /'
-                    fi
+                  echo "✅ Fedora: Found $FEDORA_COUNT EOL versions to filter:"
+                  if [ -n "$FEDORA_EOL_LIST" ]; then
+                      echo "$FEDORA_EOL_LIST" | tr '|' '\n' | sed 's/^/  - /'
+                  fi
 
-                  # Debug: Show currently supported versions with corrected logic
+                  # Debug: Show currently supported versions with corrected syntax
                   echo "🟢 Currently supported versions:"
                   echo "Ubuntu:"
                   curl -s https://endoflife.date/api/ubuntu.json | \
