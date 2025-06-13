@@ -6,6 +6,7 @@ ARG TARGETPLATFORM
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
+ARG LLM_VERSION=18
 
 # Detect OS type and set package manager
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
@@ -65,6 +66,16 @@ RUN . /etc/distro-info && \
 
 # Clone and build FEX from source
 COPY --from=fex-sources / /tmp/fex-source
+COPY --from=fex-build-helper /usr/bin/clang-$LLM_VERSION /usr/bin
+COPY --from=fex-build-helper /usr/bin/clang++-$LLM_VERSION /usr/bin
+COPY --from=fex-build-helper /usr/bin/lld-$LLM_VERSION /usr/bin
+COPY --from=fex-build-helper /usr/lib/llvm-$LLM_VERSION /usr/lib
+COPY --from=fex-build-helper /usr/share/llvm-$LLM_VERSION /usr/share
+
+RUN ln -sf /usr/bin/lld-$LLM_VERSION /usr/bin/ld.lld && \
+    ln -sf /usr/bin/lld-$LLM_VERSION /usr/bin/lld && \
+    which ld.lld && \
+    ld.lld --version
 
 RUN cd /tmp/fex-source && \
     mkdir -p Build && \
