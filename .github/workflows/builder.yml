@@ -155,13 +155,30 @@ jobs:
                   fi
 
                   # Debug: Show currently supported versions
-                  echo "🟢 Currently supported versions:"
+                  echo "🟢 Currently supported versions (output):"
                   echo "Ubuntu:"
                   echo "$SUPPORTED_UBUNTU" | sed 's/^/  - /'
 
                   echo "Fedora:"
                   echo "$SUPPORTED_FEDORA" | sed 's/^/  - /'
 
+                  # Debug: Show currently supported versions
+                  echo "🟢 Currently supported versions (json):"
+                  echo "Ubuntu:"
+                  curl -s https://endoflife.date/api/ubuntu.json | \
+                      jq -r --arg current_date "$CURRENT_DATE" '
+                      .[] | 
+                      select(
+                          (.eol | type == "string" and . >= $current_date) or
+                          ((.extendedSupport | type == "string") and .extendedSupport >= $current_date)
+                      ) | 
+                      "  - " + .cycle + " (EOL: " + .eol + ", Extended: " + (.extendedSupport | tostring) + ")"'
+                  echo "Fedora:"
+                  curl -s https://endoflife.date/api/fedora.json | \
+                      jq -r --arg current_date "$CURRENT_DATE" '
+                      .[] | 
+                      select(.eol | type == "string" and . >= $current_date) | 
+                      "  - " + .cycle + " (EOL: " + .eol + ")"'
     fetch-rootfs-matrix:
         runs-on: ubuntu-24.04-arm
         outputs:
