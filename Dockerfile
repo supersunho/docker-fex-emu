@@ -73,8 +73,8 @@ RUN . /etc/distro-info && \
         usermod -aG wheel fex && \
         echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex; \
     fi
-
-# Setup RootFS with dynamic version selection (OS-agnostic)
+ 
+# Setup RootFS with automatic extraction for container compatibility
 RUN echo "Setting up RootFS: ${ROOTFS_OS} ${ROOTFS_VERSION} (${ROOTFS_TYPE})" && \
     mkdir -p /home/fex/.fex-emu/RootFS && \
     curl -s https://rootfs.fex-emu.gg/RootFS_links.json > /tmp/rootfs_links.json && \
@@ -93,17 +93,22 @@ RUN echo "Setting up RootFS: ${ROOTFS_OS} ${ROOTFS_VERSION} (${ROOTFS_TYPE})" &&
         /tmp/rootfs_links.json) && \
     if [ -z "$ROOTFS_URL" ] || [ "$ROOTFS_URL" = "null" ]; then \
         echo "❌ $ROOTFS_OS $ACTUAL_VERSION ($ROOTFS_TYPE) not found" && \
-        echo "Available options:" && \
-        jq -r '.v1[] | "\(.DistroMatch) \(.DistroVersion) (\(.Type))"' /tmp/rootfs_links.json | sort -u && \
         exit 1; \
     fi && \
     echo "Download URL: $ROOTFS_URL" && \
     FILENAME=$(basename "$ROOTFS_URL") && \
     wget -q "$ROOTFS_URL" -O "/home/fex/.fex-emu/RootFS/${FILENAME}" && \
-    echo "{\"Config\":{\"RootFS\":\"${FILENAME%.*}\"}}" > /home/fex/.fex-emu/Config.json && \
+    # Extract for container compatibility (critical fix)
+    cd /home/fex/.fex-emu/RootFS && \
+    EXTRACT_DIR="${FILENAME%.*}" && \
+    echo "🔧 Extracting ${FILENAME} for container compatibility..." && \
+    unsquashfs -f -d "$EXTRACT_DIR" "$FILENAME" && \
+    echo "{\"Config\":{\"RootFS\":\"$EXTRACT_DIR\"}}" > /home/fex/.fex-emu/Config.json && \
+    rm "$FILENAME" && \
     chown -R fex:fex /home/fex/.fex-emu && \
     rm /tmp/rootfs_links.json && \
-    echo "✅ RootFS installed: ${FILENAME}"
+    echo "✅ RootFS extracted and ready: ${EXTRACT_DIR}"
+
 
 USER fex
 WORKDIR /home/fex
