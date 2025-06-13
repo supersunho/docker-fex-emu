@@ -5,6 +5,7 @@ ARG TARGETPLATFORM
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
+ARG EOL_VERSIONS="23.10|23.04|22.10|21.10|21.04|20.10|19.10|19.04|18.10|17.10|17.04|16.10|15.10|15.04|14.10|13.10|13.04|12.10|11.10|11.04|10.10|9.10|9.04|8.10|7.10|7.04|6.10|5.10|5.04|4.10"
 
 # Detect OS type and set package manager
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
@@ -23,17 +24,17 @@ RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
     fi
 
 # Handle EOL Ubuntu versions (XX.10 releases) BEFORE package installation
-# Get current EOL status dynamically
-RUN if [ "${ROOTFS_OS}" = "ubuntu" ]; then \
-        EOL_STATUS=$(curl -s "https://endoflife.date/api/ubuntu/${ROOTFS_VERSION}.json" | jq -r '.eol // "false"') && \
-        if [ "$EOL_STATUS" != "false" ] && [ "$EOL_STATUS" != "null" ]; then \
-            echo "⚠️ EOL Ubuntu release detected: ${ROOTFS_VERSION} (EOL: $EOL_STATUS)" && \
-            echo "🔄 Switching to old-releases repository" && \
-            sed -i 's|http://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list && \
-            sed -i 's|https://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list; \
-        else \
-            echo "✅ Using standard repositories for supported Ubuntu ${ROOTFS_VERSION}"; \
-        fi; \
+RUN if [ "${ROOTFS_OS}" = "ubuntu" ] && [ -n "${EOL_VERSIONS}" ]; then \
+        echo "Checking if ${ROOTFS_VERSION} is in EOL list: ${EOL_VERSIONS}" && \
+        case "|${EOL_VERSIONS}|" in \
+            *"|${ROOTFS_VERSION}|"*) \
+                echo "⚠️ EOL Ubuntu release detected: ${ROOTFS_VERSION}" && \
+                echo "🔄 Switching to old-releases repository" && \
+                sed -i 's|http://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list && \
+                sed -i 's|https://[^/]*/ubuntu|http://old-releases.ubuntu.com/ubuntu|g' /etc/apt/sources.list;; \
+            *) \
+                echo "✅ Using standard repositories for supported Ubuntu ${ROOTFS_VERSION}";; \
+        esac; \
     fi
 
 
