@@ -54,7 +54,17 @@ RUN . /etc/distro-info && \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
         if dnf list available llvm18 2>/dev/null; then \
-            dnf install -y llvm18* clang18* lld18* compiler-rt18* libomp18*; \
+            dnf install -y \
+            @development-tools \
+            llvm${LLVM_VERSION}* clang${LLVM_VERSION}* lld${LLVM_VERSION}* \
+            compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} && \
+            # 누락된 심볼릭 링크 생성
+            for tool in ar nm objdump strip; do \
+                if [ ! -f "/usr/bin/llvm-$tool-${LLVM_VERSION}" ] && [ -f "/usr/bin/llvm-$tool" ]; then \
+                    ln -s "/usr/bin/llvm-$tool" "/usr/bin/llvm-$tool-${LLVM_VERSION}" \
+                    echo "ln -s /usr/bin/llvm-$tool => /usr/bin/llvm-$tool-${LLVM_VERSION}"; \
+                fi \
+            done && \
         else \
             dnf install -y llvm llvm-devel clang clang-devel lld; \
         fi && \
