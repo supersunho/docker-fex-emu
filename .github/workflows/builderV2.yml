@@ -569,7 +569,7 @@ jobs:
                       ROOTFS_OS=${{ matrix.ROOTFS_OS }}
                       ROOTFS_VERSION=${{ matrix.ROOTFS_VERSION }}
                       ROOTFS_TYPE=${{ matrix.ROOTFS_TYPE }}
-                      LLM_VERSION=${{ env.LLVM_VERSION }}
+                      LLVM_VERSION=${{ env.LLVM_VERSION }}
 
             - name: Check build failed
               if: failure()

@@ -6,7 +6,7 @@ ARG TARGETPLATFORM
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
-ARG LLM_VERSION=18
+ARG LLVM_VERSION=18
 
 # Clone and build FEX from source
 COPY --from=fex-sources / /tmp/fex-source  
@@ -45,16 +45,16 @@ RUN . /etc/distro-info && \
         fi && \
         wget https://apt.llvm.org/llvm.sh && \
         chmod +x llvm.sh && \
-        ./llvm.sh ${LLM_VERSION} && \
-        ln -sf /usr/bin/lld-${LLM_VERSION} /usr/bin/ld.lld && \
-        ln -sf /usr/bin/lld-${LLM_VERSION} /usr/bin/lld && \
+        ./llvm.sh ${LLVM_VERSION} && \
+        ln -sf /usr/bin/lld-${LLVM_VERSION} /usr/bin/ld.lld && \
+        ln -sf /usr/bin/lld-${LLVM_VERSION} /usr/bin/lld && \
         which ld.lld && \
         ld.lld --version && \
         rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
         dnf install -y \
-            git cmake ninja-build pkg-config ccache clang$LLM_VERSION lld$LLM_VERSION llvm$LLM_VERSION llvm$LLM_VERSION-devel \
+            git cmake ninja-build pkg-config ccache clang${LLVM_VERSION} lld${LLVM_VERSION} llvm${LLVM_VERSION} llvm${LLVM_VERSION}-devel \
             openssl-devel nasm python3-clang python3-setuptools \
             squashfs-tools squashfuse erofs-fuse erofs-utils \
             qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
