@@ -483,7 +483,7 @@ jobs:
                   CCACHE_LOGFILE: /tmp/ccache.log
               run: |
                   # Perform FEX build
-                  cd /tmp/fex-source && mkdir Build && cd Build
+                  cd /tmp/fex-source && mkdir -p Build && cd Build
 
                   cmake \
                     -DCMAKE_C_COMPILER_LAUNCHER=ccache \
