@@ -122,29 +122,29 @@ jobs:
                           {
                           "include": [
                               # Ubuntu latest version (excluding EOL)
-                              ((.v1 | to_entries | 
-                              map(select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")) |
-                              map(select(($eol_versions | split("|") | index(.value.DistroVersion)) == null))) | 
+                              ([.v1 | to_entries[] | 
+                              select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") |
+                              select(($eol_versions | split("|") | index(.value.DistroVersion)) == null)] |
                               sort_by(.value.DistroVersion | split(".") | map(tonumber)) | 
-                              last // null | .value),
+                              last // null),
                               # Fedora latest version (no EOL filtering needed)
-                              ((.v1 | to_entries | 
-                              map(select(.value.DistroMatch == "fedora" and .value.Type == "squashfs"))) |
+                              ([.v1 | to_entries[] |
+                              select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")] |
                               sort_by(.value.DistroVersion | tonumber) |
-                              last // null | .value)
+                              last // null)
                           ] | map(select(. != null) | {
-                              "ROOTFS_OS": .DistroMatch,
-                              "ROOTFS_VERSION": .DistroVersion,
-                              "ROOTFS_TYPE": .Type,
+                              "ROOTFS_OS": .value.DistroMatch,
+                              "ROOTFS_VERSION": .value.DistroVersion,
+                              "ROOTFS_TYPE": .value.Type,
                               "BASE_IMAGE": (
-                              if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
-                              elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
+                              if .value.DistroMatch == "ubuntu" then "ubuntu:" + .value.DistroVersion
+                              elif .value.DistroMatch == "fedora" then "fedora:" + .value.DistroVersion
                               else "ubuntu:24.04"
                               end
                               ),
                               "TAG_VERSION": (
-                              if .DistroMatch == "ubuntu" then (.DistroVersion | gsub("\\."; ""))
-                              elif .DistroMatch == "fedora" then "f" + .DistroVersion
+                              if .value.DistroMatch == "ubuntu" then (.value.DistroVersion | gsub("\\."; ""))
+                              elif .value.DistroMatch == "fedora" then "f" + .value.DistroVersion
                               else "unknown"
                               end
                               )
