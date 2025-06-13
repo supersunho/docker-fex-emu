@@ -1,11 +1,12 @@
-# Declare ARG before FROM command
+# Multi-platform FEX build with dynamic OS detection
 ARG BASE_IMAGE=ubuntu:24.04
 FROM ${BASE_IMAGE}
+
 ARG TARGETPLATFORM 
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
- 
+
 # Detect OS type and set package manager
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
         echo "DISTRO_TYPE=fedora" > /etc/distro-info && \
@@ -22,41 +23,65 @@ RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
         echo "PKG_MANAGER=unknown" >> /etc/distro-info; \
     fi
 
-# Install packages based on detected OS
+# Install build dependencies based on detected OS
 RUN . /etc/distro-info && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         apt-get update && apt-get install -y \
-            curl wget jq sudo squashfs-tools binfmt-support software-properties-common && \
+            git cmake ninja-build pkg-config ccache clang lld llvm \
+            nasm python3-dev python3-clang python3-setuptools \
+            libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
+            linux-headers-generic qtbase5-dev qtdeclarative5-dev \
+            squashfs-tools squashfuse openssl libssl-dev \
+            curl wget jq sudo binfmt-support software-properties-common && \
         if [ "${ROOTFS_OS}" = "ubuntu" ] && [ "${ROOTFS_VERSION}" != "24.04" ]; then \
             echo "Installing latest libstdc++6 for Ubuntu ${ROOTFS_VERSION}" && \
             add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
             apt-get update && \
-            apt-get install --only-upgrade libstdc++6 -y && \
-            echo "GLIBCXX versions available:" && \
-            strings /usr/lib/aarch64-linux-gnu/libstdc++.so.6 | grep GLIBCXX | tail -5; \
-        else \
-            echo "Using default libstdc++6 for Ubuntu ${ROOTFS_VERSION}"; \
+            apt-get install --only-upgrade libstdc++6 -y; \
         fi && \
         rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
         dnf install -y \
-            curl wget jq sudo squashfs-tools util-linux-core && \
+            git cmake ninja-build pkg-config ccache clang lld llvm llvm-devel \
+            openssl-devel nasm python3-clang python3-setuptools \
+            squashfs-tools squashfuse erofs-fuse erofs-utils \
+            qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
+            libcap-devel libglfw-devel libepoxy-devel SDL2-devel \
+            curl wget jq sudo util-linux-core && \
         dnf clean all; \
     elif [ "$DISTRO_TYPE" = "arch" ]; then \
         pacman -Syu --noconfirm && \
         pacman -S --noconfirm \
-            curl wget jq sudo squashfs-tools util-linux && \
+            git cmake ninja pkgconfig ccache clang lld llvm \
+            nasm python python-setuptools openssl \
+            libcap mesa sdl2 qt5-declarative \
+            squashfs-tools \
+            curl wget jq sudo util-linux && \
         pacman -Scc --noconfirm; \
     else \
         echo "❌ Unsupported distribution type: $DISTRO_TYPE" && exit 1; \
     fi
 
-# Copy all FEX files prepared from workflow at once
-COPY --from=fex-binaries / /usr/
+# Clone and build FEX from source
+COPY --from=fex-source / /tmp/FEX
 
-# Verify execution permissions (insurance, already set in workflow)
-RUN chmod +x /usr/bin/FEX* 2>/dev/null || true
+RUN cd /tmp/FEX && \
+    mkdir -p Build && \
+    cd Build && \
+    CC=clang CXX=clang++ cmake \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DUSE_LINKER=lld \
+        -DENABLE_LTO=True \
+        -DBUILD_TESTS=False \
+        -DENABLE_ASSERTIONS=False \
+        -G Ninja \
+        .. && \
+    ninja && \
+    ninja install && \
+    cd / && \
+    rm -rf /tmp/FEX
 
 # Create user with OS-specific commands
 RUN . /etc/distro-info && \
@@ -73,45 +98,13 @@ RUN . /etc/distro-info && \
         usermod -aG wheel fex && \
         echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex; \
     fi
- 
-# Setup RootFS with automatic extraction for container compatibility
-# RUN echo "Setting up RootFS: ${ROOTFS_OS} ${ROOTFS_VERSION} (${ROOTFS_TYPE})" && \
-#     mkdir -p /home/fex/.fex-emu/RootFS && \
-#     curl -s https://rootfs.fex-emu.gg/RootFS_links.json > /tmp/rootfs_links.json && \
-#     # Handle latest version
-#     if [ "$ROOTFS_VERSION" = "latest" ]; then \
-#         ACTUAL_VERSION=$(jq -r --arg os "$ROOTFS_OS" --arg type "$ROOTFS_TYPE" \
-#             '.v1[] | select(.DistroMatch == $os and .Type == $type) | .DistroVersion' \
-#             /tmp/rootfs_links.json | sort -V | tail -1); \
-#     else \
-#         ACTUAL_VERSION="$ROOTFS_VERSION"; \
-#     fi && \
-#     echo "Target: $ROOTFS_OS $ACTUAL_VERSION ($ROOTFS_TYPE)" && \
-#     # Direct search
-#     ROOTFS_URL=$(jq -r --arg os "$ROOTFS_OS" --arg version "$ACTUAL_VERSION" --arg type "$ROOTFS_TYPE" \
-#         '.v1[] | select(.DistroMatch == $os and .DistroVersion == $version and .Type == $type) | .URL' \
-#         /tmp/rootfs_links.json) && \
-#     if [ -z "$ROOTFS_URL" ] || [ "$ROOTFS_URL" = "null" ]; then \
-#         echo "❌ $ROOTFS_OS $ACTUAL_VERSION ($ROOTFS_TYPE) not found" && \
-#         exit 1; \
-#     fi && \
-#     echo "Download URL: $ROOTFS_URL" && \
-#     FILENAME=$(basename "$ROOTFS_URL") && \
-#     wget -q "$ROOTFS_URL" -O "/home/fex/.fex-emu/RootFS/${FILENAME}" && \
-#     # Extract for container compatibility (critical fix)
-#     cd /home/fex/.fex-emu/RootFS && \
-#     EXTRACT_DIR="${FILENAME%.*}" && \
-#     echo "🔧 Extracting ${FILENAME} for container compatibility..." && \
-#     unsquashfs -f -d "$EXTRACT_DIR" "$FILENAME" && \
-#     echo "{\"Config\":{\"RootFS\":\"$EXTRACT_DIR\"}}" > /home/fex/.fex-emu/Config.json && \
-#     rm "$FILENAME" && \
-#     chown -R fex:fex /home/fex/.fex-emu && \
-#     rm /tmp/rootfs_links.json && \
-#     echo "✅ RootFS extracted and ready: ${EXTRACT_DIR}"
 
 USER fex
 WORKDIR /home/fex
+
+# Setup RootFS using FEXRootFSFetcher
 RUN FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
     chown -R fex:fex /home/fex/.fex-emu && \
     rm -rf /home/fex/.fex-emu/RootFS/*.sqsh && \
-    echo "✅ RootFS extracted "
+    echo "✅ RootFS extracted and configured"
+
