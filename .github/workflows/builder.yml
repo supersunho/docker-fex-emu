@@ -295,7 +295,6 @@ jobs:
         steps:
             - id: filter
               run: |
-                  # Bash에서 EOL 필터링 (jq보다 안전)
                   MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
                   EOL_VERSIONS="${{ needs.generate-eol-list.outputs.eol-versions }}"
 
@@ -308,24 +307,21 @@ jobs:
                       
                       OS=$(_jq '.ROOTFS_OS')
                       VERSION=$(_jq '.ROOTFS_VERSION')
-                      
-                      # Ubuntu EOL 체크
+                       
                       if [ "$OS" = "ubuntu" ]; then
                           if echo "|$EOL_VERSIONS|" | grep -q "|$VERSION|"; then
                               echo "⚠️ Filtering out EOL Ubuntu $VERSION"
                               continue
                           fi
                       fi
-                      
-                      # 통과한 항목 추가
+                       
                       ITEM_JSON=$(echo ${item} | base64 --decode)
                       FILTERED_MATRIX=$(echo "$FILTERED_MATRIX" | jq --argjson item "$ITEM_JSON" '.include += [$item]')
                   done
 
                   echo "filtered-matrix=$(echo "$FILTERED_MATRIX" | jq -c .)" >> $GITHUB_OUTPUT
-                  exit 1
+
     check-and-prepare:
-        needs: fetch-rootfs-matrix
         runs-on: ubuntu-24.04-arm
         outputs:
             version: ${{ steps.get-version.outputs.version }}
@@ -374,13 +370,13 @@ jobs:
 
     # Native ARM64 build
     build-arm:
-        needs: [fetch-rootfs-matrix, check-and-prepare, generate-eol-list]
+        needs: [filter-matrix, check-and-prepare]
         runs-on: ubuntu-24.04-arm
         permissions:
             contents: read
             packages: write
         strategy:
-            matrix: ${{ fromJson(needs.fetch-rootfs-matrix.outputs.matrix) }}
+            matrix: ${{ fromJson(needs.filter-matrix.outputs.filtered-matrix) }}
         steps:
             - name: Check existing images
               id: check-images
