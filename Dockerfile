@@ -113,4 +113,5 @@ USER fex
 WORKDIR /home/fex
 RUN FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
     chown -R fex:fex /home/fex/.fex-emu && \
+    rm -rf /home/fex/.fex-emu/RootFS/*.sqsh && \
     echo "✅ RootFS extracted "
