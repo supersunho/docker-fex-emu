@@ -84,7 +84,6 @@ jobs:
                   echo "✅ Found $FILTERED_COUNT EOL Ubuntu versions to filter:"
                   echo "$EOL_LIST" | tr '|' '\n' | sed 's/^/  - /'
     fetch-rootfs-matrix:
-        needs: generate-eol-list
         runs-on: ubuntu-24.04-arm
         outputs:
             matrix: ${{ steps.generate-matrix.outputs.matrix }}
@@ -101,10 +100,6 @@ jobs:
                       exit 1
                   fi
 
-                  # Get EOL versions from previous job
-                  EOL_VERSIONS="${{ needs.generate-eol-list.outputs.eol-versions }}"
-                  echo "🚫 EOL versions to filter: $EOL_VERSIONS"
-
                   # Determine build scope
                   BUILD_SCOPE="${{ github.event.inputs.build_scope }}"
 
@@ -117,34 +112,27 @@ jobs:
 
                   case "$BUILD_SCOPE" in
                       "latest-only")
-                      echo "📦 Building latest candidates only (filtering Ubuntu EOL)"
-                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c --arg eol_versions "$EOL_VERSIONS" '
+                      echo "📦 Building latest candidates only (Ubuntu and Fedora)"
+                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
-                              # Ubuntu latest version (excluding EOL) - exact match filtering
-                              ([.v1 | to_entries[] | 
-                              select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") |
-                              select(($eol_versions | split("|") | map(. == .value.DistroVersion) | any) | not)] |
-                              sort_by(.value.DistroVersion | split(".") | map(tonumber)) | 
-                              last // null),
-                              # Fedora latest version (no EOL filtering needed)
-                              ([.v1 | to_entries[] |
-                              select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")] |
-                              sort_by(.value.DistroVersion | tonumber) |
-                              last // null)
-                          ] | map(select(. != null) | {
-                              "ROOTFS_OS": .value.DistroMatch,
-                              "ROOTFS_VERSION": .value.DistroVersion,
-                              "ROOTFS_TYPE": .value.Type,
+                              # Ubuntu latest version - correct array handling
+                              (.v1 | to_entries | map(select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")) | sort_by(.value.DistroVersion | split(".") | map(tonumber)) | last | .value),
+                              # Fedora latest version - correct array handling
+                              (.v1 | to_entries | map(select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")) | sort_by(.value.DistroVersion | tonumber) | last | .value)
+                          ] | map({
+                              "ROOTFS_OS": .DistroMatch,
+                              "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_TYPE": .Type,
                               "BASE_IMAGE": (
-                              if .value.DistroMatch == "ubuntu" then "ubuntu:" + .value.DistroVersion
-                              elif .value.DistroMatch == "fedora" then "fedora:" + .value.DistroVersion
+                              if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
+                              elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
                               else "ubuntu:24.04"
                               end
                               ),
                               "TAG_VERSION": (
-                              if .value.DistroMatch == "ubuntu" then (.value.DistroVersion | gsub("\\."; ""))
-                              elif .value.DistroMatch == "fedora" then "f" + .value.DistroVersion
+                              if .DistroMatch == "ubuntu" then (.DistroVersion | gsub("\\."; ""))
+                              elif .DistroMatch == "fedora" then "f" + .DistroVersion
                               else "unknown"
                               end
                               )
@@ -154,19 +142,19 @@ jobs:
                       ;;
                       
                       "ubuntu-all")
-                      echo "🐧 Building all supported Ubuntu versions (filtering EOL)"
-                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c --arg eol_versions "$EOL_VERSIONS" '
+                      echo "🐧 Building all Ubuntu versions"
+                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
                               .v1 | to_entries[] | 
                               select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") |
-                              select(($eol_versions | split("|") | map(. == .value.DistroVersion) | any) | not) |
+                              .value |
                               {
-                              "ROOTFS_OS": .value.DistroMatch,
-                              "ROOTFS_VERSION": .value.DistroVersion,
-                              "ROOTFS_TYPE": .value.Type,
-                              "BASE_IMAGE": "ubuntu:" + .value.DistroVersion,
-                              "TAG_VERSION": (.value.DistroVersion | gsub("\\."; ""))
+                              "ROOTFS_OS": .DistroMatch,
+                              "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_TYPE": .Type,
+                              "BASE_IMAGE": "ubuntu:" + .DistroVersion,
+                              "TAG_VERSION": (.DistroVersion | gsub("\\."; ""))
                               }
                           ]
                           }
@@ -180,12 +168,13 @@ jobs:
                           "include": [
                               .v1 | to_entries[] | 
                               select(.value.DistroMatch == "fedora" and .value.Type == "squashfs") |
+                              .value |
                               {
-                              "ROOTFS_OS": .value.DistroMatch,
-                              "ROOTFS_VERSION": .value.DistroVersion,
-                              "ROOTFS_TYPE": .value.Type,
-                              "BASE_IMAGE": "fedora:" + .value.DistroVersion,
-                              "TAG_VERSION": "f" + .value.DistroVersion
+                              "ROOTFS_OS": .DistroMatch,
+                              "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_TYPE": .Type,
+                              "BASE_IMAGE": "fedora:" + .DistroVersion,
+                              "TAG_VERSION": "f" + .DistroVersion
                               }
                           ]
                           }
@@ -193,33 +182,27 @@ jobs:
                       ;;
                       
                       "full-matrix")
-                      echo "🌍 Building all supported distributions (filtering Ubuntu EOL)"
-                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c --arg eol_versions "$EOL_VERSIONS" '
+                      echo "🌍 Building all SquashFS distributions (Ubuntu and Fedora only)"
+                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
                               .v1 | to_entries[] | 
                               select(.value.Type == "squashfs") |
                               select(.value.DistroMatch == "ubuntu" or .value.DistroMatch == "fedora") |
-                              # Ubuntu EOL filtering with exact match
-                              select(
-                                  if .value.DistroMatch == "ubuntu" 
-                                  then ($eol_versions | split("|") | map(. == .value.DistroVersion) | any) | not
-                                  else true
-                                  end
-                              ) |
+                              .value |
                               {
-                              "ROOTFS_OS": .value.DistroMatch,
-                              "ROOTFS_VERSION": .value.DistroVersion,
-                              "ROOTFS_TYPE": .value.Type,
+                              "ROOTFS_OS": .DistroMatch,
+                              "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_TYPE": .Type,
                               "BASE_IMAGE": (
-                                  if .value.DistroMatch == "ubuntu" then "ubuntu:" + .value.DistroVersion
-                                  elif .value.DistroMatch == "fedora" then "fedora:" + .value.DistroVersion
+                                  if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
+                                  elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
                                   else "ubuntu:24.04"
                                   end
                               ),
                               "TAG_VERSION": (
-                                  if .value.DistroMatch == "ubuntu" then (.value.DistroVersion | gsub("\\."; ""))
-                                  elif .value.DistroMatch == "fedora" then "f" + .value.DistroVersion
+                                  if .DistroMatch == "ubuntu" then (.DistroVersion | gsub("\\."; ""))
+                                  elif .DistroMatch == "fedora" then "f" + .DistroVersion
                                   else "unknown"
                                   end
                               )
@@ -230,7 +213,7 @@ jobs:
                       ;;
                       
                       "custom")
-                      echo "🎨 Building custom distributions (Ubuntu and Fedora only, filtering Ubuntu EOL)"
+                      echo "🎨 Building custom distributions (Ubuntu and Fedora only)"
                       CUSTOM_DISTROS="${{ github.event.inputs.custom_distros }}"
                       if [ -z "$CUSTOM_DISTROS" ]; then
                           echo "❌ Custom distributions not specified"
@@ -249,14 +232,6 @@ jobs:
                           if [ "$OS" != "ubuntu" ] && [ "$OS" != "fedora" ]; then
                               echo "❌ Unsupported OS: $OS (only ubuntu and fedora supported)"
                               continue
-                          fi
-                          
-                          # Check if Ubuntu version is EOL
-                          if [ "$OS" = "ubuntu" ]; then
-                              if echo "|$EOL_VERSIONS|" | grep -q "|$VERSION|"; then
-                                  echo "❌ Skipping EOL Ubuntu version: $VERSION"
-                                  continue
-                              fi
                           fi
                           
                           # Find matching entry in RootFS data
@@ -303,20 +278,52 @@ jobs:
                   MATRIX_SIZE=$(echo "$MATRIX" | jq '.include | length')
                   if [ "$MATRIX_SIZE" -gt 0 ]; then
                       echo "has-builds=true" >> $GITHUB_OUTPUT
-                      echo "📊 Generated matrix with $MATRIX_SIZE distributions (EOL filtered)"
-                      
-                      # Show which versions were included
-                      echo "✅ Included versions:"
-                      echo "$MATRIX" | jq -r '.include[] | "  - \(.ROOTFS_OS) \(.ROOTFS_VERSION)"'
+                      echo "📊 Generated matrix with $MATRIX_SIZE distributions"
                   else
                       echo "has-builds=false" >> $GITHUB_OUTPUT
-                      echo "⚠️ No distributions to build after EOL filtering"
+                      echo "⚠️ No distributions to build"
                   fi
 
                   # Display matrix (pretty format for debugging)
-                  echo "Generated matrix (EOL filtered):"
+                  echo "Generated matrix:"
                   echo "$MATRIX" | jq .
+    filter-matrix:
+        needs: [generate-eol-list, fetch-rootfs-matrix]
+        runs-on: ubuntu-24.04-arm
+        outputs:
+            filtered-matrix: ${{ steps.filter.outputs.filtered-matrix }}
+        steps:
+            - id: filter
+              run: |
+                  # Bash에서 EOL 필터링 (jq보다 안전)
+                  MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
+                  EOL_VERSIONS="${{ needs.generate-eol-list.outputs.eol-versions }}"
 
+                  FILTERED_MATRIX='{"include":[]}'
+
+                  for item in $(echo "$MATRIX" | jq -r '.include[] | @base64'); do
+                      _jq() {
+                          echo ${item} | base64 --decode | jq -r ${1}
+                      }
+                      
+                      OS=$(_jq '.ROOTFS_OS')
+                      VERSION=$(_jq '.ROOTFS_VERSION')
+                      
+                      # Ubuntu EOL 체크
+                      if [ "$OS" = "ubuntu" ]; then
+                          if echo "|$EOL_VERSIONS|" | grep -q "|$VERSION|"; then
+                              echo "⚠️ Filtering out EOL Ubuntu $VERSION"
+                              continue
+                          fi
+                      fi
+                      
+                      # 통과한 항목 추가
+                      ITEM_JSON=$(echo ${item} | base64 --decode)
+                      FILTERED_MATRIX=$(echo "$FILTERED_MATRIX" | jq --argjson item "$ITEM_JSON" '.include += [$item]')
+                  done
+
+                  echo "filtered-matrix=$(echo "$FILTERED_MATRIX" | jq -c .)" >> $GITHUB_OUTPUT
+                  exit 1
     check-and-prepare:
         needs: fetch-rootfs-matrix
         runs-on: ubuntu-24.04-arm
