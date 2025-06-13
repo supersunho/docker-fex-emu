@@ -47,7 +47,7 @@ RUN . /etc/distro-info && \
             openssl-devel nasm python3-clang python3-setuptools \
             squashfs-tools squashfuse erofs-fuse erofs-utils \
             qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
-            libcap-devel libglfw-devel libepoxy-devel SDL2-devel \
+            libcap-devel glfw-devel libepoxy-devel SDL2-devel \
             curl wget jq sudo util-linux-core && \
         dnf clean all; \
     elif [ "$DISTRO_TYPE" = "arch" ]; then \
