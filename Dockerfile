@@ -53,8 +53,13 @@ RUN . /etc/distro-info && \
         rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
+        if dnf list available llvm18 2>/dev/null; then \
+            dnf install -y llvm18 llvm18-devel clang18 clang18-devel lld18; \
+        else \
+            dnf install -y llvm llvm-devel clang clang-devel lld; \
+        fi && \
         dnf install -y \
-            git cmake ninja-build pkg-config ccache clang${LLVM_VERSION} lld${LLVM_VERSION} llvm${LLVM_VERSION} llvm${LLVM_VERSION}-devel \
+            git cmake ninja-build pkg-config ccache \
             openssl-devel nasm python3-clang python3-setuptools \
             squashfs-tools squashfuse erofs-fuse erofs-utils \
             qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
