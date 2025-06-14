@@ -681,6 +681,7 @@ jobs:
                       -G Ninja ..
 
                   ccache -z && ninja -j$(nproc) && ninja -j$(nproc) install
+                  rm -rf /tmp/fex-build/Build && rm -rf /tmp/fex-build/include
 
             - name: Show ccache debug info
               if: steps.eol-check.outputs.skip_build == 'false'
