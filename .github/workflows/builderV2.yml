@@ -255,14 +255,14 @@ jobs:
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
                               "ROOTFS_TYPE": .Type,
-                              "BASE_IMAGE": "ubuntu:" + .DistroVersion,
+                              "BASE_IMAGE": ("ubuntu:" + .DistroVersion),
                               "TAG_VERSION": (.DistroVersion | gsub("\\."; ""))
                               }
                           ]
                           }
                       ')
                       ;;
-                      
+
                       "fedora-all")
                       echo "🎩 Building all Fedora versions"
                       MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
@@ -275,8 +275,8 @@ jobs:
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
                               "ROOTFS_TYPE": .Type,
-                              "BASE_IMAGE": "fedora:" + .DistroVersion,
-                              "TAG_VERSION": "f" + .DistroVersion
+                              "BASE_IMAGE": ("fedora:" + .DistroVersion),
+                              "TAG_VERSION": ("f" + .DistroVersion)
                               }
                           ]
                           }
