@@ -584,32 +584,32 @@ jobs:
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}"
                   echo "🧪 Testing ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} binary for FEX-Emu..."
 
-                  # Check if FEX binary exists
+                  # Check
                   echo "Checking if FEX binary exists:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /usr/bin/FEXBash && echo "✅ FEXBash exists" || echo "❌ FEXBash missing"
+                  docker run --rm --platform 'linux/arm64' "$IMAGE" 'test -f /usr/local/fex/bin/FEXBash' && echo "✅ FEXBash found" || { echo "❌ FEXBash not found"; exit 1; }
 
-                  # Test architecture
-                  echo "Architecture test:"
-                  ARCH_OUTPUT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" uname -m)
-                  echo "Detected architecture: $ARCH_OUTPUT"
+                  echo "Checking if FEX binary executes:"
+                  docker run --rm --platform 'linux/arm64' "$IMAGE" 'test -x /usr/local/fex/bin/FEXBash' && echo "✅ FEXBash executable" || { echo "❌ FEXBash not executable"; exit 1; }
 
                   # Test FEX configuration
                   echo "FEX configuration test:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /home/fex/.fex-emu/Config.json && echo "✅ FEX config exists" || echo "❌ FEX config missing"
+                  docker run --rm --platform 'linux/arm64' "$IMAGE" 'test -f /home/fex/.fex-emu/Config.json' && echo "✅ FEXBash config exists" || { echo "❌ FEXBash config missing"; exit 1; }
+
+                  # Test architecture
+                  echo "Architecture test:"
+                  ARCH_OUTPUT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" 'uname -m')
+                  FEXEMU_OUTPUT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" '/usr/local/fex/bin/FEXBash -c "uname -m"')
+                  echo "Detected architecture: $ARCH_OUTPUT / FEX-emu: $FEXEMU_OUTPUT"
 
                   # Test RootFS
                   echo "RootFS test:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" ls -la /home/fex/.fex-emu/RootFS/ || echo "RootFS directory check completed"
-
-                  # Test FEX execution only if binary exists
-                  if docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /usr/bin/FEXBash; then
-                      echo "FEX execution test:"
-                      docker run --rm --platform 'linux/arm64' "$IMAGE" bash -c "/usr/bin/FEXBash --version" || echo "FEX version check completed"
+                  SUBDIR_COUNT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" 'ls -1d /home/fex/.fex-emu/RootFS/*/ 2>/dev/null | wc -l')
+                  if [ "$SUBDIR_COUNT" -gt 0 ]; then 
+                      echo "✅ RootFS exists ($SUBDIR_COUNT subdirectories found)"
                   else
-                      echo "❌ FEXBash not found, failing build"
-                      exit 1
+                       echo "❌ RootFS not exists"
+                       exit 1
                   fi
-
                   echo "🎉 All ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} verification tests passed!"
 
             - name: Export digest
