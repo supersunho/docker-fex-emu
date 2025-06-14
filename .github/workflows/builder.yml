@@ -449,12 +449,12 @@ jobs:
         container:
             image: ${{ matrix.BASE_IMAGE }}
             options: --platform linux/arm64
-            volumes:
-                - /__w:/__w # GitHub Actions 작업 디렉토리
-                - /tmp:/tmp # 임시 파일 공유
-                - /var/cache:/var/cache
 
         steps:
+            - name: Checkout repository
+              if: steps.eol-check.outputs.skip_build == 'false'
+              uses: actions/checkout@v4
+
             - name: Check if version is EOL
               id: eol-check
               run: |
@@ -501,10 +501,6 @@ jobs:
                       echo "🆕 Will build FEXBash image: $RELEASE_TAG"
                       echo "build_fexbash=true" >> $GITHUB_OUTPUT
                   fi
-
-            - name: Checkout repository
-              if: steps.eol-check.outputs.skip_build == 'false'
-              uses: actions/checkout@v4
 
             - name: Set up QEMU
               if: steps.eol-check.outputs.skip_build == 'false'
