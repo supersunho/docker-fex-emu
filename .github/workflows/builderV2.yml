@@ -472,23 +472,30 @@ jobs:
                   echo "skip_build=false" >> $GITHUB_OUTPUT
                   echo "✅ Proceeding with build for ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
 
-            - name: Check existing images
+            - name: Check existing images (Advanced)
               if: steps.eol-check.outputs.skip_build == 'false'
               id: check-images
               run: |
-                  VERSION="${{ needs.check-and-prepare.outputs.version }}"
-
-                  # Check FEXBash image
                   RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}"
-                  echo "🔍 Checking FEXBash image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$RELEASE_TAG"
 
-                  RESULT_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-                      -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                      "https://ghcr.io/v2/${{ github.repository }}/${{ github.event.repository.name }}/manifests/$RELEASE_TAG")
+                  # Base64 encode token
+                  ENCODED_TOKEN=$(echo -n "${{ secrets.GITHUB_TOKEN }}" | base64)
 
-                  if [ "$RESULT_HTTP_CODE" = "200" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
-                      echo "⏭️ FEXBash image already exists: $RELEASE_TAG"
-                      echo "build_fexbash=false" >> $GITHUB_OUTPUT
+                  # Get all tags from repository
+                  TAGS=$(curl -s -H "Authorization: Bearer ${ENCODED_TOKEN}" \
+                      "https://ghcr.io/v2/${{ github.repository }}/tags/list")
+
+                  echo "Available tags: $TAGS"
+
+                  # Check if specific tag exists using jq
+                  if echo "$TAGS" | jq -e --arg TAG "$RELEASE_TAG" '.tags | index($TAG)' >/dev/null 2>&1; then
+                      if [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
+                          echo "⏭️ FEXBash image already exists: $RELEASE_TAG"
+                          echo "build_fexbash=false" >> $GITHUB_OUTPUT
+                      else
+                          echo "🔄 Force rebuild requested for: $RELEASE_TAG"
+                          echo "build_fexbash=true" >> $GITHUB_OUTPUT
+                      fi
                   else
                       echo "🆕 Will build FEXBash image: $RELEASE_TAG"
                       echo "build_fexbash=true" >> $GITHUB_OUTPUT
@@ -519,14 +526,14 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Get FEX latest commit
-              if: steps.eol-check.outputs.skip_build == 'false'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               id: fex-commit
               run: |
                   FEX_COMMIT=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/commits/main | jq -r '.sha')
                   echo "commit=$FEX_COMMIT" >> $GITHUB_OUTPUT
 
             - name: Cache FEX source code
-              if: steps.eol-check.outputs.skip_build == 'false'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               id: cache-fex-source
               uses: actions/cache@v4
               with:
@@ -538,7 +545,7 @@ jobs:
                       fex-source-${{ runner.os }}-${{ runner.arch }}-
 
             - name: Clone FEX source if not cached
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-fex-source.outputs.cache-hit != 'true'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-source.outputs.cache-hit != 'true'
               run: |
                   rm -rf /tmp/fex-source && git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
 
@@ -613,14 +620,14 @@ jobs:
                   echo "🎉 All ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} verification tests passed!"
 
             - name: Export digest
-              if: steps.eol-check.outputs.skip_build == 'false'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   mkdir -p /tmp/digests/${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
                   digest="${{ steps.build.outputs.digest }}"
                   touch "/tmp/digests/${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}/${digest#sha256:}"
 
             - name: Upload digest
-              if: steps.eol-check.outputs.skip_build == 'false'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: digests-${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
