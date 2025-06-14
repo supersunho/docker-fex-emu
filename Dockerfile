@@ -131,3 +131,5 @@ RUN FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VE
     rm -rf /home/fex/.fex-emu/RootFS/*.ero && \
     echo "✅ RootFS extracted and configured"
 
+ENTRYPOINT ["/bin/bash", "-c"]
+CMD ["/bin/bash"]
