@@ -1,6 +1,6 @@
 # 🚀 FEXBash Base Images for arm64
 
-[![Build Status](https://github.com/supersunho/docker-fex-emu/actions/workflows/builder.yml/badge.svg)](https://github.com/supersunho/docker-fex-emu/actions)
+[![Build Status](https://github.com/supersunho/docker-fex-emu/actions/workflows/builderV2.yml/badge.svg)](https://github.com/supersunho/docker-fex-emu/actions)
 [![GitHub Release](https://img.shields.io/github/v/release/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/releases/latest)
 [![License](https://img.shields.io/github/license/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/blob/main/LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/stargazers)

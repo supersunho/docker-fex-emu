@@ -91,12 +91,10 @@ RUN cd /tmp/fex-source && \
         CXX_COMPILER=clang++; \
     fi && \
     echo "Using compilers: $CC_COMPILER / $CXX_COMPILER" && \
-    # OS별 링커 플래그 설정
     . /etc/distro-info && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         LINKER_FLAGS="-static-libstdc++ -static-libgcc"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
-        # Fedora는 static linking 방식 조정
         LINKER_FLAGS="-static-libstdc++ -static-libgcc -Wl,--as-needed"; \
     fi && \
     CC=$CC_COMPILER CXX=$CXX_COMPILER cmake \
