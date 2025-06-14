@@ -446,6 +446,9 @@ jobs:
             packages: write
         strategy:
             matrix: ${{ fromJson(needs.fetch-rootfs-matrix.outputs.matrix) }}
+        container:
+            image: ${{ matrix.BASE_IMAGE }}
+            options: --platform linux/arm64
         steps:
             - name: Check if version is EOL
               id: eol-check
@@ -510,8 +513,8 @@ jobs:
               with:
                   install: true
 
-            - name: Cache APT packages
-              if: steps.eol-check.outputs.skip_build == 'false'
+            - name: Cache APT packages (Ubuntu/Debian only)
+              if: steps.eol-check.outputs.skip_build == 'false' && contains(matrix.BASE_IMAGE, 'ubuntu')
               uses: awalsh128/cache-apt-pkgs-action@latest
               with:
                   packages: |
@@ -526,6 +529,27 @@ jobs:
                       libqt5core5a libqt5gui5 jq 
                       libssl-dev
                   version: 1.0
+
+            - name: Cache DNF packages (Fedora only)
+              id: cache-dnf
+              if: steps.eol-check.outputs.skip_build == 'false' && contains(matrix.BASE_IMAGE, 'fedora')
+              uses: actions/cache@v4
+              with:
+                  path: /var/cache/dnf
+                  key: ${{ runner.os }}-dnf-${{ matrix.BASE_IMAGE }}-${{ hashFiles('**/packages.txt') }}
+                  restore-keys: |
+                      ${{ runner.os }}-dnf-${{ matrix.BASE_IMAGE }}-
+            - name: Install and cache packages by OS
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-dnf.outputs.cache-hit != 'true' && contains(matrix.BASE_IMAGE, 'fedora')
+              run: |
+                  echo "🎩 Fedora detected - using DNF caching"
+                  mkdir -p /var/cache/dnf
+                  dnf install -y \
+                      git cmake ninja-build pkgconf ccache \
+                      gcc-c++ nasm python3-clang python3-setuptools \
+                      squashfs-tools curl ca-certificates expect sudo \
+                      gdb qt5-qtbase-devel qt5-qttools-devel qt5-qtdeclarative-devel \
+                      openssl-devel jq
 
             - name: Set up paths for self-hosted runner
               run: |
@@ -555,20 +579,35 @@ jobs:
                   key: llvm-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}
                   restore-keys: |
                       llvm-${{ runner.os }}-${{ runner.arch }}-
-
             - name: Install LLVM if not cached
               if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-llvm.outputs.cache-hit != 'true'
               run: |
-                  wget https://apt.llvm.org/llvm.sh
-                  chmod +x llvm.sh
-                  sudo ./llvm.sh ${{ env.LLVM_VERSION }}
-                  rm llvm.sh
-                  sudo ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/ld.lld
-                  sudo ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/lld
+                  if [[ "${{ matrix.BASE_IMAGE }}" == ubuntu:* ]]; then
+                    echo "🐧 Installing LLVM ${{ env.LLVM_VERSION }} for Ubuntu"
+                    wget https://apt.llvm.org/llvm.sh 
+                    chmod +x llvm.sh
+                    ./llvm.sh ${{ env.LLVM_VERSION }}
+                    rm llvm.sh
+                    ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/ld.lld
+                    ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/lld
 
-                  # Check linker
-                  which ld.lld
-                  ld.lld --version
+                  elif [[ "${{ matrix.BASE_IMAGE }}" == fedora:* ]]; then
+                    echo "🎩 Configuring LLVM for Fedora (using system default)"
+                    # Fedora 40/41은 LLVM 19가 기본, 필요시 버전 확인
+                    SYSTEM_LLVM_VERSION=$(llvm-config --version | cut -d'.' -f1)
+                    echo "System LLVM version: $SYSTEM_LLVM_VERSION"
+
+                    if [ "$SYSTEM_LLVM_VERSION" != "${{ env.LLVM_VERSION }}" ]; then
+                        echo "Installing specific LLVM version ${{ env.LLVM_VERSION }}"
+                        dnf install -y llvm${{ env.LLVM_VERSION }}* clang${{ env.LLVM_VERSION }}* lld${{ env.LLVM_VERSION }}*
+                    else
+                        echo "System LLVM version matches target, using default"
+                    fi
+                  fi
+
+                  # 공통 검증
+                  which clang
+                  clang --version
 
             - name: Set LLVM environment variables
               if: steps.eol-check.outputs.skip_build == 'false'
