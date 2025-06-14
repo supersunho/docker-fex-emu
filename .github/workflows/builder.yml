@@ -449,6 +449,11 @@ jobs:
         container:
             image: ${{ matrix.BASE_IMAGE }}
             options: --platform linux/arm64
+            volumes:
+                - /__w:/__w # GitHub Actions 작업 디렉토리
+                - /tmp:/tmp # 임시 파일 공유
+                - /var/cache:/var/cache
+
         steps:
             - name: Check if version is EOL
               id: eol-check
