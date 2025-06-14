@@ -55,7 +55,7 @@ env:
 
 jobs:
     generate-eol-list:
-        runs-on: Ubuntu 20.04-arm
+        runs-on: ubuntu-20.04-arm
         outputs:
             ubuntu-eol-versions: ${{ steps.get-eol.outputs.ubuntu-eol-versions }}
             fedora-eol-versions: ${{ steps.get-eol.outputs.fedora-eol-versions }}
@@ -186,7 +186,7 @@ jobs:
                       ) | 
                       "  - " + .cycle + " (EOL: " + .eol + ")"'
     fetch-rootfs-matrix:
-        runs-on: Ubuntu 20.04-arm
+        runs-on: ubuntu-20.04-arm
         outputs:
             matrix: ${{ steps.generate-matrix.outputs.matrix }}
             has-builds: ${{ steps.generate-matrix.outputs.has-builds }}
@@ -391,7 +391,7 @@ jobs:
                   echo "$MATRIX" | jq .
 
     check-and-prepare:
-        runs-on: Ubuntu 20.04-arm
+        runs-on: ubuntu-20.04-arm
         outputs:
             version: ${{ steps.get-version.outputs.version }}
             version_clean: ${{ steps.get-version.outputs.version_clean }}
@@ -440,7 +440,7 @@ jobs:
     # Native ARM64 build
     build-arm:
         needs: [fetch-rootfs-matrix, check-and-prepare, generate-eol-list]
-        runs-on: Ubuntu 20.04-arm
+        runs-on: ubuntu-20.04-arm
         permissions:
             contents: read
             packages: write
@@ -779,7 +779,7 @@ jobs:
     merge-manifests:
         needs: [fetch-rootfs-matrix, check-and-prepare, build-arm]
         if: always() && ( needs.build-arm.result == 'success' )
-        runs-on: Ubuntu 20.04-arm
+        runs-on: ubuntu-20.04-arm
         permissions:
             contents: read
             packages: write
@@ -829,7 +829,7 @@ jobs:
     create-release:
         needs: [fetch-rootfs-matrix, check-and-prepare, merge-manifests]
         if: always() && needs.merge-manifests.result == 'success'
-        runs-on: Ubuntu 20.04-arm
+        runs-on: ubuntu-20.04-arm
         permissions:
             contents: write
         steps:
@@ -969,7 +969,7 @@ jobs:
     build-summary:
         needs: [fetch-rootfs-matrix, check-and-prepare, build-arm, merge-manifests, create-release]
         if: always()
-        runs-on: Ubuntu 20.04-arm
+        runs-on: ubuntu-20.04-arm
         steps:
             - name: Generate Build Summary
               run: |
