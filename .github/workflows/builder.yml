@@ -527,6 +527,20 @@ jobs:
                       libssl-dev
                   version: 1.0
 
+            - name: Set up paths for self-hosted runner
+              run: |
+                  echo "RUNNER_WORK_DIR=/actions-runner/_work" >> $GITHUB_ENV
+                  echo "FEX_SOURCE_DIR=/tmp/fex-source" >> $GITHUB_ENV
+                  echo "FEX_BUILD_DIR=/tmp/fex-build" >> $GITHUB_ENV
+
+            - name: Create and verify directories
+              run: |
+                  mkdir -p ${{ env.FEX_SOURCE_DIR }}
+                  mkdir -p ${{ env.FEX_BUILD_DIR }}
+                  echo "✅ Directories created:"
+                  ls -la ${{ env.FEX_SOURCE_DIR }}
+                  ls -la ${{ env.FEX_BUILD_DIR }}
+
             - name: Cache LLVM binaries
               if: steps.eol-check.outputs.skip_build == 'false'
               id: cache-llvm
@@ -642,6 +656,8 @@ jobs:
                       fi
                   else
                       echo "❌ Source directory missing, will clone"
+                      rm -rf /tmp/fex-source
+                      git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
                   fi
             - name: Cache FEX build artifacts
               if: steps.eol-check.outputs.skip_build == 'false'
