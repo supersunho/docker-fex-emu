@@ -36,6 +36,7 @@ RUN . /etc/distro-info && \
             UBUNTU_VERSION_NUM=$(echo "${ROOTFS_VERSION}" | sed 's/\.//'); \
             if [ "${UBUNTU_VERSION_NUM}" -lt "2404" ]; then \
                 echo "Installing latest libstdc++6 for Ubuntu ${ROOTFS_VERSION}" && \
+                apt-get install -y software-properties-common && \
                 add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
                 apt-get update && \
                 apt-get install --only-upgrade libstdc++6 -y; \
