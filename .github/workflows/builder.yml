@@ -1,4 +1,4 @@
-name: FEXBash Builder
+name: FEXBash Builder V1
 
 on:
     # Daily automatic builds (Latest candidates only)
@@ -652,8 +652,7 @@ jobs:
               run: |
                   # Perform FEX build
                   cd /tmp/fex-source && mkdir -p Build && cd Build
-
-                  cmake \
+                  CC=clang CXX=clang++ cmake \
                       -DCMAKE_C_COMPILER_LAUNCHER=ccache \
                       -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
                       -DCMAKE_C_COMPILER=${{ env.CLANG_PATH }} \
@@ -735,7 +734,7 @@ jobs:
                   # Test FEX execution only if binary exists
                   if docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /usr/bin/FEXBash; then
                       echo "FEX execution test:"
-                      docker run --rm --platform 'linux/arm64' "$IMAGE" FEXBash --version || echo "FEX version check completed"
+                      docker run --rm --platform 'linux/arm64' "$IMAGE" bash -c "/usr/bin/FEXBash --version" || echo "FEX version check completed"
                   else
                       echo "❌ FEXBash not found, failing build"
                       exit 1
