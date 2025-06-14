@@ -53,10 +53,10 @@ RUN . /etc/distro-info && \
     fi
 
 # Copy all FEX files prepared from workflow at once
-COPY --from=builder /tmp/fex-build/bin/* /usr/bin/
-COPY --from=builder /tmp/fex-build/lib/libFEXCore.so /usr/lib/
-COPY --from=builder /tmp/fex-build/lib/binfmt.d/ /usr/lib/binfmt.d/
-COPY --from=builder /tmp/fex-build/share/fex-emu/ /usr/share/fex-emu/
+COPY --from=fex-binaries /tmp/fex-build/bin/* /usr/bin/
+COPY --from=fex-binaries /tmp/fex-build/lib/libFEXCore.so /usr/lib/
+COPY --from=fex-binaries /tmp/fex-build/lib/binfmt.d/ /usr/lib/binfmt.d/
+COPY --from=fex-binaries /tmp/fex-build/share/fex-emu/ /usr/share/fex-emu/
 
 # Verify execution permissions (insurance, already set in workflow)
 RUN chmod +x /usr/bin/FEX* 2>/dev/null || true
