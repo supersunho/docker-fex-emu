@@ -625,11 +625,24 @@ jobs:
                       fex-source-${{ runner.os }}-${{ runner.arch }}-fex-${{ needs.check-and-prepare.outputs.fex_semantic }}-
                       fex-source-${{ runner.os }}-${{ runner.arch }}-
 
-            - name: Clone FEX source if not cached
+            - name: Verify FEX source integrity
               if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-fex-source.outputs.cache-hit != 'true'
               run: |
-                  rm -rf /tmp/fex-source && git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
-
+                  echo "🔍 Verifying FEX source integrity..."
+                  if [ -d "/tmp/fex-source" ]; then
+                      echo "✅ Source directory exists"
+                      if [ -f "/tmp/fex-source/CMakeLists.txt" ]; then
+                          echo "✅ CMakeLists.txt found"
+                          echo "Source directory contents:"
+                          ls -la /tmp/fex-source/ | head -10
+                      else
+                          echo "❌ CMakeLists.txt missing, will re-clone"
+                          rm -rf /tmp/fex-source
+                          git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
+                      fi
+                  else
+                      echo "❌ Source directory missing, will clone"
+                  fi
             - name: Cache FEX build artifacts
               if: steps.eol-check.outputs.skip_build == 'false'
               id: cache-fex-build
@@ -652,7 +665,7 @@ jobs:
               run: |
                   # Perform FEX build
                   cd /tmp/fex-source && mkdir -p Build && cd Build
-                  CC=clang CXX=clang++ cmake \
+                  cmake \
                       -DCMAKE_C_COMPILER_LAUNCHER=ccache \
                       -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
                       -DCMAKE_C_COMPILER=${{ env.CLANG_PATH }} \
@@ -662,7 +675,7 @@ jobs:
                       -DUSE_LINKER=lld \
                       -DENABLE_LTO=True \
                       -DBUILD_TESTS=False \
-                      -DENABLE_ASSERTIONS=False  
+                      -DENABLE_ASSERTIONS=False \
                       -G Ninja ..
 
                   ccache -z && ninja -j$(nproc) && ninja -j$(nproc) install
