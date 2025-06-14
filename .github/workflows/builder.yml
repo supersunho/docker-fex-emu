@@ -446,9 +446,9 @@ jobs:
             packages: write
         strategy:
             matrix: ${{ fromJson(needs.fetch-rootfs-matrix.outputs.matrix) }}
-        container:
-            image: ${{ matrix.BASE_IMAGE }}
-            options: --platform linux/arm64
+        # container:
+        #     image: ${{ matrix.BASE_IMAGE }}
+        #     options: --platform linux/arm64
 
         steps:
             - name: Checkout repository

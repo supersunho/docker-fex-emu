@@ -1,124 +1,164 @@
-# Multi-platform FEX build with dynamic OS detection
 ARG BASE_IMAGE=ubuntu:24.04
-FROM ${BASE_IMAGE}
+
+#==============================================
+# Build Stage - Ubuntu & Fedora Support
+#==============================================
+FROM ${BASE_IMAGE} AS fex-builder
 
 ARG TARGETPLATFORM 
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
-ARG ROOTFS_TYPE=squashfs
 ARG LLVM_VERSION=18
 
-# Detect OS type and set package manager
+# Detect OS type
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
-        echo "DISTRO_TYPE=fedora" > /etc/distro-info && \
-        echo "PKG_MANAGER=dnf" >> /etc/distro-info; \
-    elif [ -f /etc/arch-release ] || [ -f /etc/pacman.conf ]; then \
-        echo "DISTRO_TYPE=arch" > /etc/distro-info && \
-        echo "PKG_MANAGER=pacman" >> /etc/distro-info; \
+        echo "DISTRO_TYPE=fedora" > /etc/distro-info; \
     elif [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then \
         echo "DISTRO_TYPE=debian" > /etc/distro-info && \
-        echo "PKG_MANAGER=apt" >> /etc/distro-info && \
         export DEBIAN_FRONTEND=noninteractive; \
     else \
-        echo "DISTRO_TYPE=unknown" > /etc/distro-info && \
-        echo "PKG_MANAGER=unknown" >> /etc/distro-info; \
+        echo "DISTRO_TYPE=unknown" > /etc/distro-info; \
     fi
 
-# Install build dependencies based on detected OS
+# Install build dependencies for Ubuntu & Fedora
 RUN . /etc/distro-info && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         apt-get update && apt-get install -y \
-            git cmake ninja-build pkg-config ccache clang lld llvm \
+            git cmake ninja-build pkg-config ccache \
+            clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} \
             nasm python3-dev python3-clang python3-setuptools \
             libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
             linux-headers-generic qtbase5-dev qtdeclarative5-dev \
-            squashfs-tools squashfuse openssl libssl-dev \
-            curl wget jq sudo binfmt-support software-properties-common && \ 
-        if [ "${ROOTFS_OS}" = "ubuntu" ] && [ "${ROOTFS_VERSION}" != "24.04" ]; then \
-            echo "Installing latest libstdc++6 for Ubuntu ${ROOTFS_VERSION}" && \
-            add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
-            apt-get update && \
-            apt-get install --only-upgrade libstdc++6 -y; \
+            curl wget software-properties-common \
+            openssl libssl-dev && \
+        # Install latest libstdc++6 for Ubuntu versions < 24.04
+        if [ "${ROOTFS_OS}" = "ubuntu" ]; then \
+            UBUNTU_VERSION_NUM=$(echo "${ROOTFS_VERSION}" | sed 's/\.//'); \
+            if [ "${UBUNTU_VERSION_NUM}" -lt "2404" ]; then \
+                echo "Installing latest libstdc++6 for Ubuntu ${ROOTFS_VERSION}" && \
+                add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
+                apt-get update && \
+                apt-get install --only-upgrade libstdc++6 -y; \
+            fi; \
         fi && \
-        wget https://apt.llvm.org/llvm.sh && \
-        chmod +x llvm.sh && \
-        ./llvm.sh ${LLVM_VERSION} && \
-        ln -sf /usr/bin/lld-${LLVM_VERSION} /usr/bin/ld.lld && \
-        ln -sf /usr/bin/lld-${LLVM_VERSION} /usr/bin/lld && \
-        rm llvm.sh && \
+        # Create symlinks safely
+        update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \
         rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
-        if dnf list available llvm${LLVM_VERSION} 2>/dev/null; then \
+        # Check LLVM version availability and install
+        if dnf list available llvm${LLVM_VERSION} 2>/dev/null | grep -q llvm${LLVM_VERSION}; then \
             dnf install -y \
-                @development-tools \
-                llvm${LLVM_VERSION}* clang${LLVM_VERSION}* lld${LLVM_VERSION}* \
+                @development-tools cmake ninja-build pkg-config ccache \
+                llvm${LLVM_VERSION} clang${LLVM_VERSION} lld${LLVM_VERSION} \
                 compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION}; \
         else \
             echo "LLVM ${LLVM_VERSION} not available, installing default LLVM" && \
-            dnf install -y llvm llvm-devel clang clang-devel lld; \
+            dnf install -y \
+                @development-tools cmake ninja-build pkg-config ccache \
+                llvm llvm-devel clang clang-devel lld; \
         fi && \
+        # Create tool symlinks safely
         for tool in ar nm objdump strip; do \
-            if [ ! -f "/usr/bin/llvm-$tool-${LLVM_VERSION}" ] && [ -f "/usr/bin/llvm-$tool" ]; then \
-                ln -s "/usr/bin/llvm-$tool" "/usr/bin/llvm-$tool-${LLVM_VERSION}"; \
-                echo "Created symlink: /usr/bin/llvm-$tool => /usr/bin/llvm-$tool-${LLVM_VERSION}"; \
+            if [ -f "/usr/bin/llvm-$tool" ] && [ ! -f "/usr/bin/llvm-$tool-${LLVM_VERSION}" ]; then \
+                ln -sf "/usr/bin/llvm-$tool" "/usr/bin/llvm-$tool-${LLVM_VERSION}"; \
             fi; \
         done && \
         dnf install -y \
-            git cmake ninja-build pkg-config ccache \
-            openssl-devel nasm python3-clang python3-setuptools \
-            squashfs-tools squashfuse erofs-fuse erofs-utils \
-            qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
+            nasm python3-clang python3-setuptools openssl-devel \
             libcap-devel glfw-devel libepoxy-devel SDL2-devel \
-            curl wget jq sudo util-linux-core && \
+            qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
+            curl wget && \
         dnf clean all; \
-    elif [ "$DISTRO_TYPE" = "arch" ]; then \
-        pacman -Syu --noconfirm && \
-        pacman -S --noconfirm \
-            git cmake ninja pkgconfig ccache clang lld llvm \
-            nasm python python-setuptools openssl \
-            libcap mesa sdl2 qt5-declarative \
-            squashfs-tools \
-            curl wget jq sudo util-linux && \
-        pacman -Scc --noconfirm; \
     else \
-        echo "❌ Unsupported distribution type: $DISTRO_TYPE" && exit 1; \
+        echo "Unsupported distribution type" && exit 1; \
     fi
 
-
-# Clone and build FEX from source
+# Copy FEX source from workflow and build
 COPY --from=fex-sources / /tmp/fex-source  
 RUN cd /tmp/fex-source && \
-    mkdir -p Build && \
-    cd Build && \
-    CC=clang CXX=clang++ cmake \
-        -DCMAKE_INSTALL_PREFIX=/usr \
+    mkdir -p Build && cd Build && \
+    # Detect and configure compiler
+    if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
+        CC_COMPILER=clang-${LLVM_VERSION}; \
+        CXX_COMPILER=clang++-${LLVM_VERSION}; \
+    else \
+        CC_COMPILER=clang; \
+        CXX_COMPILER=clang++; \
+    fi && \
+    echo "Using compilers: $CC_COMPILER / $CXX_COMPILER" && \
+    CC=$CC_COMPILER CXX=$CXX_COMPILER cmake \
+        -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
         -DCMAKE_BUILD_TYPE=Release \
         -DUSE_LINKER=lld \
         -DENABLE_LTO=True \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
-        -G Ninja \
-        .. && \
-    ninja && \
+        -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
+        -G Ninja .. && \
+    ninja -j$(nproc) && \
     ninja install && \
-    rm -rf /tmp/fex-source/Build
+    echo "FEX build completed successfully" && \
+    rm -rf /tmp/fex-source
 
-# Create user with OS-specific commands
+#==============================================
+# Runtime Stage - Ubuntu & Fedora Support
+#==============================================
+FROM ${BASE_IMAGE} AS runtime
+
+ARG TARGETPLATFORM 
+ARG ROOTFS_OS=ubuntu
+ARG ROOTFS_VERSION="24.04"
+ARG ROOTFS_TYPE=squashfs
+
+# Detect OS type for runtime
+RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
+        echo "DISTRO_TYPE=fedora" > /etc/distro-info; \
+    elif [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then \
+        echo "DISTRO_TYPE=debian" > /etc/distro-info && \
+        export DEBIAN_FRONTEND=noninteractive; \
+    else \
+        echo "DISTRO_TYPE=unknown" > /etc/distro-info; \
+    fi
+
+# Install runtime dependencies only
 RUN . /etc/distro-info && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
-        useradd -m -s /bin/bash fex && \
-        usermod -aG sudo fex && \
-        echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex; \
+        apt-get update && apt-get install -y \
+            squashfs-tools squashfuse openssl \
+            curl wget jq sudo binfmt-support \
+            libstdc++6 libc6 && \
+        # Install latest libstdc++6 for Ubuntu versions < 24.04
+        if [ "${ROOTFS_OS}" = "ubuntu" ]; then \
+            UBUNTU_VERSION_NUM=$(echo "${ROOTFS_VERSION}" | sed 's/\.//'); \
+            if [ "${UBUNTU_VERSION_NUM}" -lt "2404" ]; then \
+                add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
+                apt-get update && \
+                apt-get install --only-upgrade libstdc++6 -y; \
+            fi; \
+        fi && \
+        rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
-        useradd -m -s /bin/bash fex && \
-        usermod -aG wheel fex && \
-        echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex; \
-    elif [ "$DISTRO_TYPE" = "arch" ]; then \
-        useradd -m -s /bin/bash fex && \
-        usermod -aG wheel fex && \
-        echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex; \
+        dnf install -y \
+            squashfs-tools squashfuse erofs-fuse erofs-utils \
+            curl wget jq sudo util-linux-core && \
+        dnf clean all; \
     fi
+
+# Copy FEX binaries from build stage
+COPY --from=fex-builder /usr/local/fex /usr/local/fex
+ENV PATH="/usr/local/fex/bin:$PATH"
+
+# Create user with OS-specific configuration
+RUN . /etc/distro-info && \
+    useradd -m -s /bin/bash fex && \
+    if [ "$DISTRO_TYPE" = "debian" ]; then \
+        usermod -aG sudo fex; \
+    elif [ "$DISTRO_TYPE" = "fedora" ]; then \
+        usermod -aG wheel fex; \
+    fi && \
+    echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex
 
 USER fex
 WORKDIR /home/fex
@@ -128,7 +168,7 @@ RUN FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VE
     chown -R fex:fex /home/fex/.fex-emu && \
     rm -rf /home/fex/.fex-emu/RootFS/*.sqsh && \
     rm -rf /home/fex/.fex-emu/RootFS/*.ero && \
-    echo "✅ RootFS extracted and configured"
+    echo "RootFS extracted and configured successfully"
 
 ENTRYPOINT ["/bin/bash", "-c"]
 CMD ["/bin/bash"]
