@@ -452,7 +452,6 @@ jobs:
 
         steps:
             - name: Checkout repository
-              if: steps.eol-check.outputs.skip_build == 'false'
               uses: actions/checkout@v4
 
             - name: Check if version is EOL
