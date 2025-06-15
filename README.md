@@ -1,4 +1,4 @@
-# 🚀 FEXBash Base Images for arm64
+# 🚀 FEXBash Base Images for ARM64
 
 [![Build Status](https://github.com/supersunho/docker-fex-emu/actions/workflows/builderV2.yml/badge.svg)](https://github.com/supersunho/docker-fex-emu/actions)
 [![GitHub Release](https://img.shields.io/github/v/release/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/releases/latest)
@@ -48,22 +48,22 @@ docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.0
 
 ### Primary Tags
 
-| Tag            | Description                   | Size   | Architecture |
-| :------------- | :---------------------------- | :----- | :----------- |
-| `latest`       | Multi-platform auto-selection | ~200MB | ARM64        |
-| `ubuntu-24.04` | Ubuntu 24.04 LTS              | ~200MB | ARM64        |
-| `ubuntu-22.04` | Ubuntu 22.04 LTS              | ~200MB | ARM64        |
-| `ubuntu-20.04` | Ubuntu 20.04 LTS              | ~200MB | ARM64        |
-| `fedora-40`    | Fedora 40                     | ~220MB | ARM64        |
-| `fedora-38`    | Fedora 38                     | ~220MB | ARM64        |
+| Tag            | Description                   |
+| :------------- | :---------------------------- |
+| `latest`       | Multi-platform auto-selection |
+| `ubuntu-24.04` | Ubuntu 24.04 LTS              |
+| `ubuntu-22.04` | Ubuntu 22.04 LTS              |
+| `ubuntu-20.04` | Ubuntu 20.04 LTS              |
+| `fedora-40`    | Fedora 40                     |
+| `fedora-38`    | Fedora 38                     |
 
 ### Additional Ubuntu Versions
 
-| Tag            | Description            | Size   | Architecture |
-| :------------- | :--------------------- | :----- | :----------- |
-| `ubuntu-23.10` | Ubuntu 23.10 (Mantic)  | ~200MB | ARM64        |
-| `ubuntu-23.04` | Ubuntu 23.04 (Lunar)   | ~200MB | ARM64        |
-| `ubuntu-22.10` | Ubuntu 22.10 (Kinetic) | ~200MB | ARM64        |
+| Tag            | Description            |
+| :------------- | :--------------------- |
+| `ubuntu-23.10` | Ubuntu 23.10 (Mantic)  |
+| `ubuntu-23.04` | Ubuntu 23.04 (Lunar)   |
+| `ubuntu-22.10` | Ubuntu 22.10 (Kinetic) |
 
 ### Version-Specific Tags
 
