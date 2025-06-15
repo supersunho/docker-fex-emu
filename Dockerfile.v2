@@ -54,6 +54,8 @@ RUN . /etc/distro-info && \
         fi && \
         # Create symlinks safely
         update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \
+        apt-get autoremove -y && \
+        apt-get autoclean && \
         rm -rf /var/lib/apt/lists/*; \ 
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf update -y && \
@@ -157,9 +159,11 @@ RUN . /etc/distro-info && \
                 apt-get install -y software-properties-common && \
                 add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
                 apt-get update && \
-                apt-get install --only-upgrade libstdc++6 -y; \
+                apt-get install --only-upgrade libstdc++6  -y; \
             fi; \
         fi && \
+        apt-get autoremove -y && \
+        apt-get autoclean && \
         rm -rf /var/lib/apt/lists/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf install -y \
@@ -171,6 +175,8 @@ RUN . /etc/distro-info && \
 
 # Copy FEX binaries from build stage
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
+RUN strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true
 ENV PATH="/usr/local/fex/bin:$PATH"
 
 # Create user with OS-specific configuration
@@ -181,7 +187,7 @@ RUN . /etc/distro-info && \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         usermod -aG wheel fex; \
     fi && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers.d/fex
+    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex
 
 USER fex
 WORKDIR /home/fex
