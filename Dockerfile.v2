@@ -239,6 +239,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_LTO=True \
             -DBUILD_TESTS=False \
             -DENABLE_ASSERTIONS=False \
+            -DENABLE_FEXCONFIG=False \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
@@ -253,6 +254,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_LTO=True \
             -DBUILD_TESTS=False \
             -DENABLE_ASSERTIONS=False \
+            -DENABLE_FEXCONFIG=False \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
