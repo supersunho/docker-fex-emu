@@ -246,10 +246,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     rm -rf /tmp/fex-source && \
     echo "🎉 FEX build completed successfully!"
 
-
-
 #==============================================
-# Runtime Stage - Ubuntu & Fedora Support
+# Runtime Stage - Ubuntu & Fedora Support with Debug
 #==============================================
 FROM ${BASE_IMAGE} AS runtime
 
@@ -262,71 +260,160 @@ ARG ROOTFS_TYPE=squashfs
 ENV DEBIAN_FRONTEND=noninteractive 
 ENV TZ=Asia/Seoul
 
-# Detect OS type for runtime
-RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
+# Detect OS type for runtime with debugging
+RUN echo "🔍 Starting runtime OS detection..." && \
+    if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
+        echo "🐧 Runtime: Detected Fedora/RHEL distribution" && \
         echo "DISTRO_TYPE=fedora" > /etc/distro-info; \
     elif [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then \
+        echo "🐧 Runtime: Detected Debian/Ubuntu distribution" && \
         echo "DISTRO_TYPE=debian" > /etc/distro-info && \
         export DEBIAN_FRONTEND=noninteractive && \
         ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
-        echo $TZ > /etc/timezone; \
+        echo $TZ > /etc/timezone && \
+        echo "⏰ Timezone set to: $TZ"; \
     else \
+        echo "❌ Runtime: Unknown distribution type" && \
         echo "DISTRO_TYPE=unknown" > /etc/distro-info; \
-    fi
+    fi && \
+    echo "✅ Runtime OS detection completed"
 
-# Install runtime dependencies only
-RUN . /etc/distro-info && \
+# Install runtime dependencies only with detailed debugging
+RUN echo "📦 Starting runtime dependencies installation..." && \
+    . /etc/distro-info && \
+    echo "🔍 Runtime distribution type: $(cat /etc/distro-info)" && \
+    echo "📊 Runtime build parameters:" && \
+    echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \
+    echo "  - ROOTFS_VERSION: ${ROOTFS_VERSION}" && \
+    echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends \
+        echo "🔧 Setting up Debian/Ubuntu runtime environment..." && \
+        apt-get update && \
+        echo "📦 Installing minimal runtime packages..." && \
+        apt-get install -y --no-install-recommends \
             squashfs-tools squashfuse sudo \
             libstdc++6 libc6 && \
+        echo "✅ Basic runtime packages installed" && \
+        \
         # Install latest libstdc++6 for Ubuntu versions < 24.04
         if [ "${ROOTFS_OS}" = "ubuntu" ]; then \
-            UBUNTU_VERSION_NUM=$(echo "${ROOTFS_VERSION}" | sed 's/\.//'); \
+            echo "🔍 Checking Ubuntu version for libstdc++6 upgrade..." && \
+            UBUNTU_VERSION_NUM=$(echo "${ROOTFS_VERSION}" | sed 's/\.//') && \
+            echo "📊 Runtime UBUNTU_VERSION_NUM: ${UBUNTU_VERSION_NUM}" && \
+            echo "🧪 Testing version comparison: [ ${UBUNTU_VERSION_NUM} -lt 2404 ]" && \
             if [ "${UBUNTU_VERSION_NUM}" -lt "2404" ]; then \
+                echo "🔧 Ubuntu <24.04 detected - upgrading libstdc++6..." && \
                 apt-get install -y software-properties-common && \
                 add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
                 apt-get update && \
-                apt-get install --only-upgrade libstdc++6 -y; \
+                apt-get install --only-upgrade libstdc++6 -y && \
+                echo "✅ libstdc++6 upgraded for Ubuntu ${ROOTFS_VERSION}"; \
+            else \
+                echo "ℹ️ Ubuntu 24.04+ detected - using default libstdc++6"; \
             fi; \
+        else \
+            echo "ℹ️ Non-Ubuntu distribution - skipping libstdc++6 upgrade"; \
         fi && \
+        \
         # Thorough cleanup for size optimization
+        echo "🧹 Performing thorough cleanup for size optimization..." && \
         apt-get autoremove -y && \
         apt-get autoclean && \
-        rm -rf /var/lib/apt/lists/* /var/tmp/* /var/cache/*; \
+        rm -rf /var/lib/apt/lists/* /var/tmp/* /var/cache/* && \
+        echo "🗑️ Cleaning documentation and locales..." && \
+        find /usr/share/doc -depth -type f ! -name copyright -delete 2>/dev/null || true && \
+        find /usr/share/man -depth -type f -delete 2>/dev/null || true && \
+        rm -rf /usr/share/locale/* 2>/dev/null || true && \
+        mkdir -p /usr/share/locale/en_US.UTF-8 2>/dev/null || true && \
+        echo "✅ Debian/Ubuntu runtime setup completed successfully"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
+        echo "🔧 Setting up Fedora runtime environment..." && \
+        echo "📦 Installing minimal Fedora runtime packages..." && \
         dnf install -y --setopt=install_weak_deps=False \
             squashfs-tools squashfuse erofs-fuse erofs-utils \
             sudo util-linux-core libstdc++ glibc && \
+        echo "✅ Fedora runtime packages installed" && \
+        echo "🧹 Cleaning up Fedora package cache..." && \
         dnf clean all && \
-        rm -rf /var/cache/dnf /var/tmp/*; \
-    fi
+        rm -rf /var/cache/dnf /var/tmp/* && \
+        echo "✅ Fedora runtime setup completed successfully"; \
+    else \
+        echo "❌ Unsupported distribution type for runtime" && exit 1; \
+    fi && \
+    echo "🎉 Runtime dependencies installation completed!"
 
-# Copy FEX binaries from build stage and optimize
+# Copy FEX binaries from build stage and optimize with debugging
+RUN echo "📁 Copying FEX binaries from build stage..." && \
+    echo "🔍 Checking FEX installation directory..." && \
+    ls -la /usr/local/fex/ 2>/dev/null || echo "⚠️ FEX directory not found yet"
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
-RUN strip /usr/local/fex/bin/* 2>/dev/null || true && \
-    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true
+RUN echo "✅ FEX binaries copied successfully" && \
+    echo "📊 FEX installation summary:" && \
+    ls -la /usr/local/fex/bin/ && \
+    echo "🔧 Optimizing FEX binaries..." && \
+    strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    echo "🔧 Optimizing FEX shared libraries..." && \
+    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    echo "📏 Binary sizes after optimization:" && \
+    du -sh /usr/local/fex/bin/* 2>/dev/null || echo "Could not measure binary sizes" && \
+    echo "✅ FEX binary optimization completed"
 ENV PATH="/usr/local/fex/bin:$PATH"
 
-# Create user with OS-specific configuration
-RUN . /etc/distro-info && \
+# Create user with OS-specific configuration and debugging
+RUN echo "👤 Starting user creation and configuration..." && \
+    . /etc/distro-info && \
+    echo "🔍 Creating user 'fex' with bash shell..." && \
     useradd -m -s /bin/bash fex && \
+    echo "✅ User 'fex' created successfully" && \
+    echo "🔍 Configuring sudo permissions based on distribution..." && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
-        usermod -aG sudo fex; \
+        echo "🐧 Adding fex to sudo group (Debian/Ubuntu)" && \
+        usermod -aG sudo fex && \
+        echo "✅ User added to sudo group"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
-        usermod -aG wheel fex; \
+        echo "🐧 Adding fex to wheel group (Fedora)" && \
+        usermod -aG wheel fex && \
+        echo "✅ User added to wheel group"; \
     fi && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex
+    echo "🔑 Setting up passwordless sudo access..." && \
+    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
+    echo "✅ Sudo configuration completed" && \
+    echo "📊 User configuration summary:" && \
+    id fex && \
+    groups fex && \
+    echo "🎉 User creation and configuration completed!"
 
 USER fex
 WORKDIR /home/fex
 
-# Setup RootFS using FEXRootFSFetcher
-RUN FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
+# Setup RootFS using FEXRootFSFetcher with comprehensive debugging
+RUN echo "🚀 Starting RootFS setup process..." && \
+    echo "📊 RootFS configuration:" && \
+    echo "  - Target OS: ${ROOTFS_OS}" && \
+    echo "  - Target Version: ${ROOTFS_VERSION}" && \
+    echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
+    echo "🔍 Checking FEXRootFSFetcher availability..." && \
+    which FEXRootFSFetcher && \
+    FEXRootFSFetcher --help | head -5 2>/dev/null || echo "⚠️ Could not display FEXRootFSFetcher help" && \
+    echo "📥 Starting RootFS download and extraction..." && \
+    echo "⏳ This process may take several minutes..." && \
+    FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
+    echo "✅ RootFS download and extraction completed" && \
+    \
+    echo "🔧 Configuring RootFS permissions..." && \
     chown -R fex:fex /home/fex/.fex-emu && \
+    echo "✅ RootFS permissions configured" && \
+    \
+    echo "🧹 Cleaning up RootFS artifacts..." && \
+    echo "📊 RootFS contents before cleanup:" && \
+    ls -la /home/fex/.fex-emu/RootFS/ 2>/dev/null || echo "RootFS directory not found" && \
     rm -rf /home/fex/.fex-emu/RootFS/*.sqsh && \
     rm -rf /home/fex/.fex-emu/RootFS/*.ero && \
-    echo "RootFS extracted and configured successfully"
+    echo "📊 RootFS contents after cleanup:" && \
+    ls -la /home/fex/.fex-emu/RootFS/ 2>/dev/null || echo "RootFS directory not found" && \
+    echo "💾 Final RootFS size:" && \
+    du -sh /home/fex/.fex-emu/ 2>/dev/null || echo "Could not measure RootFS size" && \
+    echo "🎉 RootFS extracted and configured successfully!"
 
 ENTRYPOINT ["/bin/bash", "-c"]
 CMD ["/bin/bash"]
