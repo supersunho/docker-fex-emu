@@ -98,24 +98,29 @@ RUN echo "📦 Starting package installation..." && \
                 wget https://apt.llvm.org/llvm.sh && \
                 chmod +x llvm.sh && \
                 echo "🔧 Installing LLVM ${LLVM_VERSION} via script..." && \
-                ./llvm.sh ${LLVM_VERSION} && \
+                ./llvm.sh ${LLVM_VERSION} > /dev/null 2>&1 && \
                 rm llvm.sh && \
                 echo "✅ LLVM ${LLVM_VERSION} installed via script"; \
             fi && \
             \
-            # Qt installation debugging
-            echo "🔍 Checking Qt installation requirements..." && \
-            echo "🧪 Testing Ubuntu version for Qt: [ ${UBUNTU_VERSION_NUM} -eq 2004 ]" && \
+            # Qt installation for Ubuntu 20.04 compatibility (fixed version)
             if [ "${UBUNTU_VERSION_NUM}" -eq "2004" ]; then \
-                echo "🎨 Ubuntu 20.04 detected - installing Qt 5.15+" && \
-                add-apt-repository ppa:beineri/opt-qt-5.15.2-focal -y && \
-                apt-get update -qq && \
-                apt-get install -qq -y qt515-meta-minimal qt515declarative qt515tools && \
-                echo 'source /opt/qt515/bin/qt515-env.sh' >> ~/.bashrc && \
-                echo "✅ Qt 5.15+ installed for Ubuntu 20.04"; \
+                echo "🎨 Installing Qt 5.15 for Ubuntu 20.04 compatibility" && \
+                # Stage 1: Try Qt 5.15.0 PPA
+                if add-apt-repository ppa:beineri/opt-qt-5.15.0-focal -y && \
+                apt-get update -qq > /dev/null 2>&1 && \
+                apt-get install -qq -y qt515base qt515declarative qt515tools > /dev/null 2>&1; then \
+                    echo "✅ Qt 5.15 installed from PPA" && \
+                    echo 'source /opt/qt515/bin/qt515-env.sh' >> ~/.bashrc; \
+                # Stage 2: Fallback to default Qt
+                else \
+                    echo "⚠️ Qt 5.15 PPA failed, using default Qt" && \
+                    apt-get install -qq -y qtbase5-dev qtdeclarative5-dev qt5-default > /dev/null 2>&1 && \
+                    echo "✅ Default Qt 5.12 installed as fallback"; \
+                fi; \
             else \
                 echo "📦 Installing default Qt packages for Ubuntu ${ROOTFS_VERSION}" && \
-                apt-get install -qq -y qtbase5-dev qtdeclarative5-dev && \
+                apt-get install -qq -y qtbase5-dev qtdeclarative5-dev > /dev/null 2>&1 && \
                 echo "✅ Default Qt packages installed"; \
             fi; \
         else \
