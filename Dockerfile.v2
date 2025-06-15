@@ -41,9 +41,9 @@ RUN echo "📦 Starting package installation..." && \
     echo "🔍 Distribution type: $(cat /etc/distro-info)" && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         echo "🔧 Setting up Debian/Ubuntu environment..." && \
-        apt-get update && \
+        apt-get update -qq && \
         echo "📦 Installing base development packages..." && \
-        apt-get install -y --no-install-recommends \
+        apt-get install -qq -y --no-install-recommends \
             git cmake ninja-build pkg-config ccache \
             nasm python3-dev python3-clang python3-setuptools \
             libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
@@ -61,7 +61,7 @@ RUN echo "📦 Starting package installation..." && \
             echo "🧪 Testing version comparison: [ ${UBUNTU_VERSION_NUM} -ge 2404 ]" && \
             if [ "${UBUNTU_VERSION_NUM}" -ge "2404" ]; then \
                 echo "✅ Ubuntu 24.04+ detected - using repository LLVM" && \
-                apt-get install -y clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} && \
+                apt-get install -qq -y clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} && \
                 echo "✅ LLVM ${LLVM_VERSION} installed from repository"; \
             else \
                 echo "🔧 Ubuntu <24.04 detected - using LLVM script" && \
@@ -72,8 +72,8 @@ RUN echo "📦 Starting package installation..." && \
                 gpg --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg && \
                 echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" > \
                 /etc/apt/sources.list.d/ubuntu-toolchain-r.list && \
-                apt-get update && \
-                apt-get install --only-upgrade libstdc++6 -y && \
+                apt-get update -qq && \
+                apt-get install --only-upgrade libstdc++6 -qq -y && \
                 echo "📥 Downloading LLVM installation script..." && \
                 wget https://apt.llvm.org/llvm.sh && \
                 chmod +x llvm.sh && \
@@ -89,38 +89,38 @@ RUN echo "📦 Starting package installation..." && \
             if [ "${UBUNTU_VERSION_NUM}" -eq "2004" ]; then \
                 echo "🎨 Ubuntu 20.04 detected - installing Qt 5.15+" && \
                 add-apt-repository ppa:beineri/opt-qt-5.15.2-focal -y && \
-                apt-get update && \
-                apt-get install -y qt515-meta-minimal qt515declarative qt515tools && \
+                apt-get update -qq && \
+                apt-get install -qq -y qt515-meta-minimal qt515declarative qt515tools && \
                 echo 'source /opt/qt515/bin/qt515-env.sh' >> ~/.bashrc && \
                 echo "✅ Qt 5.15+ installed for Ubuntu 20.04"; \
             else \
                 echo "📦 Installing default Qt packages for Ubuntu ${ROOTFS_VERSION}" && \
-                apt-get install -y qtbase5-dev qtdeclarative5-dev && \
+                apt-get install -qq -y qtbase5-dev qtdeclarative5-dev && \
                 echo "✅ Default Qt packages installed"; \
             fi; \
         else \
             echo "🔧 Processing non-Ubuntu Debian distribution..." && \
-            apt-get install -y clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} || \
+            apt-get install -qq -y clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} || \
             (echo "📥 Falling back to LLVM script..." && \
              wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && ./llvm.sh ${LLVM_VERSION} && rm llvm.sh) && \
-            apt-get install -y qtbase5-dev qtdeclarative5-dev && \
+            apt-get install -qq -y qtbase5-dev qtdeclarative5-dev && \
             echo "✅ Packages installed for Debian distribution"; \
         fi && \
         \
         # Cleanup with status
         echo "🧹 Creating symlinks and cleaning up..." && \
         update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \
-        apt-get autoremove -y && \
-        apt-get autoclean && \
+        apt-get autoremove -qq -y && \
+        apt-get autoclean -qq && \
         rm -rf /var/lib/apt/lists/* /var/tmp/* && \
         echo "✅ Debian/Ubuntu setup completed successfully"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         echo "🔧 Setting up Fedora environment..." && \
-        dnf update -y && \
+        dnf update -q -y && \
         echo "🔍 Checking LLVM availability..." && \
         if dnf list available llvm${LLVM_VERSION} 2>/dev/null | grep -q llvm${LLVM_VERSION}; then \
             echo "✅ LLVM ${LLVM_VERSION} available in Fedora repositories" && \
-            dnf install -y \
+            dnf install -q -y \
                 @development-tools cmake ninja-build pkg-config ccache \
                 llvm${LLVM_VERSION} clang${LLVM_VERSION} lld${LLVM_VERSION} \
                 compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} \
@@ -128,7 +128,7 @@ RUN echo "📦 Starting package installation..." && \
                 gcc-c++ binutils-devel; \
         else \
             echo "⚠️ LLVM ${LLVM_VERSION} not available, using default" && \
-            dnf install -y \
+            dnf install -q -y \
                 @development-tools cmake ninja-build pkg-config ccache \
                 llvm llvm-devel clang clang-devel lld \
                 libstdc++-devel libstdc++-static glibc-devel \
@@ -141,12 +141,12 @@ RUN echo "📦 Starting package installation..." && \
             fi; \
         done && \
         echo "📦 Installing additional Fedora packages..." && \
-        dnf install -y \
+        dnf install -q -y \
             nasm python3-clang python3-setuptools openssl-devel \
             libcap-devel glfw-devel libepoxy-devel SDL2-devel \
             qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
             curl wget && \
-        dnf clean all && \
+        dnf clean all -q && \
         echo "✅ Fedora setup completed successfully"; \
     else \
         echo "❌ Unsupported distribution type" && exit 1; \
@@ -295,9 +295,9 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
     echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         echo "🔧 Setting up Debian/Ubuntu runtime environment..." && \
-        apt-get update && \
+        apt-get update -qq && \
         echo "📦 Installing minimal runtime packages..." && \
-        apt-get install -y --no-install-recommends \
+        apt-get install -qq -y --no-install-recommends \
             squashfs-tools squashfuse sudo \
             libstdc++6 libc6 && \
         echo "✅ Basic runtime packages installed" && \
@@ -310,10 +310,10 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
             echo "🧪 Testing version comparison: [ ${UBUNTU_VERSION_NUM} -lt 2404 ]" && \
             if [ "${UBUNTU_VERSION_NUM}" -lt "2404" ]; then \
                 echo "🔧 Ubuntu <24.04 detected - upgrading libstdc++6..." && \
-                apt-get install -y software-properties-common && \
+                apt-get install -qq -y software-properties-common && \
                 add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
-                apt-get update && \
-                apt-get install --only-upgrade libstdc++6 -y && \
+                apt-get update -qq && \
+                apt-get install --only-upgrade libstdc++6 -qq -y && \
                 echo "✅ libstdc++6 upgraded for Ubuntu ${ROOTFS_VERSION}"; \
             else \
                 echo "ℹ️ Ubuntu 24.04+ detected - using default libstdc++6"; \
@@ -336,12 +336,12 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         echo "🔧 Setting up Fedora runtime environment..." && \
         echo "📦 Installing minimal Fedora runtime packages..." && \
-        dnf install -y --setopt=install_weak_deps=False \
+        dnf install -q -y --setopt=install_weak_deps=False \
             squashfs-tools squashfuse erofs-fuse erofs-utils \
             sudo util-linux-core libstdc++ glibc && \
         echo "✅ Fedora runtime packages installed" && \
         echo "🧹 Cleaning up Fedora package cache..." && \
-        dnf clean all && \
+        dnf clean all -q && \
         rm -rf /var/cache/dnf /var/tmp/* && \
         echo "✅ Fedora runtime setup completed successfully"; \
     else \
