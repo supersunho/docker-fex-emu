@@ -9,6 +9,8 @@ ARG TARGETPLATFORM
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG LLVM_VERSION=18
+ENV DEBIAN_FRONTEND=noninteractive 
+ENV TZ=Asia/Seoul
 
 # Detect OS type
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
@@ -135,6 +137,8 @@ ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 
+ENV DEBIAN_FRONTEND=noninteractive 
+ENV TZ=Asia/Seoul
 # Detect OS type for runtime
 RUN if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
         echo "DISTRO_TYPE=fedora" > /etc/distro-info; \
