@@ -233,7 +233,7 @@ RUN . /etc/distro-info && \
         # Thorough cleanup for size optimization
         apt-get autoremove -y && \
         apt-get autoclean && \
-        rm -rf /var/lib/apt/lists/* /var/tmp/* /var/cache/* \
+        rm -rf /var/lib/apt/lists/* /var/tmp/* /var/cache/*; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         dnf install -y --setopt=install_weak_deps=False \
             squashfs-tools squashfuse erofs-fuse erofs-utils \
