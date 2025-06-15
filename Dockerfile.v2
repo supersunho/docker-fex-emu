@@ -68,12 +68,32 @@ RUN echo "📦 Starting package installation..." && \
                 echo "🔑 Configuring GPG environment..." && \
                 gpgconf --kill gpg-agent 2>/dev/null || true && \
                 echo "📥 Adding ubuntu-toolchain-r PPA securely..." && \
-                curl -fsSL https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2C277A0A352154E5 | \
-                gpg --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg && \
-                echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" > \
+                \
+                # Stage 1: Try default keyserver
+                if curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2C277A0A352154E5" | \
+                gpg --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg 2>/dev/null; then \
+                    echo "✅ GPG key added via keyserver.ubuntu.com"; \
+                # Stage 2: Try alternative keyserver
+                elif curl -fsSL "https://pgp.mit.edu/pks/lookup?op=get&search=0x2C277A0A352154E5" | \
+                    gpg --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg 2>/dev/null; then \
+                    echo "✅ GPG key added via pgp.mit.edu"; \
+                # Stage 3: Use Ubuntu official keyring
+                elif apt-get install -qq -y ubuntu-keyring 2>/dev/null && \
+                    cp /usr/share/keyrings/ubuntu-archive-keyring.gpg /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg; then \
+                    echo "✅ Using Ubuntu official keyring"; \
+                # Stage 4: Direct add-apt-repository usage (automatic GPG handling)
+                else \
+                    echo "⚠️ Falling back to add-apt-repository" && \
+                    add-apt-repository ppa:ubuntu-toolchain-r/test -y; \
+                fi && \
+                \
+                # Manual PPA repository addition (independent of key issues)
+                echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu focal main" > \
                 /etc/apt/sources.list.d/ubuntu-toolchain-r.list && \
-                apt-get update -qq && \
-                apt-get install --only-upgrade libstdc++6 -qq -y && \
+                echo "📦 Updating package lists..." && \
+                apt-get update -qq > /dev/null 2>&1 && \
+                apt-get install --only-upgrade libstdc++6 -y -qq > /dev/null 2>&1 && \
+                echo "✅ Ubuntu toolchain PPA configured successfully" && \
                 echo "📥 Downloading LLVM installation script..." && \
                 wget https://apt.llvm.org/llvm.sh && \
                 chmod +x llvm.sh && \
