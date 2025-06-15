@@ -48,7 +48,8 @@ RUN echo "📦 Starting package installation..." && \
             nasm python3-dev python3-clang python3-setuptools \
             libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
             linux-headers-generic curl wget \
-            software-properties-common openssl libssl-dev && \
+            software-properties-common openssl libssl-dev \
+            gnupg gnupg2 gpg-agent dirmngr ca-certificates && \
         echo "✅ Base packages installed successfully" && \
         \
         # LLVM installation with debugging
@@ -64,7 +65,13 @@ RUN echo "📦 Starting package installation..." && \
                 echo "✅ LLVM ${LLVM_VERSION} installed from repository"; \
             else \
                 echo "🔧 Ubuntu <24.04 detected - using LLVM script" && \
-                add-apt-repository ppa:ubuntu-toolchain-r/test -y && \
+                echo "🔑 Configuring GPG environment..." && \
+                gpgconf --kill gpg-agent 2>/dev/null || true && \
+                echo "📥 Adding ubuntu-toolchain-r PPA securely..." && \
+                curl -fsSL https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2C277A0A352154E5 | \
+                gpg --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg && \
+                echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" > \
+                /etc/apt/sources.list.d/ubuntu-toolchain-r.list && \
                 apt-get update && \
                 apt-get install --only-upgrade libstdc++6 -y && \
                 echo "📥 Downloading LLVM installation script..." && \
