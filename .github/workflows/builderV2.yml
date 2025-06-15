@@ -472,32 +472,39 @@ jobs:
                   echo "skip_build=false" >> $GITHUB_OUTPUT
                   echo "✅ Proceeding with build for ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
 
-            - name: Check existing images (Advanced)
+            - name: Check existing images (Multi-method)
               if: steps.eol-check.outputs.skip_build == 'false'
               id: check-images
               run: |
                   RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}"
+                  IMAGE_FULL="ghcr.io/${{ github.repository }}:$RELEASE_TAG"
 
-                  # Base64 encode token
-                  ENCODED_TOKEN=$(echo -n "${{ secrets.GITHUB_TOKEN }}" | base64)
+                  echo "🔍 Checking image: $IMAGE_FULL"
 
-                  # Get all tags from repository
-                  TAGS=$(curl -s -H "Authorization: Bearer ${ENCODED_TOKEN}" \
-                      "https://ghcr.io/v2/${{ github.repository }}/tags/list")
-
-                  echo "Available tags: $TAGS"
-
-                  # Check if specific tag exists using jq
-                  if echo "$TAGS" | jq -e --arg TAG "$RELEASE_TAG" '.tags | index($TAG)' >/dev/null 2>&1; then
-                      if [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
-                          echo "⏭️ FEXBash image already exists: $RELEASE_TAG"
-                          echo "build_fexbash=false" >> $GITHUB_OUTPUT
-                      else
-                          echo "🔄 Force rebuild requested for: $RELEASE_TAG"
-                          echo "build_fexbash=true" >> $GITHUB_OUTPUT
-                      fi
+                  # Method 1: docker manifest inspect (fastest)
+                  if docker manifest inspect "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Method 1 (manifest): Image exists"
+                      IMAGE_EXISTS=true
+                  # Method 2: docker pull test (more reliable)
+                  elif docker pull "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Method 2 (pull): Image exists and accessible"
+                      docker rmi "$IMAGE_FULL" >/dev/null 2>&1 || true
+                      IMAGE_EXISTS=true
                   else
-                      echo "🆕 Will build FEXBash image: $RELEASE_TAG"
+                      echo "❌ Image not found with both methods"
+                      IMAGE_EXISTS=false
+                  fi
+
+                  # Process results
+                  if [ "$IMAGE_EXISTS" = "true" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
+                      echo "⏭️ Skipping build: $RELEASE_TAG"
+                      echo "build_fexbash=false" >> $GITHUB_OUTPUT
+                  else
+                      if [ "${{ github.event.inputs.force_rebuild }}" = "true" ]; then
+                          echo "🔄 Force rebuild requested: $RELEASE_TAG"
+                      else
+                          echo "🆕 Will build: $RELEASE_TAG"
+                      fi
                       echo "build_fexbash=true" >> $GITHUB_OUTPUT
                   fi
 
