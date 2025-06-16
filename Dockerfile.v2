@@ -197,27 +197,39 @@ RUN echo "📦 Starting package installation..." && \
 # Copy ccache binary from build context (matching integrated workflow)
 COPY --from=ccache-binary . /tmp/ccache-binary
 
-# Use system ccache for maximum Ubuntu compatibility (GLIBC compatibility fix)
-RUN echo "📦 Setting up ccache for maximum Ubuntu compatibility..." && \
+# Ubuntu version-aware ccache setup (GLIBC compatibility fix)
+RUN echo "📦 Setting up ccache with Ubuntu version-specific compatibility..." && \
     # Check current GLIBC and system info
     echo "🔍 System information:" && \
     echo "  - GLIBC version: $(ldd --version | head -1)" && \
     echo "  - Ubuntu version: ${ROOTFS_VERSION}" && \
     echo "  - Architecture: $(uname -m)" && \
     \
-    # Force system ccache to avoid GLIBC compatibility issues
-    echo "🔒 Using system ccache for broad compatibility" && \
-    echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
-    \
-    # Verify system ccache functionality
-    if ccache --version >/dev/null 2>&1; then \
-        echo "✅ System ccache working correctly:" && \
-        ccache --version; \
-    else \
-        echo "⚠️ System ccache not available, disabling ccache" && \
-        echo "CCACHE_SOURCE=disabled" > /tmp/ccache-info; \
+    # Safe Ubuntu version detection
+    UBUNTU_VERSION_NUM=$(echo "${ROOTFS_VERSION}" | sed 's/\.//g' | sed 's/[^0-9]//g') && \
+    if [ -z "$UBUNTU_VERSION_NUM" ]; then \
+        UBUNTU_VERSION_NUM="2004" && \
+        echo "⚠️ Could not detect Ubuntu version, defaulting to 20.04 (safe mode)"; \
     fi && \
-    echo "✅ ccache setup completed with maximum compatibility"
+    echo "📊 Detected Ubuntu version number: ${UBUNTU_VERSION_NUM}" && \
+    \
+    # Version-specific ccache policy
+    if [ "$UBUNTU_VERSION_NUM" -le "2004" ]; then \
+        echo "🔒 Ubuntu 20.04 or older detected - DISABLING ccache for GLIBC compatibility" && \
+        echo "🔍 Reason: Ubuntu 20.04 GLIBC 2.31 vs ccache requirement GLIBC 2.33+" && \
+        echo "CCACHE_SOURCE=disabled" > /tmp/ccache-info; \
+    else \
+        echo "🚀 Ubuntu 22.04+ detected - enabling system ccache" && \
+        echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
+        if ccache --version >/dev/null 2>&1; then \
+            echo "✅ System ccache working correctly:" && \
+            ccache --version; \
+        else \
+            echo "⚠️ System ccache not available, disabling ccache" && \
+            echo "CCACHE_SOURCE=disabled" > /tmp/ccache-info; \
+        fi; \
+    fi && \
+    echo "✅ ccache setup completed with version-specific compatibility"
 
 # Copy FEX source and build with comprehensive debugging
 COPY --from=fex-sources / /tmp/fex-source  
