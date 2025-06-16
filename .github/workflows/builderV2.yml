@@ -605,16 +605,17 @@ jobs:
         if: needs.ccache-setup.outputs.should-build == 'true'
 
         steps:
-            - name: Set up build environment
+            - name: Set up build environment with static libraries
               run: |
-                  echo "🔧 Setting up build environment for ARM64..."
+                  echo "🔧 Setting up build environment for ARM64 with static libraries..."
                   sudo apt-get update -qq
                   sudo apt-get install -y --no-install-recommends \
-                    build-essential cmake ninja-build \
-                    libzstd-dev libhiredis-dev \
-                    xz-utils curl wget jq \
-                    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-                  echo "✅ Build environment ready"
+                      build-essential cmake ninja-build \
+                      libzstd-dev libhiredis-dev \
+                      xz-utils curl wget jq \
+                      gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+                      libc6-dev-arm64-cross
+                  echo "✅ Build environment with static libraries ready"
 
             - name: Download ccache source
               run: |
@@ -630,15 +631,29 @@ jobs:
                   echo "✅ Source downloaded and extracted"
                   ls -la "ccache-${VERSION}/"
 
-            - name: Configure ccache build
+            - name: Configure ccache build with version-specific options
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   cd "ccache-${VERSION}"
                   mkdir -p build && cd build
 
-                  echo "⚙️ Configuring cmake for ARM64..."
+                  echo "⚙️ Configuring cmake for multi-version compatibility..."
 
-                  # ARM64 configuration
+                  # Detect target Ubuntu version from matrix
+                  TARGET_VERSION="${{ matrix.ROOTFS_VERSION }}"
+                  UBUNTU_VERSION_NUM=$(echo "${TARGET_VERSION}" | sed 's/\.//g')
+
+                  if [ "${UBUNTU_VERSION_NUM}" -ge "2404" ]; then
+                      echo "🚀 Building for Ubuntu 24.04+ (dynamic linking)"
+                      CMAKE_EXTRA_FLAGS=""
+                  elif [ "${UBUNTU_VERSION_NUM}" -ge "2204" ]; then
+                      echo "🔧 Building for Ubuntu 22.04+ (partial static)"
+                      CMAKE_EXTRA_FLAGS="-DCMAKE_EXE_LINKER_FLAGS='-static-libgcc -static-libstdc++'"
+                  else
+                      echo "🔒 Building for Ubuntu 20.04 (full static)"
+                      CMAKE_EXTRA_FLAGS="-DCMAKE_EXE_LINKER_FLAGS='-static-libgcc -static-libstdc++' -DHIREDIS_USE_STATIC=ON -DZSTD_USE_STATIC=ON -DBUILD_SHARED_LIBS=OFF"
+                  fi
+
                   cmake \
                       -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
                       -DCMAKE_INSTALL_PREFIX=/usr/local \
@@ -649,10 +664,10 @@ jobs:
                       -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
                       -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
                       -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                      ${CMAKE_EXTRA_FLAGS} \
                       -G Ninja ..
 
-
-                  echo "✅ CMake configuration completed"
+                  echo "✅ CMake configuration completed for Ubuntu ${TARGET_VERSION}"
 
             - name: Build ccache
               run: |
