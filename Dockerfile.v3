@@ -279,7 +279,7 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
         apt-get update -qq && \
         echo "📦 Installing minimal runtime packages..." && \
         apt-get install -qq -y --no-install-recommends \
-            squashfs-tools squashfuse sudo \
+            squashfs-tools squashfuse sudo curl \
             libstdc++6 libc6 && \
         echo "✅ Runtime packages installed" && \
         \
@@ -288,16 +288,12 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
         apt-get autoremove -y && \
         apt-get autoclean && \
         rm -rf /var/lib/apt/lists/* /var/tmp/* /var/cache/* && \
-        find /usr/share/doc -depth -type f ! -name copyright -delete 2>/dev/null || true && \
-        find /usr/share/man -depth -type f -delete 2>/dev/null || true && \
-        rm -rf /usr/share/locale/* 2>/dev/null || true && \
-        mkdir -p /usr/share/locale/en_US.UTF-8 2>/dev/null || true && \
         echo "✅ Debian/Ubuntu runtime setup completed successfully"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         echo "🔧 Setting up Fedora runtime environment..." && \
         echo "📦 Installing minimal Fedora runtime packages..." && \
         dnf install -q -y --setopt=install_weak_deps=False \
-            squashfs-tools squashfuse erofs-fuse erofs-utils \
+            squashfs-tools squashfuse erofs-fuse erofs-utils curl \
             sudo util-linux-core libstdc++ glibc && \
         echo "✅ Fedora runtime packages installed" && \
         echo "🧹 Cleaning up Fedora package cache..." && \
@@ -342,7 +338,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
     echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
-    FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
+    FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null && \
     echo "✅ RootFS download and extraction completed" && \
     \
     chown -R fex:fex /home/fex/.fex-emu && \
