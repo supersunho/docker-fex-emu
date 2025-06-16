@@ -340,7 +340,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     if [ "$UBUNTU_VERSION_NUM" -le "2004" ]; then \
         echo "🔧 Ubuntu 20.04 or older: Applying additional system header flags for GLIBC compatibility" && \
         EXTRA_CXX_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -D__USE_MISC -D__USE_POSIX -D__USE_POSIX2" && \
-        EXTRA_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -D__USE_MISC -D__USE_POSIX -D__USE_POSIX2 -std=c++20 -DFEXTL_DISABLE_ASSERTIONS" && \
+        EXTRA_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -D__USE_MISC -D__USE_POSIX -D__USE_POSIX2 -std=c++${LLVM_VERSION} -DFEXTL_DISABLE_ASSERTIONS" && \
         echo "📋 Applied flags: GLIBC compatibility + POSIX headers"; \
     elif [ "$UBUNTU_VERSION_NUM" -le "2204" ]; then \
         echo "🔧 Ubuntu 22.04: Applying basic GNU extension flags for partial compatibility" && \
