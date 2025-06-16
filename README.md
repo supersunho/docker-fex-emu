@@ -1,6 +1,6 @@
 # 🚀 FEXBash Base Images for ARM64
 
-[![Build Status](https://github.com/supersunho/docker-fex-emu/actions/workflows/builderV2.yml/badge.svg)](https://github.com/supersunho/docker-fex-emu/actions)
+[![Build Status](https://github.com/supersunho/docker-fex-emu/actions/workflows/builderV3.yml/badge.svg)](https://github.com/supersunho/docker-fex-emu/actions)
 [![GitHub Release](https://img.shields.io/github/v/release/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/releases/latest)
 [![License](https://img.shields.io/github/license/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/blob/main/LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/stargazers)
@@ -53,7 +53,6 @@ docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.0
 | `latest`       | Multi-platform auto-selection |
 | `ubuntu-24.04` | Ubuntu 24.04 LTS              |
 | `ubuntu-22.04` | Ubuntu 22.04 LTS              |
-| `ubuntu-20.04` | Ubuntu 20.04 LTS              |
 | `fedora-40`    | Fedora 40                     |
 | `fedora-38`    | Fedora 38                     |
 
@@ -111,7 +110,6 @@ ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:fedora-40-fex-25.06
 
 -   **24.04 LTS** (Noble Numbat) - Recommended
 -   **22.04 LTS** (Jammy Jellyfish) - Long-term support
--   **20.04 LTS** (Focal Fossa) - Extended support
 -   **23.10** (Mantic Minotaur) - Recent release
 -   **23.04** (Lunar Lobster) - Previous release
 -   **22.10** (Kinetic Kudu) - Previous release
@@ -249,7 +247,6 @@ We welcome contributions! Please see our [Contributing Guidelines](https://githu
 ### Performance Statistics
 
 -   **Build Time**: ~15-20 minutes (with caching: ~5-8 minutes)
--   **Image Size**: ~200-220MB per distribution
 -   **Cache Hit Rate**: >90% for incremental builds
 -   **Verification Coverage**: 100% automated testing
 -   **EOL Filtering**: Automatic exclusion of unsupported versions
