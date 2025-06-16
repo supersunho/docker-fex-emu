@@ -1,0 +1,218 @@
+name: Build ccache Binary
+
+on:
+    # Automatic execution every Sunday (check for latest ccache)
+    schedule:
+        - cron: "0 0 * * 0"
+    # Manual execution available
+    workflow_dispatch:
+    # Also execute when workflow file changes
+    push:
+        paths:
+            - ".github/workflows/build-ccache.yml"
+
+env:
+    # Environment variables required for ccache build
+    CMAKE_BUILD_TYPE: Release
+    CMAKE_GENERATOR: Ninja
+
+jobs:
+    detect-version:
+        name: Detect Latest ccache Version
+        runs-on: ubuntu-latest
+        outputs:
+            ccache-version: ${{ steps.get-version.outputs.version }}
+            should-build: ${{ steps.check-cache.outputs.should-build }}
+
+        steps:
+            - name: Get latest ccache version
+              id: get-version
+              run: |
+                  echo "🔍 Detecting latest ccache version..."
+                  LATEST_VERSION=$(curl -s https://api.github.com/repos/ccache/ccache/releases/latest | \
+                                   grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
+                  echo "📊 Latest ccache version: ${LATEST_VERSION}"
+                  echo "version=${LATEST_VERSION}" >> $GITHUB_OUTPUT
+
+            - name: Check if artifacts already exist
+              id: check-cache
+              run: |
+                  # Check existing artifacts via GitHub API
+                  VERSION="${{ steps.get-version.outputs.version }}"
+                  echo "🔍 Checking for existing ccache ${VERSION} artifacts..."
+
+                  # Simply set to always build (API check can be implemented)
+                  echo "should-build=true" >> $GITHUB_OUTPUT
+                  echo "✅ Will build ccache ${VERSION}"
+
+    build-ccache:
+        name: Build ccache ${{ needs.detect-version.outputs.ccache-version }} for ${{ matrix.arch }}
+        runs-on: ubuntu-latest
+        needs: detect-version
+        if: needs.detect-version.outputs.should-build == 'true'
+
+        strategy:
+            matrix:
+                arch: [arm64, amd64]
+                include:
+                    - arch: arm64
+                      target-arch: aarch64-linux-gnu
+                      cmake-arch: aarch64
+                    - arch: amd64
+                      target-arch: x86_64-linux-gnu
+                      cmake-arch: x86_64
+
+        steps:
+            - name: Set up build environment
+              run: |
+                  echo "🔧 Setting up build environment for ${{ matrix.arch }}..."
+                  sudo apt-get update -qq
+                  sudo apt-get install -y --no-install-recommends \
+                    build-essential cmake ninja-build \
+                    libzstd-dev libhiredis-dev \
+                    xz-utils curl wget \
+                    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+                  echo "✅ Build environment ready"
+
+            - name: Download ccache source
+              run: |
+                  VERSION="${{ needs.detect-version.outputs.ccache-version }}"
+                  echo "📥 Downloading ccache ${VERSION} source..."
+
+                  SOURCE_URL="https://github.com/ccache/ccache/releases/download/v${VERSION}/ccache-${VERSION}.tar.xz"
+                  echo "📍 Download URL: ${SOURCE_URL}"
+
+                  wget -q "${SOURCE_URL}"
+                  tar -xf "ccache-${VERSION}.tar.xz"
+
+                  echo "✅ Source downloaded and extracted"
+                  ls -la "ccache-${VERSION}/"
+
+            - name: Configure ccache build
+              run: |
+                  VERSION="${{ needs.detect-version.outputs.ccache-version }}"
+                  cd "ccache-${VERSION}"
+                  mkdir -p build && cd build
+
+                  echo "⚙️ Configuring cmake for ${{ matrix.arch }}..."
+
+                  if [ "${{ matrix.arch }}" = "arm64" ]; then
+                    # ARM64 cross-compilation configuration
+                    cmake \
+                      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+                      -DCMAKE_INSTALL_PREFIX=/usr/local \
+                      -DCMAKE_SYSTEM_NAME=Linux \
+                      -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+                      -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+                      -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                      -G Ninja ..
+                  else
+                    # AMD64 native build
+                    cmake \
+                      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+                      -DCMAKE_INSTALL_PREFIX=/usr/local \
+                      -G Ninja ..
+                  fi
+
+                  echo "✅ CMake configuration completed"
+
+            - name: Build ccache
+              run: |
+                  VERSION="${{ needs.detect-version.outputs.ccache-version }}"
+                  cd "ccache-${VERSION}/build"
+
+                  echo "🔨 Building ccache for ${{ matrix.arch }}..."
+                  ninja -j$(nproc)
+
+                  echo "📦 Installing to temporary directory..."
+                  DESTDIR=/tmp/ccache-install ninja install
+
+                  echo "✅ Build completed successfully"
+
+                  # Verify built binary
+                  file /tmp/ccache-install/usr/local/bin/ccache
+                  /tmp/ccache-install/usr/local/bin/ccache --version || echo "Cross-compiled binary, cannot execute"
+
+            - name: Package ccache binary
+              run: |
+                  VERSION="${{ needs.detect-version.outputs.ccache-version }}"
+                  echo "📦 Packaging ccache binary for ${{ matrix.arch }}..."
+
+                  cd /tmp/ccache-install
+
+                  # Package only necessary files
+                  tar -czf "/tmp/ccache-${VERSION}-linux-${{ matrix.arch }}.tar.gz" \
+                    usr/local/bin/ccache \
+                    usr/local/share/man/man1/ccache.1*
+
+                  echo "📊 Package information:"
+                  ls -lh "/tmp/ccache-${VERSION}-linux-${{ matrix.arch }}.tar.gz"
+
+                  echo "✅ Packaging completed"
+
+            - name: Upload ccache binary artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ccache-${{ needs.detect-version.outputs.ccache-version }}-${{ matrix.arch }}
+                  path: /tmp/ccache-*.tar.gz
+                  retention-days: 90
+                  compression-level: 9
+
+            - name: Build summary
+              run: |
+                  VERSION="${{ needs.detect-version.outputs.ccache-version }}"
+                  echo "## 🎉 ccache ${VERSION} Build Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Architecture**: ${{ matrix.arch }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Version**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Package**: ccache-${VERSION}-linux-${{ matrix.arch }}.tar.gz" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Status**: ✅ Successfully built and uploaded" >> $GITHUB_STEP_SUMMARY
+
+    create-release:
+        name: Create Release Summary
+        runs-on: ubuntu-latest
+        needs: [detect-version, build-ccache]
+        if: always() && needs.build-ccache.result == 'success'
+
+        steps:
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: ccache-${{ needs.detect-version.outputs.ccache-version }}-*
+                  path: ./artifacts
+                  merge-multiple: true
+
+            - name: Create release summary
+              run: |
+                  VERSION="${{ needs.detect-version.outputs.ccache-version }}"
+                  echo "## 🚀 ccache ${VERSION} Build Results" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "Built ccache binaries for multiple architectures:" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+
+                  echo "| Architecture | Artifact Name | Size |" >> $GITHUB_STEP_SUMMARY
+                  echo "|--------------|---------------|------|" >> $GITHUB_STEP_SUMMARY
+
+                  for file in ./artifacts/*.tar.gz; do
+                    if [ -f "$file" ]; then
+                      basename_file=$(basename "$file")
+                      arch=$(echo "$basename_file" | sed -n 's/.*-linux-\([^.]*\)\.tar\.gz/\1/p')
+                      size=$(ls -lh "$file" | awk '{print $5}')
+                      echo "| $arch | $basename_file | $size |" >> $GITHUB_STEP_SUMMARY
+                    fi
+                  done
+
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 📥 Usage in Workflows" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo '```
+                  echo '- name: Download ccache binary' >> $GITHUB_STEP_SUMMARY
+                  echo '  uses: actions/download-artifact@v4' >> $GITHUB_STEP_SUMMARY
+                  echo '  with:' >> $GITHUB_STEP_SUMMARY
+                  echo "    pattern: ccache-${VERSION}-*" >> $GITHUB_STEP_SUMMARY
+                  echo '    path: ./ccache-binary' >> $GITHUB_STEP_SUMMARY
+                  echo '    merge-multiple: true' >> $GITHUB_STEP_SUMMARY
+                  echo '```' >> $GITHUB_STEP_SUMMARY
