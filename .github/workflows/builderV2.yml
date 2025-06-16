@@ -44,6 +44,24 @@ on:
                 default: false
                 type: boolean
 
+            # ccache version management inputs
+            ccache_version:
+                description: "Specific ccache version (leave empty for latest)"
+                required: false
+                default: ""
+                type: string
+
+            ccache_strategy:
+                description: "ccache version strategy"
+                required: false
+                default: "auto-latest"
+                type: choice
+                options:
+                    - "auto-latest" # Use latest version automatically
+                    - "stable" # Use stable version
+                    - "fallback" # Use fallback version
+                    - "manual" # Manual version specification
+
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
@@ -52,6 +70,11 @@ env:
     REGISTRY: ghcr.io
     IMAGE_NAME: ${{ github.repository }}/${{ github.event.repository.name }}
     LLVM_VERSION: "18"
+
+    # ccache version management environment variables
+    STABLE_CCACHE_VERSION: "4.11.3"
+    FALLBACK_CCACHE_VERSION: "4.10.2"
+    BLACKLISTED_CCACHE_VERSIONS: "4.8.0,4.7.4"
 
 jobs:
     generate-eol-list:
@@ -185,6 +208,7 @@ jobs:
                           ((.eol | strptime("%Y-%m-%d") | mktime) > (($current_date | strptime("%Y-%m-%d") | mktime) - (730 * 24 * 3600)))
                       ) | 
                       "  - " + .cycle + " (EOL: " + .eol + ")"'
+
     fetch-rootfs-matrix:
         runs-on: [self-hosted, linux, arm64]
         outputs:
@@ -437,9 +461,113 @@ jobs:
 
                   echo "📋 Target version: $VERSION (Semantic: $FEX_SEMANTIC)"
 
-    # Native ARM64 build
+    # ccache version management job
+    ccache-setup:
+        runs-on: [self-hosted, linux, arm64]
+        outputs:
+            ccache-version: ${{ steps.final-version.outputs.version }}
+            ccache-strategy: ${{ steps.strategy.outputs.strategy }}
+            use-prebuilt: ${{ steps.download-check.outputs.success }}
+        steps:
+            - name: Determine ccache version strategy
+              id: strategy
+              run: |
+                  echo "🔍 Determining ccache version strategy..."
+
+                  MANUAL_VERSION="${{ github.event.inputs.ccache_version }}"
+                  STRATEGY="${{ github.event.inputs.ccache_strategy }}"
+
+                  # Default strategy for scheduled builds
+                  if [ -z "$STRATEGY" ]; then
+                      STRATEGY="auto-latest"
+                  fi
+
+                  if [ -n "$MANUAL_VERSION" ]; then
+                      echo "📌 Using manually specified version: ${MANUAL_VERSION}"
+                      echo "strategy=manual" >> $GITHUB_OUTPUT
+                      echo "version=${MANUAL_VERSION}" >> $GITHUB_OUTPUT
+                  else
+                      echo "🔄 Using strategy: ${STRATEGY}"
+                      echo "strategy=${STRATEGY}" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Get latest ccache version
+              id: latest-version
+              if: steps.strategy.outputs.strategy != 'manual'
+              run: |
+                  echo "🔍 Detecting latest ccache version..."
+                  LATEST_VERSION=$(curl -s https://api.github.com/repos/ccache/ccache/releases/latest | \
+                                   grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
+
+                  if [ -n "$LATEST_VERSION" ]; then
+                      echo "📊 Latest ccache version: ${LATEST_VERSION}"
+                      echo "version=${LATEST_VERSION}" >> $GITHUB_OUTPUT
+                      echo "available=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "⚠️ Failed to detect latest version"
+                      echo "available=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Finalize ccache version
+              id: final-version
+              run: |
+                  STRATEGY="${{ steps.strategy.outputs.strategy }}"
+
+                  case "$STRATEGY" in
+                      "manual")
+                          FINAL_VERSION="${{ steps.strategy.outputs.version }}"
+                          echo "📌 Final version (manual): ${FINAL_VERSION}"
+                          ;;
+                      "auto-latest")
+                          if [ "${{ steps.latest-version.outputs.available }}" = "true" ]; then
+                              FINAL_VERSION="${{ steps.latest-version.outputs.version }}"
+                              echo "✅ Final version (auto-latest): ${FINAL_VERSION}"
+                          else
+                              FINAL_VERSION="${{ env.STABLE_CCACHE_VERSION }}"
+                              echo "🔒 Latest unavailable, using stable: ${FINAL_VERSION}"
+                          fi
+                          ;;
+                      "stable")
+                          FINAL_VERSION="${{ env.STABLE_CCACHE_VERSION }}"
+                          echo "🔒 Final version (stable): ${FINAL_VERSION}"
+                          ;;
+                      "fallback")
+                          FINAL_VERSION="${{ env.FALLBACK_CCACHE_VERSION }}"
+                          echo "🔒 Final version (fallback): ${FINAL_VERSION}"
+                          ;;
+                  esac
+
+                  echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
+                  echo "📋 Using ccache version: ${FINAL_VERSION}"
+
+            - name: Check ccache artifact availability
+              id: download-check
+              run: |
+                  TARGET_VERSION="${{ steps.final-version.outputs.version }}"
+                  ARCH="arm64"
+
+                  echo "📥 Checking ccache-${TARGET_VERSION}-${ARCH} artifact availability..."
+
+                  # Check artifact existence via GitHub API
+                  REPO="${{ github.repository }}"
+                  TOKEN="${{ secrets.GITHUB_TOKEN }}"
+
+                  ARTIFACTS_RESPONSE=$(curl -s -H "Authorization: token ${TOKEN}" \
+                    "https://api.github.com/repos/${REPO}/actions/artifacts?name=ccache-${TARGET_VERSION}-${ARCH}")
+
+                  ARTIFACT_COUNT=$(echo "$ARTIFACTS_RESPONSE" | jq '.artifacts | length')
+
+                  if [ "$ARTIFACT_COUNT" -gt 0 ]; then
+                      echo "✅ Prebuilt ccache ${TARGET_VERSION} artifact found"
+                      echo "success=true" >> $GITHUB_OUTPUT
+                  else
+                      echo "⚠️ Prebuilt ccache ${TARGET_VERSION} artifact not found"
+                      echo "success=false" >> $GITHUB_OUTPUT
+                  fi
+
+    # Native ARM64 build with ccache integration
     build-arm:
-        needs: [fetch-rootfs-matrix, check-and-prepare, generate-eol-list]
+        needs: [fetch-rootfs-matrix, check-and-prepare, generate-eol-list, ccache-setup]
         runs-on: [self-hosted, linux, arm64]
         permissions:
             contents: read
@@ -555,19 +683,51 @@ jobs:
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-source.outputs.cache-hit != 'true'
               run: |
                   rm -rf /tmp/fex-source && git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
-            # 기존 "Build and push" 단계 수정
-            - name: Set up ccache
+
+            # Download prebuilt ccache binary if available
+            - name: Download prebuilt ccache binary
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && needs.ccache-setup.outputs.use-prebuilt == 'true'
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-arm64
+                  path: ./ccache-binary
+                  merge-multiple: true
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  repository: ${{ github.repository }}
+
+            # Install prebuilt ccache or fallback to system ccache
+            - name: Install prebuilt ccache or fallback to system
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  if [ "${{ needs.ccache-setup.outputs.use-prebuilt }}" = "true" ] && [ -d "./ccache-binary" ]; then
+                      echo "📦 Installing prebuilt ccache ${{ needs.ccache-setup.outputs.ccache-version }}..."
+                      cd ./ccache-binary
+                      tar -xzf ccache-*.tar.gz -C /
+                      chmod +x /usr/local/bin/ccache
+                      echo "✅ Prebuilt ccache installed successfully"
+                      /usr/local/bin/ccache --version
+                      echo "CCACHE_PREBUILT=true" >> $GITHUB_ENV
+                  else
+                      echo "🔄 Using system ccache or hendrikmuhs action"
+                      echo "Will use ccache from hendrikmuhs/ccache-action@v1.2"
+                      echo "CCACHE_PREBUILT=false" >> $GITHUB_ENV
+                  fi
+
+            # Set up ccache (only if prebuilt not available)
+            - name: Set up ccache
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && env.CCACHE_PREBUILT != 'true'
               uses: hendrikmuhs/ccache-action@v1.2
               with:
                   key: ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}
                   restore-keys: |
                       ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-fex-${{ needs.check-and-prepare.outputs.fex_semantic }}-
                       ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
+
             - name: Record build timing
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
             - name: Build and push ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               id: build
@@ -604,17 +764,27 @@ jobs:
               run: |
                   echo "❌ Build failed for ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}"
                   exit 1
+
             - name: Calculate build duration
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   BUILD_END_TIME=$(date +%s)
                   DURATION=$((BUILD_END_TIME - BUILD_START_TIME))
                   echo "⏱️ Build duration: ${DURATION} seconds ($((DURATION / 60)) minutes)"
+                  echo "🔧 ccache strategy used: ${{ needs.ccache-setup.outputs.ccache-strategy }}"
+                  echo "📦 ccache version: ${{ needs.ccache-setup.outputs.ccache-version }}"
+
             - name: Show ccache statistics
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   echo "=== ccache Build Statistics ==="
-                  ccache --show-stats || echo "ccache stats not available"
+                  if [ "${{ env.CCACHE_PREBUILT }}" = "true" ]; then
+                      echo "Using prebuilt ccache ${{ needs.ccache-setup.outputs.ccache-version }}"
+                      /usr/local/bin/ccache --show-stats || echo "ccache stats not available"
+                  else
+                      echo "Using system/hendrikmuhs ccache"
+                      ccache --show-stats || echo "ccache stats not available"
+                  fi
                   echo "Cache directory size: $(du -sh ~/.ccache 2>/dev/null || echo 'unknown')"
 
             - name: Verify ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} binary
@@ -859,14 +1029,17 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     build-summary:
-        needs: [fetch-rootfs-matrix, check-and-prepare, build-arm, merge-manifests, create-release]
+        needs: [fetch-rootfs-matrix, check-and-prepare, build-arm, merge-manifests, create-release, ccache-setup]
         if: always()
         runs-on: [self-hosted, linux, arm64]
         steps:
             - name: Generate Build Summary
               run: |
-                  echo "## 🚀 FEX-Emu Multi-Platform Container Build Results" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
+                  cat >> $GITHUB_STEP_SUMMARY << 'EOL'
+                  ## 🚀 FEX-Emu Multi-Platform Container Build Results
+
+                  EOL
+
                   echo "**FEX Version**: ${{ needs.check-and-prepare.outputs.version }} (Semantic: ${{ needs.check-and-prepare.outputs.fex_semantic }})" >> $GITHUB_STEP_SUMMARY
                   echo "**Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
                   echo "**Build Strategy**: API-driven dynamic matrix with selective build scope management" >> $GITHUB_STEP_SUMMARY
@@ -875,6 +1048,7 @@ jobs:
                   echo "**RootFS Management**: Automated FEXRootFSFetcher with API-driven distribution detection" >> $GITHUB_STEP_SUMMARY
                   echo "**Optimization Level**: LTO enabled for maximum performance" >> $GITHUB_STEP_SUMMARY
                   echo "**Matrix Generation**: Dynamic detection from FEX RootFS API with selective build options" >> $GITHUB_STEP_SUMMARY
+                  echo "**ccache Strategy**: ${{ needs.ccache-setup.outputs.ccache-strategy }} (Version: ${{ needs.ccache-setup.outputs.ccache-version }})" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Determine build scope
@@ -933,6 +1107,7 @@ jobs:
                   echo "- **LTO Compilation**: Link-time optimization for maximum runtime performance" >> $GITHUB_STEP_SUMMARY
                   echo "- **Advanced Caching**: Multi-layer caching strategy optimized for cross-distribution builds" >> $GITHUB_STEP_SUMMARY
                   echo "- **Native Execution**: High-performance x86 emulation through FEX on ARM" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Hybrid ccache Management**: ${{ needs.ccache-setup.outputs.ccache-strategy }} strategy with version ${{ needs.ccache-setup.outputs.ccache-version }}" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   echo "### 🎯 Build Scope Information" >> $GITHUB_STEP_SUMMARY
@@ -966,6 +1141,7 @@ jobs:
                   echo "- **Verification Coverage**: 100% automated testing for all generated images" >> $GITHUB_STEP_SUMMARY
                   echo "- **Architecture Support**: ARM64 native with x86 emulation capability" >> $GITHUB_STEP_SUMMARY
                   echo "- **FEX Version**: ${{ needs.check-and-prepare.outputs.fex_semantic }} (${{ needs.check-and-prepare.outputs.version }})" >> $GITHUB_STEP_SUMMARY
+                  echo "- **ccache Performance**: ${{ needs.ccache-setup.outputs.use-prebuilt == 'true' && 'Prebuilt binary used' || 'System/Action fallback used' }}" >> $GITHUB_STEP_SUMMARY
                   MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
                   MATRIX_SIZE=$(echo "$MATRIX" | jq '.include | length')
                   echo "- **Matrix Size**: $MATRIX_SIZE distributions automatically detected and built" >> $GITHUB_STEP_SUMMARY

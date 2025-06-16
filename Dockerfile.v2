@@ -52,45 +52,6 @@ RUN echo "📦 Starting package installation..." && \
             gnupg gnupg2 gpg-agent dirmngr ca-certificates && \
         echo "✅ Base packages installed successfully" && \
         \
-        # Prerequisites installation for ccache source compilation
-        echo "🔧 Installing build prerequisites..." && \
-        apt-get update -qq > /dev/null 2>&1 && \
-        apt-get install -qq -y xz-utils build-essential cmake libzstd-dev > /dev/null 2>&1 && \
-        echo "✅ Build prerequisites installed" && \
-        \
-        # ccache version check and upgrade
-        echo "🔍 Checking ccache version..." && \
-        ccache --version && \
-        CCACHE_VERSION=$(ccache --version | head -1 | grep -o '[0-9]\+\.[0-9]\+' | head -1) && \
-        echo "📊 Current ccache version: ${CCACHE_VERSION}" && \
-        # Auto-detect and install latest ccache version
-        echo "🔍 Detecting latest ccache version..." && \
-        # Get latest release information via GitHub API
-        LATEST_RELEASE=$(curl -s https://api.github.com/repos/ccache/ccache/releases/latest) && \
-        LATEST_VERSION=$(echo "$LATEST_RELEASE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//') && \
-        echo "📊 Latest ccache version detected: ${LATEST_VERSION}" && \
-        \
-        # Architecture detection
-        ARCH=$(uname -m) && \
-        if [ "$ARCH" = "aarch64" ]; then CCACHE_ARCH="arm64"; else CCACHE_ARCH="x86_64"; fi && \
-        echo "🔍 Target architecture: ${CCACHE_ARCH}" && \
-        \
-        # For ARM64, build from source (precompiled binaries often unavailable)
-        echo "🔨 Building ccache ${LATEST_VERSION} from source for ARM64..." && \
-        SOURCE_URL="https://github.com/ccache/ccache/releases/download/v${LATEST_VERSION}/ccache-${LATEST_VERSION}.tar.xz" && \
-        echo "📥 Downloading source from: ${SOURCE_URL}" && \
-        wget -q "$SOURCE_URL" && \
-        tar -xf "ccache-${LATEST_VERSION}.tar.xz" && \
-        cd "ccache-${LATEST_VERSION}" && \
-        mkdir build && cd build && \
-        cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
-        make -j$(nproc) && \
-        make install && \
-        cd ../.. && \
-        rm -rf "ccache-${LATEST_VERSION}"* && \
-        echo "✅ Latest ccache ${LATEST_VERSION} installed successfully" && \
-        /usr/local/bin/ccache --version && \
-        \
         # LLVM installation with debugging
         if [ "${ROOTFS_OS}" = "ubuntu" ]; then \
             echo "🔍 Processing Ubuntu-specific configuration..." && \
@@ -217,6 +178,27 @@ RUN echo "📦 Starting package installation..." && \
     fi && \
     echo "🎉 All package installation completed!"
 
+# Install prebuilt ccache from artifact with fallback
+RUN echo "📦 Setting up ccache from artifact with fallback..." && \
+    # Check if prebuilt ccache artifact is available
+    if [ -d "/ccache-binary" ] && ls /ccache-binary/ccache-*.tar.gz >/dev/null 2>&1; then \
+        echo "✅ Prebuilt ccache artifact found, installing..." && \
+        tar -xzf /ccache-binary/ccache-*.tar.gz -C / && \
+        chmod +x /usr/local/bin/ccache && \
+        echo "📊 Prebuilt ccache version installed:" && \
+        /usr/local/bin/ccache --version && \
+        echo "CCACHE_SOURCE=prebuilt" > /tmp/ccache-info; \
+    else \
+        echo "⚠️ Prebuilt ccache not available, using system ccache" && \
+        echo "📊 System ccache version:" && \
+        ccache --version && \
+        echo "CCACHE_SOURCE=system" > /tmp/ccache-info; \
+    fi && \
+    echo "✅ ccache setup completed"
+
+# Copy ccache binary from build context (conditional)
+COPY --from=ccache-binary . /ccache-binary
+
 # Copy FEX source and build with comprehensive debugging
 COPY --from=fex-sources / /tmp/fex-source  
 RUN --mount=type=cache,target=/tmp/.ccache \
@@ -228,16 +210,19 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "✅ Qt command compatibility fixed" && \
     \
     # Method 2: Set Qt 5.15 environment for CMake
-    if [ "${UBUNTU_VERSION_NUM}" -eq "2004" ]; then \
+    if [ "${UBUNTU_VERSION_NUM:-}" -eq "2004" ]; then \
         source /opt/qt515/bin/qt515-env.sh 2>/dev/null || true && \
         export CMAKE_PREFIX_PATH="/opt/qt515:$CMAKE_PREFIX_PATH" && \
         export Qt5_DIR="/opt/qt515/lib/cmake/Qt5" && \
         echo "✅ Qt 5.15 environment configured for CMake"; \
     fi && \
     \
+    # Check ccache source and setup
+    . /tmp/ccache-info && \
     echo "📊 Build environment summary:" && \
     echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
     echo "  - CCACHE_DIR: ${CCACHE_DIR}" && \
+    echo "  - CCACHE_SOURCE: ${CCACHE_SOURCE}" && \
     echo "  - LLVM_VERSION: ${LLVM_VERSION}" && \
     \
     mkdir -p Build && cd Build && \
@@ -251,7 +236,14 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CCACHE_MAXSIZE=2G && \
         export CCACHE_COMPRESS=1 && \
         export CCACHE_SLOPPINESS=pch_defines,time_macros && \
-        ccache --zero-stats && \
+        # Use appropriate ccache binary
+        if [ "$CCACHE_SOURCE" = "prebuilt" ]; then \
+            echo "📦 Using prebuilt ccache binary" && \
+            /usr/local/bin/ccache --zero-stats; \
+        else \
+            echo "🔄 Using system ccache" && \
+            ccache --zero-stats; \
+        fi && \
         echo "✅ ccache enabled with directory: $CCACHE_DIR"; \
     else \
         echo "ℹ️ ccache disabled for this build"; \
@@ -283,7 +275,13 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     # Build FEX with conditional ccache
     echo "⚙️ Running CMake configuration..." && \
     if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
-        echo "🚀 Building with ccache acceleration..." && \
+        echo "🚀 Building with ccache acceleration (${CCACHE_SOURCE})..." && \
+        # Set ccache launcher based on source
+        if [ "$CCACHE_SOURCE" = "prebuilt" ]; then \
+            CCACHE_LAUNCHER="/usr/local/bin/ccache"; \
+        else \
+            CCACHE_LAUNCHER="ccache"; \
+        fi && \
         cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
             -DCMAKE_BUILD_TYPE=Release \
@@ -293,8 +291,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_ASSERTIONS=False \
             -DCMAKE_C_COMPILER=$CC_COMPILER \
             -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_COMPILER_LAUNCHER=$CCACHE_LAUNCHER \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=$CCACHE_LAUNCHER \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
@@ -324,13 +322,17 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     \
     # Show ccache statistics if enabled
     if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
-        echo "📊 ccache Statistics:" && \
-        ccache --show-stats && \
+        echo "📊 ccache Statistics (${CCACHE_SOURCE}):" && \
+        if [ "$CCACHE_SOURCE" = "prebuilt" ]; then \
+            /usr/local/bin/ccache --show-stats; \
+        else \
+            ccache --show-stats; \
+        fi && \
         echo "💾 ccache directory size: $(du -sh /tmp/.ccache 2>/dev/null || echo 'unknown')"; \
     fi && \
     \
     echo "🧹 Cleaning up build artifacts..." && \
-    rm -rf /tmp/fex-source && \
+    rm -rf /tmp/fex-source /tmp/ccache-info /ccache-binary && \
     echo "🎉 FEX build completed successfully!"
 
 #==============================================
