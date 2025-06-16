@@ -1,9 +1,9 @@
-name: FEXBash Builder V2
+name: FEXBash Builder V3
 
 on:
     # Daily automatic builds (Latest candidates only)
-    # schedule:
-    #     - cron: "0 0 * * *"
+    schedule:
+        - cron: "0 0 * * *"
 
     # Manual trigger (Selective builds)
     workflow_dispatch:
@@ -15,9 +15,9 @@ on:
                 type: choice
                 options:
                     - "latest-only" # Latest candidates only (Ubuntu 24.04, Fedora 40)
-                    - "ubuntu-all" # All Ubuntu versions
+                    - "ubuntu-all" # All Ubuntu versions (22.04+)
                     - "fedora-all" # All Fedora versions
-                    - "full-matrix" # Complete SquashFS build (Ubuntu and Fedora only)
+                    - "full-matrix" # Complete SquashFS build (Ubuntu 22.04+ and Fedora only)
                     - "custom" # Custom selection
 
             custom_distros:
@@ -44,7 +44,7 @@ on:
                 default: false
                 type: boolean
 
-            # ccache version management inputs (enhanced)
+            # ccache version management inputs (simplified)
             ccache_version:
                 description: "Specific ccache version (leave empty for latest)"
                 required: false
@@ -59,7 +59,6 @@ on:
                 options:
                     - "auto-latest" # Use latest version automatically
                     - "stable" # Use stable version
-                    - "fallback" # Use fallback version
                     - "manual" # Manual version specification
 
             ccache_force_rebuild:
@@ -80,9 +79,8 @@ env:
     # ccache version management environment variables
     STABLE_CCACHE_VERSION: "4.11.3"
     FALLBACK_CCACHE_VERSION: "4.10.2"
-    BLACKLISTED_CCACHE_VERSIONS: "4.8.0,4.7.4"
 
-    # ccache build environment variables (from first workflow)
+    # ccache build environment variables
     CMAKE_BUILD_TYPE: Release
     CMAKE_GENERATOR: Ninja
 
@@ -131,6 +129,19 @@ jobs:
                       fi
                   done
 
+                  # FORCE ADD Ubuntu 20.04 to EOL list (FEX compatibility issues)
+                  echo "🔒 Force adding Ubuntu 20.04 to EOL list due to FEX-Emu compatibility issues"
+                  if ! echo "|$UBUNTU_EOL_LIST|" | grep -q "|20.04|"; then
+                      if [ -z "$UBUNTU_EOL_LIST" ]; then
+                          UBUNTU_EOL_LIST="20.04"
+                      else
+                          UBUNTU_EOL_LIST="20.04|$UBUNTU_EOL_LIST"
+                      fi
+                      echo "✅ Ubuntu 20.04 added to EOL list"
+                  else
+                      echo "ℹ️ Ubuntu 20.04 already in EOL list"
+                  fi
+
                   # Fedora: Get SUPPORTED versions first, then exclude them from all versions
                   echo "🎩 Processing Fedora versions..."
 
@@ -159,10 +170,10 @@ jobs:
                       fi
                   done
 
-                  # Fallback lists if API fails
+                  # Updated fallback lists with Ubuntu 20.04 included
                   if [ -z "$UBUNTU_EOL_LIST" ] || [ "$UBUNTU_EOL_LIST" = "" ]; then
-                      echo "⚠️ Ubuntu API failed, using fallback EOL list"
-                      UBUNTU_EOL_LIST="23.10|23.04|22.10|21.10|21.04|20.10|19.10|19.04|18.10|17.10|17.04|16.10|15.10|15.04|14.10|13.10|13.04|12.10|11.10|11.04|10.10|9.10|9.04|8.10|7.10|7.04|6.10|5.10|5.04|4.10"
+                      echo "⚠️ Ubuntu API failed, using fallback EOL list (including 20.04)"
+                      UBUNTU_EOL_LIST="20.04|23.10|23.04|22.10|21.10|21.04|20.10|19.10|19.04|18.10|17.10|17.04|16.10|15.10|15.04|14.10|13.10|13.04|12.10|11.10|11.04|10.10|9.10|9.04|8.10|7.10|7.04|6.10|5.10|5.04|4.10"
                   fi
 
                   if [ -z "$FEDORA_EOL_LIST" ] || [ "$FEDORA_EOL_LIST" = "" ]; then
@@ -180,7 +191,7 @@ jobs:
                   echo "ubuntu-count=$UBUNTU_COUNT" >> $GITHUB_OUTPUT
                   echo "fedora-count=$FEDORA_COUNT" >> $GITHUB_OUTPUT
 
-                  echo "✅ Ubuntu: Found $UBUNTU_COUNT EOL versions to filter:"
+                  echo "✅ Ubuntu: Found $UBUNTU_COUNT EOL versions to filter (including forced 20.04):"
                   if [ -n "$UBUNTU_EOL_LIST" ]; then
                       echo "$UBUNTU_EOL_LIST" | tr '|' '\n' | sed 's/^/  - /'
                   fi
@@ -190,34 +201,11 @@ jobs:
                       echo "$FEDORA_EOL_LIST" | tr '|' '\n' | sed 's/^/  - /'
                   fi
 
-                  # Debug: Show currently supported versions
-                  echo "🟢 Currently supported versions (output):"
-                  echo "Ubuntu:"
-                  echo "$SUPPORTED_UBUNTU" | sed 's/^/  - /'
-
-                  echo "Fedora:"
-                  echo "$SUPPORTED_FEDORA" | sed 's/^/  - /'
-
-                  # Debug: Show currently supported versions
-                  echo "🟢 Currently supported versions (json):"
-                  echo "Ubuntu:"
-                  curl -s https://endoflife.date/api/ubuntu.json | \
-                      jq -r --arg current_date "$CURRENT_DATE" '
-                      .[] | 
-                      select(
-                          (.eol | type == "string" and . >= $current_date) or
-                          ((.extendedSupport | type == "string") and .extendedSupport >= $current_date)
-                      ) | 
-                      "  - " + .cycle + " (EOL: " + .eol + ", Extended: " + (.extendedSupport | tostring) + ")"'
-                  echo "Fedora:"
-                  curl -s https://endoflife.date/api/fedora.json | \
-                      jq -r --arg current_date "$CURRENT_DATE" '
-                      .[] | 
-                      select(
-                          (.eol | type == "string") and 
-                          ((.eol | strptime("%Y-%m-%d") | mktime) > (($current_date | strptime("%Y-%m-%d") | mktime) - (730 * 24 * 3600)))
-                      ) | 
-                      "  - " + .cycle + " (EOL: " + .eol + ")"'
+                  # Debug: Show forced exclusion reason
+                  echo "🚨 Ubuntu 20.04 Exclusion Reason:"
+                  echo "  - FEX-Emu compatibility: Global namespace and GLIBC issues"
+                  echo "  - GitHub Actions deprecation: Ubuntu 20.04 support ending"
+                  echo "  - Official FEX project migration: Moved to Ubuntu 22.04+"
 
     fetch-rootfs-matrix:
         runs-on: [self-hosted, linux, arm64]
@@ -248,7 +236,7 @@ jobs:
 
                   case "$BUILD_SCOPE" in
                       "latest-only")
-                      echo "📦 Building latest candidates only (Ubuntu and Fedora)"
+                      echo "📦 Building latest candidates only (Ubuntu 24.04, Fedora 40)"
                       MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
@@ -278,7 +266,7 @@ jobs:
                       ;;
                       
                       "ubuntu-all")
-                      echo "🐧 Building all Ubuntu versions"
+                      echo "🐧 Building all Ubuntu versions (22.04+ only)"
                       MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
@@ -318,7 +306,7 @@ jobs:
                       ;;
                       
                       "full-matrix")
-                      echo "🌍 Building all SquashFS distributions (Ubuntu and Fedora only)"
+                      echo "🌍 Building all SquashFS distributions (Ubuntu 22.04+ and Fedora only)"
                       MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
@@ -349,7 +337,7 @@ jobs:
                       ;;
                       
                       "custom")
-                      echo "🎨 Building custom distributions (Ubuntu and Fedora only)"
+                      echo "🎨 Building custom distributions (Ubuntu 22.04+ and Fedora only)"
                       CUSTOM_DISTROS="${{ github.event.inputs.custom_distros }}"
                       if [ -z "$CUSTOM_DISTROS" ]; then
                           echo "❌ Custom distributions not specified"
@@ -364,9 +352,15 @@ jobs:
                           OS="${PARTS[0]}"
                           VERSION="${PARTS[1]}"
                           
-                          # Only support Ubuntu and Fedora
+                          # Only support Ubuntu 22.04+ and Fedora
                           if [ "$OS" != "ubuntu" ] && [ "$OS" != "fedora" ]; then
-                              echo "❌ Unsupported OS: $OS (only ubuntu and fedora supported)"
+                              echo "❌ Unsupported OS: $OS (only ubuntu 22.04+ and fedora supported)"
+                              continue
+                          fi
+                          
+                          # Block Ubuntu 20.04 explicitly
+                          if [ "$OS" = "ubuntu" ] && [ "$VERSION" = "20.04" ]; then
+                              echo "❌ Ubuntu 20.04 not supported (FEX compatibility issues)"
                               continue
                           fi
                           
@@ -471,7 +465,7 @@ jobs:
 
                   echo "📋 Target version: $VERSION (Semantic: $FEX_SEMANTIC)"
 
-    # Enhanced ccache version management job (integrated from first workflow)
+    # Simplified ccache version management job
     ccache-setup:
         runs-on: [self-hosted, linux, arm64]
         outputs:
@@ -542,16 +536,12 @@ jobs:
                           FINAL_VERSION="${{ env.STABLE_CCACHE_VERSION }}"
                           echo "🔒 Final version (stable): ${FINAL_VERSION}"
                           ;;
-                      "fallback")
-                          FINAL_VERSION="${{ env.FALLBACK_CCACHE_VERSION }}"
-                          echo "🔒 Final version (fallback): ${FINAL_VERSION}"
-                          ;;
                   esac
 
                   echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
                   echo "📋 Using ccache version: ${FINAL_VERSION}"
 
-            - name: Check if artifacts already exist (integrated from first workflow)
+            - name: Check if artifacts already exist
               id: check-artifacts
               run: |
                   VERSION="${{ steps.final-version.outputs.version }}"
@@ -597,17 +587,16 @@ jobs:
 
                   echo "artifacts-exist=${ARTIFACTS_EXIST}" >> $GITHUB_OUTPUT
 
-    # New ccache build job (integrated from first workflow)
+    # Simplified ccache build job (Ubuntu 22.04+ optimized)
     build-ccache:
         name: Build ccache ${{ needs.ccache-setup.outputs.ccache-version }} for ARM64
         runs-on: [self-hosted, linux, arm64]
         needs: ccache-setup
         if: needs.ccache-setup.outputs.should-build == 'true'
-
         steps:
-            - name: Set up build environment with static libraries
+            - name: Set up build environment for ARM64
               run: |
-                  echo "🔧 Setting up build environment for ARM64 with static libraries..."
+                  echo "🔧 Setting up build environment for ARM64..."
                   sudo apt-get update -qq
                   sudo apt-get install -y --no-install-recommends \
                       build-essential cmake ninja-build \
@@ -615,7 +604,7 @@ jobs:
                       xz-utils curl wget jq \
                       gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
                       libc6-dev-arm64-cross
-                  echo "✅ Build environment with static libraries ready"
+                  echo "✅ Build environment ready"
 
             - name: Download ccache source
               run: |
@@ -631,82 +620,28 @@ jobs:
                   echo "✅ Source downloaded and extracted"
                   ls -la "ccache-${VERSION}/"
 
-            - name: Configure ccache build with version-specific options
+            - name: Configure ccache build (Ubuntu 22.04+ optimized)
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   cd "ccache-${VERSION}"
                   mkdir -p build && cd build
 
-                  echo "⚙️ Configuring cmake for multi-version compatibility..."
+                  echo "⚙️ Configuring cmake for Ubuntu 22.04+ compatibility..."
 
-                  # Get target Ubuntu version from build context (fallback to 20.04)
-                  TARGET_VERSION="${{ matrix.ROOTFS_VERSION }}"
-                  if [ -z "$TARGET_VERSION" ]; then
-                      TARGET_VERSION="20.04"
-                      echo "⚠️ ROOTFS_VERSION not found, defaulting to 20.04"
-                  fi
+                  # Simplified build configuration (no complex version checking)
+                  cmake \
+                      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+                      -DCMAKE_INSTALL_PREFIX=/usr/local \
+                      -DCMAKE_SYSTEM_NAME=Linux \
+                      -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+                      -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+                      -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                      -G Ninja ..
 
-                  echo "🔍 Target Ubuntu version: ${TARGET_VERSION}"
-
-                  # Convert version to numeric (handle dots properly)
-                  UBUNTU_VERSION_NUM=$(echo "${TARGET_VERSION}" | sed 's/\.//g' | sed 's/[^0-9]//g')
-
-                  # Validate numeric conversion
-                  if [ -z "$UBUNTU_VERSION_NUM" ] || ! echo "$UBUNTU_VERSION_NUM" | grep -q '^[0-9]\+$'; then
-                      echo "⚠️ Invalid version format, defaulting to 2004"
-                      UBUNTU_VERSION_NUM="2004"
-                  fi
-
-                  echo "📊 Numeric version: ${UBUNTU_VERSION_NUM}"
-
-                  # Configure build based on Ubuntu version
-                  if [ "$UBUNTU_VERSION_NUM" -ge "2404" ]; then
-                      echo "🚀 Building for Ubuntu 24.04+ (dynamic linking)"
-                      cmake \
-                          -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-                          -DCMAKE_INSTALL_PREFIX=/usr/local \
-                          -DCMAKE_SYSTEM_NAME=Linux \
-                          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-                          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-                          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-                          -G Ninja ..
-                  elif [ "$UBUNTU_VERSION_NUM" -ge "2204" ]; then
-                      echo "🔧 Building for Ubuntu 22.04+ (partial static linking)"
-                      cmake \
-                          -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-                          -DCMAKE_INSTALL_PREFIX=/usr/local \
-                          -DCMAKE_SYSTEM_NAME=Linux \
-                          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-                          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-                          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-                          -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
-                          -G Ninja ..
-                  else
-                      echo "🔒 Building for Ubuntu 20.04 (full static linking)"
-                      cmake \
-                          -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-                          -DCMAKE_INSTALL_PREFIX=/usr/local \
-                          -DCMAKE_SYSTEM_NAME=Linux \
-                          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-                          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-                          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-                          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-                          -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
-                          -DHIREDIS_USE_STATIC=ON \
-                          -DZSTD_USE_STATIC=ON \
-                          -DBUILD_SHARED_LIBS=OFF \
-                          -G Ninja ..
-                  fi
-
-                  echo "✅ CMake configuration completed for Ubuntu ${TARGET_VERSION}"
+                  echo "✅ CMake configuration completed for modern systems"
 
             - name: Build ccache
               run: |
@@ -776,6 +711,7 @@ jobs:
                   echo "- **Version**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
                   echo "- **Package**: ccache-${VERSION}-linux-arm64.tar.gz" >> $GITHUB_STEP_SUMMARY
                   echo "- **Status**: ✅ Successfully built and uploaded" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Compatibility**: Ubuntu 22.04+ optimized" >> $GITHUB_STEP_SUMMARY
 
     # Enhanced build-arm job with integrated ccache support
     build-arm:
@@ -788,7 +724,7 @@ jobs:
         strategy:
             matrix: ${{ fromJson(needs.fetch-rootfs-matrix.outputs.matrix) }}
         steps:
-            - name: Check if version is EOL
+            - name: Check if version is EOL (with Ubuntu 20.04 force exclusion)
               id: eol-check
               run: |
                   UBUNTU_EOL_VERSIONS="${{ needs.generate-eol-list.outputs.ubuntu-eol-versions }}"
@@ -813,7 +749,7 @@ jobs:
                   echo "skip_build=false" >> $GITHUB_OUTPUT
                   echo "✅ Proceeding with build for ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
 
-            - name: Check existing images (Multi-method)
+            - name: Check existing images
               if: steps.eol-check.outputs.skip_build == 'false'
               id: check-images
               run: |
@@ -933,7 +869,7 @@ jobs:
               uses: docker/build-push-action@v5
               with:
                   context: .
-                  file: ./Dockerfile.v2
+                  file: ./Dockerfile.v3
                   platforms: linux/arm64
                   push: ${{ github.event_name != 'pull_request' }}
                   tags: |
@@ -1102,16 +1038,17 @@ jobs:
                   body: |
                       # 🚀 FEX-Emu Multi-Platform Container Build ${{ needs.check-and-prepare.outputs.version }}
 
-                      High-performance ARM64 container images featuring FEX-Emu ${{ needs.check-and-prepare.outputs.fex_semantic }} for running x86 applications natively on ARM architectures across multiple Linux distributions.
+                      High-performance ARM64 container images featuring FEX-Emu ${{ needs.check-and-prepare.outputs.fex_semantic }} for running x86 applications natively on ARM architectures across multiple Linux distributions (Ubuntu 22.04+ and Fedora).
 
                       ## 🏗️ Build Architecture
                       - **Native ARM64 Compilation**: Source-built FEX emulator ${{ needs.check-and-prepare.outputs.fex_semantic }} optimized for ARM64
-                      - **Multi-Distribution Support**: Comprehensive SquashFS RootFS support for Ubuntu and Fedora distributions
+                      - **Multi-Distribution Support**: Comprehensive SquashFS RootFS support for Ubuntu 22.04+ and Fedora distributions
                       - **API-Driven Matrix**: Automated detection and building of supported distributions from FEX RootFS API
                       - **Selective Build System**: Intelligent resource management with latest-only, distribution-specific, and full-matrix build options
                       - **Automated RootFS Setup**: Unattended x86 RootFS installation via FEXRootFSFetcher
                       - **LTO Optimization**: Link-time optimization enabled for maximum performance
                       - **Integrated ccache Management**: Smart ccache version management with prebuilt binary caching
+                      - **Ubuntu 20.04 Excluded**: Optimized for modern systems (Ubuntu 22.04+) for enhanced compatibility
 
                       ## 🔧 Technical Features
                       - **ARM-Exclusive Design**: Streamlined build process focusing solely on ARM64
@@ -1121,6 +1058,7 @@ jobs:
                       - **Advanced Caching Strategy**: Multi-layer caching optimized for cross-distribution builds
                       - **CI/CD Optimized**: Stable builds with comprehensive resource management
                       - **Smart ccache Integration**: Automatic latest ccache building and artifact reuse
+                      - **Modern Platform Focus**: Ubuntu 22.04+ and Fedora for optimal performance
 
                       ## 📥 Usage Instructions
 
@@ -1133,7 +1071,7 @@ jobs:
 
                       ### Distribution Specific
                       ```
-                      # Ubuntu variants
+                      # Ubuntu variants (22.04+)
                       docker run -d --name fex-ubuntu \
                           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-24.04
 
@@ -1156,7 +1094,7 @@ jobs:
 
                       ### Distribution Based Images
                       All images are automatically generated from the FEX RootFS API and include:
-                      - **Ubuntu**: All available LTS and current versions (20.04, 22.04, 22.10, 23.04, 23.10, 24.04)
+                      - **Ubuntu**: All available modern versions (22.04, 22.10, 23.04, 23.10, 24.04, 24.10)
                       - **Fedora**: All supported versions (38, 40)
 
                       ### Tagging Strategy
@@ -1167,10 +1105,10 @@ jobs:
 
                       This release supports flexible build configurations:
                       - **latest-only**: Ubuntu 24.04, Fedora 40 (daily automatic builds)
-                      - **ubuntu-all**: All Ubuntu versions available in FEX RootFS
+                      - **ubuntu-all**: All Ubuntu versions 22.04+ available in FEX RootFS
                       - **fedora-all**: All Fedora versions available in FEX RootFS
-                      - **full-matrix**: Complete SquashFS distribution matrix (Ubuntu and Fedora)
-                      - **custom**: User-defined distribution selection (Ubuntu and Fedora only)
+                      - **full-matrix**: Complete SquashFS distribution matrix (Ubuntu 22.04+ and Fedora)
+                      - **custom**: User-defined distribution selection (Ubuntu 22.04+ and Fedora only)
 
                       ## 🧪 Verification Status
 
@@ -1182,19 +1120,6 @@ jobs:
                       - ✅ x86 application execution compatibility testing
                       - ✅ Multi-distribution compatibility verification
 
-                      ### Verification Commands
-                      ```
-                      # Architecture confirmation
-                      docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest uname -m
-                      # Expected output: aarch64
-
-                      # FEX version verification
-                      docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest FEXBash --version
-
-                      # x86 binary execution test
-                      docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest FEXBash /bin/ls
-                      ```
-
                       ## 🛠️ Build Specifications
                       - **Source Repository**: FEX-Emu/FEX
                       - **FEX Version**: ${{ needs.check-and-prepare.outputs.version }} (Semantic: ${{ needs.check-and-prepare.outputs.fex_semantic }})
@@ -1204,21 +1129,7 @@ jobs:
                       - **RootFS Types**: SquashFS with ZSTD compression
                       - **Matrix Generation**: API-driven dynamic detection with selective build options
                       - **ccache Integration**: Smart latest version management with artifact caching
-
-                      ## 🎯 Deployment Scenarios
-                      - **ARM64 Production Servers**: High-performance x86 application hosting
-                      - **Cloud ARM Infrastructure**: AWS Graviton, Oracle Ampere, Azure ARM
-                      - **Development Environments**: x86 application testing on ARM-based systems
-                      - **Edge Computing**: ARM-based edge devices running legacy x86 software
-                      - **Multi-Distribution Environments**: Consistent FEX experience across Ubuntu and Fedora
-
-                      ## 🌟 Key Innovations
-                      - **API-Driven Automation**: First FEX container solution with automatic distribution detection
-                      - **Selective Build System**: Resource-efficient build management with multiple scope options
-                      - **Multi-Platform Latest Tag**: Intelligent distribution selection for `latest` tag
-                      - **Comprehensive Coverage**: Support for all FEX-compatible Ubuntu and Fedora distributions
-                      - **Zero-Maintenance Matrix**: Self-updating build matrix from upstream API
-                      - **Integrated ccache Management**: Smart ccache version management with prebuilt binary caching
+                      - **Platform Support**: Ubuntu 22.04+ and Fedora (Ubuntu 20.04 excluded for compatibility)
 
                       ## 📋 Release Notes
                       ${{ needs.check-and-prepare.outputs.release_notes }}
@@ -1226,7 +1137,7 @@ jobs:
                       ---
                       **Upstream Project**: [FEX-Emu/FEX](https://github.com/FEX-Emu/FEX)  
                       **RootFS Repository**: [FEX RootFS Links](https://rootfs.fex-emu.gg/RootFS_links.json)  
-                      **Build Pipeline**: GitHub Actions ARM64 Native Compilation with API Integration and Smart ccache Management
+                      **Build Pipeline**: GitHub Actions ARM64 Native Compilation with API Integration and Smart ccache Management (Ubuntu 22.04+ Optimized)
                   draft: false
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1239,7 +1150,7 @@ jobs:
             - name: Generate Build Summary
               run: |
                   cat >> $GITHUB_STEP_SUMMARY << 'EOL'
-                  ## 🚀 FEX-Emu Multi-Platform Container Build Results
+                  ## 🚀 FEX-Emu Multi-Platform Container Build Results (Ubuntu 22.04+ Optimized)
 
                   EOL
 
@@ -1253,6 +1164,7 @@ jobs:
                   echo "**Matrix Generation**: Dynamic detection from FEX RootFS API with selective build options" >> $GITHUB_STEP_SUMMARY
                   echo "**ccache Strategy**: ${{ needs.ccache-setup.outputs.ccache-strategy }} (Version: ${{ needs.ccache-setup.outputs.ccache-version }})" >> $GITHUB_STEP_SUMMARY
                   echo "**ccache Build**: ${{ needs.build-ccache.result == 'success' && 'Prebuilt binary created' || needs.ccache-setup.outputs.artifacts-exist == 'true' && 'Existing artifacts used' || 'System fallback used' }}" >> $GITHUB_STEP_SUMMARY
+                  echo "**Platform Focus**: Ubuntu 22.04+ and Fedora (Ubuntu 20.04 excluded)" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Determine build scope
@@ -1275,12 +1187,12 @@ jobs:
                   fi
 
                   if [ "${{ needs.build-arm.result }}" = "success" ]; then
-                      echo "✅ **ARM64 Native Build**: Successfully completed with LTO optimization" >> $GITHUB_STEP_SUMMARY
+                      echo "✅ **ARM64 Native Build**: Successfully completed with LTO optimization (Ubuntu 22.04+ optimized)" >> $GITHUB_STEP_SUMMARY
                       
                       # Generate dynamic distribution list
                       MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
                       MATRIX_SIZE=$(echo "$MATRIX" | jq '.include | length')
-                      echo "   - **Total Distributions Built**: $MATRIX_SIZE" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Total Distributions Built**: $MATRIX_SIZE (Ubuntu 22.04+ and Fedora only)" >> $GITHUB_STEP_SUMMARY
                       echo "$MATRIX" | jq -r '.include[] | "   - \(.ROOTFS_OS | ascii_upcase) \(.ROOTFS_VERSION) + FEX ${{ needs.check-and-prepare.outputs.fex_semantic }}: Built and verified"' >> $GITHUB_STEP_SUMMARY
                   else
                       echo "❌ **ARM64 Native Build**: Build process failed" >> $GITHUB_STEP_SUMMARY
@@ -1323,6 +1235,7 @@ jobs:
                   echo "- **Native Execution**: High-performance x86 emulation through FEX on ARM" >> $GITHUB_STEP_SUMMARY
                   echo "- **Integrated ccache Management**: ${{ needs.ccache-setup.outputs.ccache-strategy }} strategy with version ${{ needs.ccache-setup.outputs.ccache-version }}" >> $GITHUB_STEP_SUMMARY
                   echo "- **Smart ccache Artifacts**: ${{ needs.build-ccache.result == 'success' && 'Fresh build with latest optimizations' || needs.ccache-setup.outputs.artifacts-exist == 'true' && 'Reused existing build artifacts' || 'System fallback used' }}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Modern Platform Focus**: Ubuntu 22.04+ and Fedora for enhanced compatibility (Ubuntu 20.04 excluded)" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   echo "### 🎯 Build Scope Information" >> $GITHUB_STEP_SUMMARY
@@ -1332,19 +1245,19 @@ jobs:
                           echo "- **Purpose**: Daily automatic builds for most common distributions" >> $GITHUB_STEP_SUMMARY
                           ;;
                       "ubuntu-all")
-                          echo "- **Scope**: All Ubuntu versions available in FEX RootFS" >> $GITHUB_STEP_SUMMARY
-                          echo "- **Purpose**: Comprehensive Ubuntu distribution coverage" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Scope**: All Ubuntu versions 22.04+ available in FEX RootFS" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Purpose**: Comprehensive Ubuntu distribution coverage (modern versions only)" >> $GITHUB_STEP_SUMMARY
                           ;;
                       "fedora-all")
                           echo "- **Scope**: All Fedora versions available in FEX RootFS" >> $GITHUB_STEP_SUMMARY
                           echo "- **Purpose**: Comprehensive Fedora distribution coverage" >> $GITHUB_STEP_SUMMARY
                           ;;
                       "full-matrix")
-                          echo "- **Scope**: Complete SquashFS distribution matrix (Ubuntu and Fedora)" >> $GITHUB_STEP_SUMMARY
-                          echo "- **Purpose**: Full coverage of all supported distributions" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Scope**: Complete SquashFS distribution matrix (Ubuntu 22.04+ and Fedora)" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Purpose**: Full coverage of all supported modern distributions" >> $GITHUB_STEP_SUMMARY
                           ;;
                       "custom")
-                          echo "- **Scope**: User-defined distribution selection (Ubuntu and Fedora only)" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Scope**: User-defined distribution selection (Ubuntu 22.04+ and Fedora only)" >> $GITHUB_STEP_SUMMARY
                           echo "- **Distributions**: ${{ github.event.inputs.custom_distros }}" >> $GITHUB_STEP_SUMMARY
                           ;;
                   esac
@@ -1352,11 +1265,12 @@ jobs:
 
                   echo "### 📊 Build Metrics" >> $GITHUB_STEP_SUMMARY
                   echo "- **Build Duration**: Optimized through comprehensive caching and conditional building" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Image Coverage**: Complete SquashFS distribution support via API automation" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Image Coverage**: Complete SquashFS distribution support via API automation (Ubuntu 22.04+ focus)" >> $GITHUB_STEP_SUMMARY
                   echo "- **Verification Coverage**: 100% automated testing for all generated images" >> $GITHUB_STEP_SUMMARY
                   echo "- **Architecture Support**: ARM64 native with x86 emulation capability" >> $GITHUB_STEP_SUMMARY
                   echo "- **FEX Version**: ${{ needs.check-and-prepare.outputs.fex_semantic }} (${{ needs.check-and-prepare.outputs.version }})" >> $GITHUB_STEP_SUMMARY
                   echo "- **ccache Performance**: ${{ needs.build-ccache.result == 'success' && 'Prebuilt binary optimized' || needs.ccache-setup.outputs.artifacts-exist == 'true' && 'Cached artifacts reused' || 'System fallback performance' }}" >> $GITHUB_STEP_SUMMARY
                   MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
                   MATRIX_SIZE=$(echo "$MATRIX" | jq '.include | length')
-                  echo "- **Matrix Size**: $MATRIX_SIZE distributions automatically detected and built" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Matrix Size**: $MATRIX_SIZE distributions automatically detected and built (Ubuntu 22.04+ and Fedora)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Compatibility Focus**: Modern platforms only (Ubuntu 20.04 excluded for FEX compatibility)" >> $GITHUB_STEP_SUMMARY
