@@ -332,22 +332,88 @@ RUN echo "👤 Starting user creation and configuration..." && \
 USER fex
 WORKDIR /home/fex
 
-# Setup RootFS using FEXRootFSFetcher
+# Setup RootFS using FEXRootFSFetcher with enhanced error handling
 RUN echo "🚀 Starting RootFS setup process..." && \
     echo "📊 RootFS configuration:" && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
     echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
-    FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
-    echo "✅ RootFS download and extraction completed" && \
     \
+    # Check network connectivity first
+    echo "🔍 Checking network connectivity..." && \
+    if curl -s --connect-timeout 10 https://rootfs.fex-emu.gg/ping >/dev/null 2>&1; then \
+        echo "✅ FEX RootFS server reachable"; \
+    else \
+        echo "⚠️ FEX RootFS server unreachable, will try anyway"; \
+    fi && \
+    \
+    # Enhanced FEXRootFSFetcher with retry logic
+    echo "📥 Starting RootFS download with retry logic..." && \
+    ROOTFS_SUCCESS=false && \
+    for attempt in 1 2 3; do \
+        echo "⏳ RootFS download attempt $attempt/3..." && \
+        if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty; then \
+            echo "✅ RootFS download completed successfully (attempt $attempt)"; \
+            ROOTFS_SUCCESS=true && \
+            break; \
+        else \
+            echo "❌ RootFS download failed (attempt $attempt)"; \
+            if [ $attempt -lt 3 ]; then \
+                echo "⏳ Waiting 30 seconds before retry..."; \
+                sleep 30; \
+            fi; \
+        fi; \
+    done && \
+    \
+    # Check if RootFS was successfully downloaded
+    if [ "$ROOTFS_SUCCESS" = "true" ]; then \
+        echo "🎉 RootFS download and extraction completed successfully"; \
+    else \
+        echo "❌ All RootFS download attempts failed"; \
+        echo "🔍 Checking for existing RootFS files..."; \
+        if [ -d "/home/fex/.fex-emu/RootFS" ] && [ "$(find /home/fex/.fex-emu/RootFS -type f | wc -l)" -gt 0 ]; then \
+            echo "✅ Found existing RootFS files, proceeding with build"; \
+        else \
+            echo "❌ No RootFS files found. Manual intervention required."; \
+            echo "💡 Troubleshooting steps:"; \
+            echo "  1. Check network connectivity to rootfs.fex-emu.gg"; \
+            echo "  2. Verify RootFS API is accessible"; \
+            echo "  3. Consider using manual RootFS download"; \
+            exit 1; \
+        fi; \
+    fi && \
+    \
+    # Verify RootFS installation
+    echo "🔧 Verifying RootFS installation..." && \
+    if [ -d "/home/fex/.fex-emu/RootFS" ]; then \
+        ROOTFS_COUNT=$(find /home/fex/.fex-emu/RootFS -maxdepth 1 -type d | wc -l) && \
+        ROOTFS_FILES=$(find /home/fex/.fex-emu/RootFS -type f | wc -l) && \
+        echo "📊 RootFS verification:" && \
+        echo "  - RootFS directories: $ROOTFS_COUNT" && \
+        echo "  - RootFS files: $ROOTFS_FILES" && \
+        \
+        if [ "$ROOTFS_FILES" -gt 0 ]; then \
+            echo "✅ RootFS verification passed"; \
+        else \
+            echo "❌ RootFS verification failed - no files found"; \
+            exit 1; \
+        fi; \
+    else \
+        echo "❌ RootFS directory not found"; \
+        exit 1; \
+    fi && \
+    \
+    # Configure RootFS permissions
+    echo "🔧 Configuring RootFS permissions..." && \
     chown -R fex:fex /home/fex/.fex-emu && \
     echo "✅ RootFS permissions configured" && \
     \
-    echo "🧹 Cleaning up RootFS artifacts..." && \
-    rm -rf /home/fex/.fex-emu/RootFS/*.sqsh && \
-    rm -rf /home/fex/.fex-emu/RootFS/*.ero && \
-    echo "🎉 RootFS extracted and configured successfully!"
+    # Cleanup downloaded artifacts but keep RootFS
+    echo "🧹 Cleaning up temporary RootFS artifacts..." && \
+    find /home/fex/.fex-emu/RootFS -name "*.sqsh" -delete 2>/dev/null || true && \
+    find /home/fex/.fex-emu/RootFS -name "*.ero" -delete 2>/dev/null || true && \
+    echo "💾 Final RootFS size: $(du -sh /home/fex/.fex-emu/ 2>/dev/null || echo 'unknown')" && \
+    echo "🎉 RootFS setup completed successfully!"
 
 ENTRYPOINT ["/bin/bash", "-c"]
 CMD ["/bin/bash"]
