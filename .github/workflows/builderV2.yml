@@ -639,33 +639,72 @@ jobs:
 
                   echo "⚙️ Configuring cmake for multi-version compatibility..."
 
-                  # Detect target Ubuntu version from matrix
+                  # Get target Ubuntu version from build context (fallback to 20.04)
                   TARGET_VERSION="${{ matrix.ROOTFS_VERSION }}"
-                  UBUNTU_VERSION_NUM=$(echo "${TARGET_VERSION}" | sed 's/\.//g')
-
-                  if [ "${UBUNTU_VERSION_NUM}" -ge "2404" ]; then
-                      echo "🚀 Building for Ubuntu 24.04+ (dynamic linking)"
-                      CMAKE_EXTRA_FLAGS=""
-                  elif [ "${UBUNTU_VERSION_NUM}" -ge "2204" ]; then
-                      echo "🔧 Building for Ubuntu 22.04+ (partial static)"
-                      CMAKE_EXTRA_FLAGS="-DCMAKE_EXE_LINKER_FLAGS='-static-libgcc -static-libstdc++'"
-                  else
-                      echo "🔒 Building for Ubuntu 20.04 (full static)"
-                      CMAKE_EXTRA_FLAGS="-DCMAKE_EXE_LINKER_FLAGS='-static-libgcc -static-libstdc++' -DHIREDIS_USE_STATIC=ON -DZSTD_USE_STATIC=ON -DBUILD_SHARED_LIBS=OFF"
+                  if [ -z "$TARGET_VERSION" ]; then
+                      TARGET_VERSION="20.04"
+                      echo "⚠️ ROOTFS_VERSION not found, defaulting to 20.04"
                   fi
 
-                  cmake \
-                      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-                      -DCMAKE_INSTALL_PREFIX=/usr/local \
-                      -DCMAKE_SYSTEM_NAME=Linux \
-                      -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-                      -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-                      -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-                      -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-                      -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-                      -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-                      ${CMAKE_EXTRA_FLAGS} \
-                      -G Ninja ..
+                  echo "🔍 Target Ubuntu version: ${TARGET_VERSION}"
+
+                  # Convert version to numeric (handle dots properly)
+                  UBUNTU_VERSION_NUM=$(echo "${TARGET_VERSION}" | sed 's/\.//g' | sed 's/[^0-9]//g')
+
+                  # Validate numeric conversion
+                  if [ -z "$UBUNTU_VERSION_NUM" ] || ! echo "$UBUNTU_VERSION_NUM" | grep -q '^[0-9]\+$'; then
+                      echo "⚠️ Invalid version format, defaulting to 2004"
+                      UBUNTU_VERSION_NUM="2004"
+                  fi
+
+                  echo "📊 Numeric version: ${UBUNTU_VERSION_NUM}"
+
+                  # Configure build based on Ubuntu version
+                  if [ "$UBUNTU_VERSION_NUM" -ge "2404" ]; then
+                      echo "🚀 Building for Ubuntu 24.04+ (dynamic linking)"
+                      cmake \
+                          -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+                          -DCMAKE_INSTALL_PREFIX=/usr/local \
+                          -DCMAKE_SYSTEM_NAME=Linux \
+                          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+                          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+                          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                          -G Ninja ..
+                  elif [ "$UBUNTU_VERSION_NUM" -ge "2204" ]; then
+                      echo "🔧 Building for Ubuntu 22.04+ (partial static linking)"
+                      cmake \
+                          -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+                          -DCMAKE_INSTALL_PREFIX=/usr/local \
+                          -DCMAKE_SYSTEM_NAME=Linux \
+                          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+                          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+                          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                          -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+                          -G Ninja ..
+                  else
+                      echo "🔒 Building for Ubuntu 20.04 (full static linking)"
+                      cmake \
+                          -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+                          -DCMAKE_INSTALL_PREFIX=/usr/local \
+                          -DCMAKE_SYSTEM_NAME=Linux \
+                          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+                          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+                          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+                          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                          -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+                          -DHIREDIS_USE_STATIC=ON \
+                          -DZSTD_USE_STATIC=ON \
+                          -DBUILD_SHARED_LIBS=OFF \
+                          -G Ninja ..
+                  fi
 
                   echo "✅ CMake configuration completed for Ubuntu ${TARGET_VERSION}"
 
