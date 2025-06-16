@@ -547,42 +547,65 @@ jobs:
                   VERSION="${{ steps.final-version.outputs.version }}"
                   echo "🔍 Checking for existing ccache ${VERSION} artifacts..."
 
-                  # Check if artifacts exist for this version via GitHub API
+                  # Check if artifacts exist for this version via GitHub API  
                   REPO="${{ github.repository }}"
                   TOKEN="${{ secrets.GITHUB_TOKEN }}"
 
-                  # Get recent workflow runs for this workflow
+                  # Get recent workflow runs with null-safe handling
                   RUNS_RESPONSE=$(curl -s -H "Authorization: token ${TOKEN}" \
-                    "https://api.github.com/repos/${REPO}/actions/workflows/$(basename ${{ github.workflow_ref }})/runs?status=success&per_page=10")
+                      "https://api.github.com/repos/${REPO}/actions/workflows/$(basename ${{ github.workflow_ref }})/runs?status=success&per_page=10")
 
-                  # Check if any successful run has artifacts for this version
+                  # Debug API response first
+                  echo "🔍 API Response check:"
+                  echo "$RUNS_RESPONSE" | jq -r 'type'
+
+                  # Check if workflow_runs exists and is array
+                  if echo "$RUNS_RESPONSE" | jq -e '.workflow_runs' >/dev/null 2>&1; then
+                      WORKFLOW_RUNS_COUNT=$(echo "$RUNS_RESPONSE" | jq '.workflow_runs | length')
+                      echo "📊 Found $WORKFLOW_RUNS_COUNT workflow runs"
+                  else
+                      echo "⚠️ No workflow_runs in API response or invalid format"
+                      WORKFLOW_RUNS_COUNT=0
+                  fi
+
+                  # Check if any successful run has artifacts for this version (null-safe)
                   ARTIFACTS_EXIST=false
-                  for run_id in $(echo "$RUNS_RESPONSE" | jq -r '.workflow_runs[].id'); do
-                    ARTIFACTS_RESPONSE=$(curl -s -H "Authorization: token ${TOKEN}" \
-                      "https://api.github.com/repos/${REPO}/actions/runs/${run_id}/artifacts")
-                    
-                    ARM64_ARTIFACT=$(echo "$ARTIFACTS_RESPONSE" | jq -r --arg version "$VERSION" \
-                      '.artifacts[] | select(.name == "ccache-\($version)-arm64") | .name')
-                    
-                    if [ "$ARM64_ARTIFACT" != "null" ] && [ -n "$ARM64_ARTIFACT" ]; then
-                      echo "✅ Found existing artifacts for ccache ${VERSION}"
-                      ARTIFACTS_EXIST=true
-                      break
-                    fi
-                  done
+
+                  if [ "$WORKFLOW_RUNS_COUNT" -gt 0 ]; then
+                      # Use []? for null-safe iteration (search result [4] solution)
+                      for run_id in $(echo "$RUNS_RESPONSE" | jq -r '.workflow_runs[]?.id // empty'); do
+                          if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
+                          echo "🔍 Checking run: $run_id"
+                          ARTIFACTS_RESPONSE=$(curl -s -H "Authorization: token ${TOKEN}" \
+                              "https://api.github.com/repos/${REPO}/actions/runs/${run_id}/artifacts")
+                          
+                          # Use []? for artifacts as well (search result [4] pattern)
+                          ARM64_ARTIFACT=$(echo "$ARTIFACTS_RESPONSE" | jq -r --arg version "$VERSION" \
+                              '.artifacts[]? | select(.name == "ccache-\($version)-arm64") | .name // empty')
+                          
+                          if [ -n "$ARM64_ARTIFACT" ] && [ "$ARM64_ARTIFACT" != "null" ]; then
+                              echo "✅ Found existing artifacts for ccache ${VERSION}"
+                              ARTIFACTS_EXIST=true
+                              break
+                          fi
+                          fi
+                      done
+                  else
+                      echo "ℹ️ No workflow runs to check"
+                  fi
 
                   # Determine if we should build
                   FORCE_REBUILD="${{ github.event.inputs.ccache_force_rebuild }}"
                   if [ "$ARTIFACTS_EXIST" = "true" ] && [ "$FORCE_REBUILD" != "true" ]; then
-                    echo "should-build=false" >> $GITHUB_OUTPUT
-                    echo "⏭️ Skipping build - artifacts already exist for ccache ${VERSION}"
+                      echo "should-build=false" >> $GITHUB_OUTPUT
+                      echo "⏭️ Skipping build - artifacts already exist for ccache ${VERSION}"
                   else
-                    echo "should-build=true" >> $GITHUB_OUTPUT
-                    if [ "$ARTIFACTS_EXIST" = "true" ]; then
+                      echo "should-build=true" >> $GITHUB_OUTPUT
+                      if [ "$ARTIFACTS_EXIST" = "true" ]; then
                       echo "🔄 Force rebuild requested for ccache ${VERSION}"
-                    else
+                      else
                       echo "🔨 Will build ccache ${VERSION} (artifacts not found)"
-                    fi
+                      fi
                   fi
 
                   echo "artifacts-exist=${ARTIFACTS_EXIST}" >> $GITHUB_OUTPUT
