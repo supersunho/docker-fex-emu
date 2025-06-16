@@ -54,7 +54,6 @@ RUN echo "📦 Starting package installation..." && \
         \
         # Robust libhiredis installation with fallback
         echo "📦 Installing libhiredis for ccache support..." && \
-        # Try different package names in order of preference
         for pkg in libhiredis1.1.0 libhiredis1.0.0 libhiredis0.14 libhiredis-dev; do \
             if apt-cache show "$pkg" >/dev/null 2>&1; then \
                 echo "✅ Found package: $pkg" && \
@@ -236,7 +235,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "✅ Qt 5.15 environment configured for CMake"; \
     fi && \
     \
-    # Check ccache source and setup (sh compatible - FIXED)
+    # Check ccache source and setup  
     . /tmp/ccache-info && \
     echo "📊 Build environment summary:" && \
     echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
@@ -244,10 +243,14 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "  - CCACHE_SOURCE: ${CCACHE_SOURCE}" && \
     echo "  - LLVM_VERSION: ${LLVM_VERSION}" && \
     echo "  - CCACHE_BINARY: $(which ccache 2>/dev/null || echo 'not found')" && \
-    echo "  - PREBUILT_CCACHE: $([ -x /usr/local/bin/ccache ] && echo 'available' || echo 'not available')" && \
+    if test -f /usr/local/bin/ccache; then \
+        echo "  - PREBUILT_CCACHE: available"; \
+    else \
+        echo "  - PREBUILT_CCACHE: not available"; \
+    fi && \
     \
     mkdir -p Build && cd Build && \
-    # Configure ccache environment (sh compatible - FIXED)
+    # Configure ccache environment  
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Configuring ccache acceleration..." && \
         mkdir -p /tmp/ccache-temp && \
@@ -257,8 +260,6 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CCACHE_MAXSIZE=2G && \
         export CCACHE_COMPRESS=1 && \
         export CCACHE_SLOPPINESS=pch_defines,time_macros && \
-        # Always use system ccache for compatibility
-        echo "🔄 Using system ccache for compatibility" && \
         ccache --zero-stats && \
         echo "✅ ccache enabled with directory: $CCACHE_DIR"; \
     else \
@@ -288,13 +289,14 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "📋 Fedora linker flags: $LINKER_FLAGS"; \
     fi && \
     \
-    # Build FEX with conditional ccache (sh compatible - FIXED)
+    # Build FEX with conditional ccache (FIXED - no CMAKE_COMPILER_LAUNCHER)
     echo "⚙️ Running CMake configuration..." && \
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Building with ccache acceleration (${CCACHE_SOURCE})..." && \
-        # Always use system ccache for compatibility
-        CCACHE_LAUNCHER="ccache" && \
-        echo "🔄 Using system ccache launcher: $CCACHE_LAUNCHER" && \
+        # Use CC/CXX environment variables to avoid recursive invocation
+        export CC="ccache $CC_COMPILER" && \
+        export CXX="ccache $CXX_COMPILER" && \
+        echo "✅ ccache configured with CC/CXX environment variables" && \
         cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
             -DCMAKE_BUILD_TYPE=Release \
@@ -302,10 +304,6 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_LTO=True \
             -DBUILD_TESTS=False \
             -DENABLE_ASSERTIONS=False \
-            -DCMAKE_C_COMPILER=$CC_COMPILER \
-            -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
-            -DCMAKE_C_COMPILER_LAUNCHER=$CCACHE_LAUNCHER \
-            -DCMAKE_CXX_COMPILER_LAUNCHER=$CCACHE_LAUNCHER \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
@@ -333,10 +331,9 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     ninja install && \
     echo "✅ Installation completed" && \
     \
-    # Show ccache statistics if enabled (sh compatible - FIXED)
+    # Show ccache statistics if enabled (FIXED)
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "📊 ccache Statistics (${CCACHE_SOURCE}):" && \
-        echo "🔄 System ccache statistics:" && \
         ccache --show-stats && \
         echo "💾 ccache directory size: $(du -sh /tmp/.ccache 2>/dev/null || echo 'unknown')"; \
     fi && \
