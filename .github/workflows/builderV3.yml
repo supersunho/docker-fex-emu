@@ -549,37 +549,50 @@ jobs:
                   REPO="${{ github.repository }}"
                   TOKEN="${{ secrets.GITHUB_TOKEN }}"
 
-                  # Debug workflow information first
-                  echo "🔍 Workflow debugging info:"
+                  # Enhanced workflow debugging
+                  echo "🔍 Enhanced workflow debugging info:"
                   echo "  - Repository: $REPO"
                   echo "  - Workflow ref: ${{ github.workflow_ref }}"
                   echo "  - Workflow: ${{ github.workflow }}"
+                  echo "  - Run ID: ${{ github.run_id }}"
+                  echo "  - Event name: ${{ github.event_name }}"
 
-                  # Extract workflow filename with multiple methods
                   WORKFLOW_FILE=""
                   if [ -n "${{ github.workflow_ref }}" ]; then
-                      WORKFLOW_FILE=$(basename "${{ github.workflow_ref }}")
-                      echo "  - Workflow file (from ref): $WORKFLOW_FILE"
+                      WORKFLOW_REF="${{ github.workflow_ref }}"
+                      # Remove @refs/heads/branch part first, then extract filename
+                      WORKFLOW_PATH=$(echo "$WORKFLOW_REF" | sed 's/@.*$//')
+                      WORKFLOW_FILE=$(basename "$WORKFLOW_PATH")
+                      echo "  - Workflow file (corrected): $WORKFLOW_FILE"
+                      echo "  - Debug - Full ref: $WORKFLOW_REF"
+                      echo "  - Debug - Path: $WORKFLOW_PATH"
                   else
-                      # Fallback: try common patterns
                       WORKFLOW_FILE="${{ github.workflow }}.yml"
                       echo "  - Workflow file (fallback): $WORKFLOW_FILE"
                   fi
 
-                  # Try multiple API endpoints (search result [1] workaround)
-                  echo "🔍 Trying multiple API approaches..."
+                  # Enhanced API testing
+                  echo "🔍 Enhanced API approaches..."
 
-                  # Method 1: Specific workflow file
-                  RUNS_RESPONSE_1=$(curl -s -H "Authorization: token ${TOKEN}" \
-                      "https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=success&per_page=10")
+                  # Method 1: Specific workflow file (with corrected filename)
+                  METHOD1_URL="https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=success&per_page=10"
+                  echo "🔍 Method 1 URL: $METHOD1_URL"
+                  RUNS_RESPONSE_1=$(curl -s -H "Authorization: token ${TOKEN}" "$METHOD1_URL")
 
-                  # Method 2: All workflows (broader search)
-                  RUNS_RESPONSE_2=$(curl -s -H "Authorization: token ${TOKEN}" \
-                      "https://api.github.com/repos/${REPO}/actions/runs?status=success&per_page=10")
+                  # Method 2: All workflows
+                  METHOD2_URL="https://api.github.com/repos/${REPO}/actions/runs?status=success&per_page=10"
+                  echo "🔍 Method 2 URL: $METHOD2_URL"
+                  RUNS_RESPONSE_2=$(curl -s -H "Authorization: token ${TOKEN}" "$METHOD2_URL")
 
-                  echo "🔍 API Response analysis:"
-                  echo "Method 1 (specific workflow):"
+                  # Enhanced API Response analysis
+                  echo "🔍 Enhanced API Response analysis:"
+                  echo "Method 1 (specific workflow - $WORKFLOW_FILE):"
                   echo "$RUNS_RESPONSE_1" | jq -r 'type, .total_count // "no total_count", (.workflow_runs | length) // "no workflow_runs"'
+
+                  # Show available workflow names for debugging
+                  echo "🔍 Available workflow names in repository:"
+                  echo "$RUNS_RESPONSE_2" | jq -r '.workflow_runs[]?.name // "no-name"' | sort | uniq
+                  echo "🔍 Looking for workflow: '${{ github.workflow }}'"
 
                   echo "Method 2 (all workflows):"  
                   echo "$RUNS_RESPONSE_2" | jq -r 'type, .total_count // "no total_count", (.workflow_runs | length) // "no workflow_runs"'
