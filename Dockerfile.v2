@@ -327,54 +327,54 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "📋 Fedora linker flags: $LINKER_FLAGS"; \
     fi && \
     \
-    # Build FEX with system headers compatibility
-    echo "⚙️ Running CMake configuration with system headers compatibility..." && \
-    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
-        echo "🚀 Building with ccache acceleration (${CCACHE_SOURCE})..." && \
-        export CC="ccache $CC_COMPILER" && \
-        export CXX="ccache $CXX_COMPILER" && \
-        echo "✅ ccache configured with CC/CXX environment variables" && \
-        cmake \
-            -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_LINKER=lld \
-            -DENABLE_LTO=True \
-            -DBUILD_TESTS=False \
-            -DENABLE_ASSERTIONS=False \
-            -DCMAKE_C_COMPILER=$CC_COMPILER \
-            -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
-            -DCMAKE_AR="$AR_TOOL" \
-            -DCMAKE_RANLIB="$RANLIB_TOOL" \
-            -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
-            -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
-            -DCMAKE_CXX_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" \
-            -DCMAKE_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" \
-            -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
-            -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
-            -G Ninja ..; \
+    # Ubuntu version-specific conditional compiler flags configuration
+    echo "🔍 Detecting Ubuntu version for conditional compiler flags..." && \
+    UBUNTU_VERSION_NUM=$(echo "${ROOTFS_VERSION}" | sed 's/\.//g' | sed 's/[^0-9]//g') && \
+    if [ -z "$UBUNTU_VERSION_NUM" ]; then \
+        echo "⚠️ Could not detect Ubuntu version, defaulting to 20.04 (safe mode)" && \
+        UBUNTU_VERSION_NUM="2004"; \
+    fi && \
+    echo "📊 Detected Ubuntu version number: ${UBUNTU_VERSION_NUM}" && \
+    \
+    # Set compiler flags based on Ubuntu version for system compatibility
+    if [ "$UBUNTU_VERSION_NUM" -le "2004" ]; then \
+        echo "🔧 Ubuntu 20.04 or older: Applying additional system header flags for GLIBC compatibility" && \
+        EXTRA_CXX_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" && \
+        EXTRA_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" && \
+        echo "📋 Applied flags: GLIBC compatibility + POSIX headers"; \
+    elif [ "$UBUNTU_VERSION_NUM" -le "2204" ]; then \
+        echo "🔧 Ubuntu 22.04: Applying basic GNU extension flags for partial compatibility" && \
+        EXTRA_CXX_FLAGS="-D_GNU_SOURCE" && \
+        EXTRA_C_FLAGS="-D_GNU_SOURCE" && \
+        echo "📋 Applied flags: GNU extensions only"; \
     else \
-        echo "🔨 Building without ccache..." && \
-        CC=$CC_COMPILER CXX=$CXX_COMPILER cmake \
-            -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DUSE_LINKER=lld \
-            -DENABLE_LTO=True \
-            -DBUILD_TESTS=False \
-            -DENABLE_ASSERTIONS=False \
-            -DCMAKE_C_COMPILER=$CC_COMPILER \
-            -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
-            -DCMAKE_AR="$AR_TOOL" \
-            -DCMAKE_RANLIB="$RANLIB_TOOL" \
-            -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
-            -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
-            -DCMAKE_CXX_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" \
-            -DCMAKE_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" \
-            -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
-            -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
-            -G Ninja ..; \
+        echo "🚀 Ubuntu 24.04 and newer: Using default system settings (no extra flags needed)" && \
+        EXTRA_CXX_FLAGS="" && \
+        EXTRA_C_FLAGS="" && \
+        echo "📋 Applied flags: None (modern system defaults)"; \
     fi && \
     \
-    echo "✅ CMake configuration completed with all fixes" && \
+    # Run CMake with version-appropriate conditional flags
+    echo "⚙️ Running CMake configuration with Ubuntu-specific compatibility flags..." && \
+    cmake \
+        -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DUSE_LINKER=lld \
+        -DENABLE_LTO=True \
+        -DBUILD_TESTS=False \
+        -DENABLE_ASSERTIONS=False \
+        -DCMAKE_C_COMPILER="$CC_COMPILER" \
+        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+        -DCMAKE_AR="$AR_TOOL" \
+        -DCMAKE_RANLIB="$RANLIB_TOOL" \
+        -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
+        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
+        -DCMAKE_CXX_FLAGS="$EXTRA_CXX_FLAGS" \
+        -DCMAKE_C_FLAGS="$EXTRA_C_FLAGS" \
+        -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
+        -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
+        -G Ninja .. && \
+    echo "✅ CMake configuration completed with Ubuntu ${ROOTFS_VERSION} compatibility" && \
     \
     echo "🔨 Starting compilation with $(nproc) cores..." && \
     ninja -j$(nproc) && \
