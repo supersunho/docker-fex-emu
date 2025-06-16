@@ -52,6 +52,21 @@ RUN echo "📦 Starting package installation..." && \
             gnupg gnupg2 gpg-agent dirmngr ca-certificates && \
         echo "✅ Base packages installed successfully" && \
         \
+        # Robust libhiredis installation with fallback
+        echo "📦 Installing libhiredis for ccache support..." ; \
+        # Try different package names in order of preference
+        for pkg in libhiredis1.1.0 libhiredis1.0.0 libhiredis0.14 libhiredis-dev; do \
+            if apt-cache show "$pkg" >/dev/null 2>&1; then \
+                echo "✅ Found package: $pkg" && \
+                apt-get install -qq -y "$pkg" && \
+                echo "✅ Successfully installed $pkg" && \
+                break; \
+            else \
+                echo "⚠️ Package $pkg not available"; \
+            fi; \
+        done ; \
+        echo "✅ libhiredis installation attempt completed" && \
+        \
         # LLVM installation with debugging
         if [ "${ROOTFS_OS}" = "ubuntu" ]; then \
             echo "🔍 Processing Ubuntu-specific configuration..." && \
