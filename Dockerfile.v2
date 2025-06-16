@@ -245,14 +245,15 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "⚙️ Running CMake configuration..." && \
     if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
         echo "🚀 Building with ccache acceleration..." && \
-        CC=$CC_COMPILER CXX=$CXX_COMPILER cmake \
+        cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
             -DCMAKE_BUILD_TYPE=Release \
             -DUSE_LINKER=lld \
             -DENABLE_LTO=True \
             -DBUILD_TESTS=False \
             -DENABLE_ASSERTIONS=False \
-            -DENABLE_FEXCONFIG=False \
+            -DCMAKE_C_COMPILER=$CC_COMPILER \
+            -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
@@ -267,11 +268,11 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_LTO=True \
             -DBUILD_TESTS=False \
             -DENABLE_ASSERTIONS=False \
-            -DENABLE_FEXCONFIG=False \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
     fi && \
+    \
     echo "✅ CMake configuration completed" && \
     \
     echo "🔨 Starting compilation with $(nproc) cores..." && \
