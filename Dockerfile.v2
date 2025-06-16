@@ -339,8 +339,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     # Set compiler flags based on Ubuntu version for system compatibility
     if [ "$UBUNTU_VERSION_NUM" -le "2004" ]; then \
         echo "🔧 Ubuntu 20.04 or older: Applying additional system header flags for GLIBC compatibility" && \
-        EXTRA_CXX_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" && \
-        EXTRA_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" && \
+        EXTRA_CXX_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -D__USE_MISC -D__USE_POSIX -D__USE_POSIX2" && \
+        EXTRA_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L -D__USE_MISC -D__USE_POSIX -D__USE_POSIX2 -std=c++20 -DFEXTL_DISABLE_ASSERTIONS" && \
         echo "📋 Applied flags: GLIBC compatibility + POSIX headers"; \
     elif [ "$UBUNTU_VERSION_NUM" -le "2204" ]; then \
         echo "🔧 Ubuntu 22.04: Applying basic GNU extension flags for partial compatibility" && \
@@ -377,7 +377,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "✅ CMake configuration completed with Ubuntu ${ROOTFS_VERSION} compatibility" && \
     \
     echo "🔨 Starting compilation with $(nproc) cores..." && \
-    ninja -j$(nproc) && \
+    ninja -j$(($(nproc) - 1)) && \
     echo "✅ Compilation completed successfully" && \
     \
     echo "📦 Installing FEX binaries..." && \
