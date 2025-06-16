@@ -53,7 +53,7 @@ RUN echo "📦 Starting package installation..." && \
         echo "✅ Base packages installed successfully" && \
         \
         # Robust libhiredis installation with fallback
-        echo "📦 Installing libhiredis for ccache support..." ; \
+        echo "📦 Installing libhiredis for ccache support..." && \
         # Try different package names in order of preference
         for pkg in libhiredis1.1.0 libhiredis1.0.0 libhiredis0.14 libhiredis-dev; do \
             if apt-cache show "$pkg" >/dev/null 2>&1; then \
@@ -64,7 +64,7 @@ RUN echo "📦 Starting package installation..." && \
             else \
                 echo "⚠️ Package $pkg not available"; \
             fi; \
-        done ; \
+        done && \
         echo "✅ libhiredis installation attempt completed" && \
         \
         # LLVM installation with debugging
@@ -196,53 +196,27 @@ RUN echo "📦 Starting package installation..." && \
 # Copy ccache binary from build context (matching integrated workflow)
 COPY --from=ccache-binary . /tmp/ccache-binary
 
-# Install prebuilt ccache with Ubuntu 20.04 compatibility
-RUN echo "📦 Setting up ccache from integrated workflow artifact..." && \
-    # First install libhiredis if available
-    apt-get update -qq && \
-    (apt-get install -qq -y libhiredis-dev || echo "⚠️ libhiredis-dev not available") && \
+# Use system ccache for maximum Ubuntu compatibility (GLIBC compatibility fix)
+RUN echo "📦 Setting up ccache for maximum Ubuntu compatibility..." && \
+    # Check current GLIBC and system info
+    echo "🔍 System information:" && \
+    echo "  - GLIBC version: $(ldd --version | head -1)" && \
+    echo "  - Ubuntu version: ${ROOTFS_VERSION}" && \
+    echo "  - Architecture: $(uname -m)" && \
     \
-    if [ -d "/tmp/ccache-binary" ] && find /tmp/ccache-binary -name "*.tar.gz" | grep -q .; then \
-        echo "✅ Prebuilt ccache artifact found, installing..." && \
-        cd /tmp/ccache-binary && \
-        CCACHE_FILE=$(find . -name "*.tar.gz" | head -1) && \
-        echo "📥 Installing ccache from: $CCACHE_FILE" && \
-        tar -xzf "$CCACHE_FILE" -C / && \
-        chmod +x /usr/local/bin/ccache && \
-        \
-        # Check available libhiredis versions
-        echo "🔍 Checking available libhiredis libraries..." && \
-        find /usr/lib -name "*hiredis*" 2>/dev/null || echo "No libhiredis found in /usr/lib" && \
-        find /usr/local/lib -name "*hiredis*" 2>/dev/null || echo "No libhiredis found in /usr/local/lib" && \
-        \
-        # Try to create symlink for version compatibility
-        if [ -f "/usr/lib/aarch64-linux-gnu/libhiredis.so.0.14" ]; then \
-            echo "🔗 Creating compatibility symlink..." && \
-            ln -sf /usr/lib/aarch64-linux-gnu/libhiredis.so.0.14 /usr/lib/aarch64-linux-gnu/libhiredis.so.1.1.0; \
-        fi && \
-        \
-        # Update ldconfig
-        echo "🔧 Updating ldconfig..." && \
-        echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && \
-        echo "/usr/lib/aarch64-linux-gnu" >> /etc/ld.so.conf.d/local.conf && \
-        ldconfig && \
-        \
-        echo "📊 Testing prebuilt ccache..." && \
-        if /usr/local/bin/ccache --version >/dev/null 2>&1; then \
-            echo "✅ Prebuilt ccache working correctly" && \
-            /usr/local/bin/ccache --version && \
-            echo "CCACHE_SOURCE=prebuilt" > /tmp/ccache-info; \
-        else \
-            echo "⚠️ Prebuilt ccache failed, using system ccache" && \
-            echo "🔍 ccache error details:" && \
-            /usr/local/bin/ccache --version 2>&1 || true && \
-            echo "CCACHE_SOURCE=system" > /tmp/ccache-info; \
-        fi; \
+    # Force system ccache to avoid GLIBC compatibility issues
+    echo "🔒 Using system ccache for broad compatibility" && \
+    echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
+    \
+    # Verify system ccache functionality
+    if ccache --version >/dev/null 2>&1; then \
+        echo "✅ System ccache working correctly:" && \
+        ccache --version; \
     else \
-        echo "⚠️ Prebuilt ccache not available, using system ccache" && \
-        echo "CCACHE_SOURCE=system" > /tmp/ccache-info; \
+        echo "⚠️ System ccache not available, disabling ccache" && \
+        echo "CCACHE_SOURCE=disabled" > /tmp/ccache-info; \
     fi && \
-    echo "✅ ccache setup completed"
+    echo "✅ ccache setup completed with maximum compatibility"
 
 # Copy FEX source and build with comprehensive debugging
 COPY --from=fex-sources / /tmp/fex-source  
@@ -262,7 +236,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "✅ Qt 5.15 environment configured for CMake"; \
     fi && \
     \
-    # Check ccache source and setup (integrated workflow compatible)
+    # Check ccache source and setup (sh compatible - FIXED)
     . /tmp/ccache-info && \
     echo "📊 Build environment summary:" && \
     echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
@@ -270,11 +244,11 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "  - CCACHE_SOURCE: ${CCACHE_SOURCE}" && \
     echo "  - LLVM_VERSION: ${LLVM_VERSION}" && \
     echo "  - CCACHE_BINARY: $(which ccache 2>/dev/null || echo 'not found')" && \
-    echo "  - PREBUILT_CCACHE: $([[ -x /usr/local/bin/ccache ]] && echo 'available' || echo 'not available')" && \
+    echo "  - PREBUILT_CCACHE: $([ -x /usr/local/bin/ccache ] && echo 'available' || echo 'not available')" && \
     \
     mkdir -p Build && cd Build && \
-    # Configure ccache environment
-    if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
+    # Configure ccache environment (sh compatible - FIXED)
+    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Configuring ccache acceleration..." && \
         mkdir -p /tmp/ccache-temp && \
         export CCACHE_BASEDIR=/tmp/fex-source && \
@@ -283,14 +257,9 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CCACHE_MAXSIZE=2G && \
         export CCACHE_COMPRESS=1 && \
         export CCACHE_SLOPPINESS=pch_defines,time_macros && \
-        # Use appropriate ccache binary (prioritize prebuilt from integrated workflow)
-        if [ "$CCACHE_SOURCE" = "prebuilt" ] && [ -x "/usr/local/bin/ccache" ]; then \
-            echo "📦 Using prebuilt ccache binary from integrated workflow" && \
-            /usr/local/bin/ccache --zero-stats; \
-        else \
-            echo "🔄 Using system ccache" && \
-            ccache --zero-stats; \
-        fi && \
+        # Always use system ccache for compatibility
+        echo "🔄 Using system ccache for compatibility" && \
+        ccache --zero-stats && \
         echo "✅ ccache enabled with directory: $CCACHE_DIR"; \
     else \
         echo "ℹ️ ccache disabled for this build"; \
@@ -319,18 +288,13 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "📋 Fedora linker flags: $LINKER_FLAGS"; \
     fi && \
     \
-    # Build FEX with conditional ccache (integrated workflow optimized)
+    # Build FEX with conditional ccache (sh compatible - FIXED)
     echo "⚙️ Running CMake configuration..." && \
-    if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
+    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Building with ccache acceleration (${CCACHE_SOURCE})..." && \
-        # Set ccache launcher based on source (prioritize prebuilt from integrated workflow)
-        if [ "$CCACHE_SOURCE" = "prebuilt" ] && [ -x "/usr/local/bin/ccache" ]; then \
-            CCACHE_LAUNCHER="/usr/local/bin/ccache"; \
-            echo "📦 Using prebuilt ccache launcher: $CCACHE_LAUNCHER"; \
-        else \
-            CCACHE_LAUNCHER="ccache"; \
-            echo "🔄 Using system ccache launcher: $CCACHE_LAUNCHER"; \
-        fi && \
+        # Always use system ccache for compatibility
+        CCACHE_LAUNCHER="ccache" && \
+        echo "🔄 Using system ccache launcher: $CCACHE_LAUNCHER" && \
         cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
             -DCMAKE_BUILD_TYPE=Release \
@@ -369,16 +333,11 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     ninja install && \
     echo "✅ Installation completed" && \
     \
-    # Show ccache statistics if enabled (integrated workflow compatible)
-    if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
+    # Show ccache statistics if enabled (sh compatible - FIXED)
+    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "📊 ccache Statistics (${CCACHE_SOURCE}):" && \
-        if [ "$CCACHE_SOURCE" = "prebuilt" ] && [ -x "/usr/local/bin/ccache" ]; then \
-            echo "📦 Prebuilt ccache statistics:" && \
-            /usr/local/bin/ccache --show-stats; \
-        else \
-            echo "🔄 System ccache statistics:" && \
-            ccache --show-stats; \
-        fi && \
+        echo "🔄 System ccache statistics:" && \
+        ccache --show-stats && \
         echo "💾 ccache directory size: $(du -sh /tmp/.ccache 2>/dev/null || echo 'unknown')"; \
     fi && \
     \
