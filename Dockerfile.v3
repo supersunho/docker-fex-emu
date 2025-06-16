@@ -293,7 +293,7 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
         echo "🔧 Setting up Fedora runtime environment..." && \
         echo "📦 Installing minimal Fedora runtime packages..." && \
         dnf install -q -y --setopt=install_weak_deps=False \
-            squashfs-tools squashfuse erofs-fuse erofs-utils curl \
+            squashfs-tools squashfuse erofs-fuse erofs-utils curl wget \
             sudo util-linux-core libstdc++ glibc && \
         echo "✅ Fedora runtime packages installed" && \
         echo "🧹 Cleaning up Fedora package cache..." && \
@@ -345,6 +345,168 @@ RUN echo "🚀 Starting RootFS setup process..." && \
         echo "✅ FEX RootFS server reachable"; \
     else \
         echo "⚠️ FEX RootFS server unreachable, will try anyway"; \
+        # Manual RootFS setup script (FEXRootFSFetcher alternative)
+        echo "🔄 Starting manual RootFS setup as FEXRootFSFetcher alternative..." && \
+        \
+        # Create necessary directories
+        mkdir -p /home/fex/.fex-emu/RootFS && \
+        \
+        # Download RootFS JSON list (search result [1] pattern)
+        echo "📥 Downloading RootFS links from FEX server..." && \
+        ROOTFS_JSON_URL="https://rootfs.fex-emu.gg/RootFS_links.json" && \
+        ROOTFS_JSON="/tmp/rootfs_links.json" && \
+        \
+        if wget -q --timeout=30 -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL"; then \
+            echo "✅ RootFS JSON downloaded successfully"; \
+        else \
+            echo "❌ Failed to download RootFS JSON list" && \
+            exit 1; \
+        fi && \
+        \
+        # Parse JSON to find matching OS and version (search result [1] logic)
+        echo "🔍 Searching for ${ROOTFS_OS} ${ROOTFS_VERSION} in RootFS list..." && \
+        ROOTFS_URL="" && \
+        ROOTFS_FILENAME="" && \
+        ROOTFS_TYPE="" && \
+        \
+        # Extract matching entry from JSON using jq
+        MATCHED_ENTRY=$(cat "$ROOTFS_JSON" | jq -r --arg os "$ROOTFS_OS" --arg version "$ROOTFS_VERSION" \
+            '.v1 | to_entries[] | select(.value.DistroMatch == $os and .value.DistroVersion == $version and .value.Type == "squashfs") | .value') && \
+        \
+        if [ -n "$MATCHED_ENTRY" ] && [ "$MATCHED_ENTRY" != "null" ]; then \
+            ROOTFS_URL=$(echo "$MATCHED_ENTRY" | jq -r '.URL') && \
+            ROOTFS_FILENAME=$(basename "$ROOTFS_URL") && \
+            ROOTFS_TYPE=$(echo "$MATCHED_ENTRY" | jq -r '.Type') && \
+            echo "✅ Found matching RootFS:" && \
+            echo "  - URL: $ROOTFS_URL" && \
+            echo "  - Filename: $ROOTFS_FILENAME" && \
+            echo "  - Type: $ROOTFS_TYPE"; \
+        else \
+            echo "❌ No matching RootFS found for ${ROOTFS_OS} ${ROOTFS_VERSION}" && \
+            echo "📋 Available RootFS options:" && \
+            cat "$ROOTFS_JSON" | jq -r '.v1 | to_entries[] | "  - \(.value.DistroMatch) \(.value.DistroVersion) (\(.value.Type))"' && \
+            exit 1; \
+        fi && \
+        \
+        # Download RootFS file (search result [4] pattern)
+        echo "📥 Downloading RootFS file: $ROOTFS_FILENAME..." && \
+        ROOTFS_LOCAL_PATH="/tmp/$ROOTFS_FILENAME" && \
+        FILE_DOWNLOAD_SUCCESS=false && \
+        \
+        # Try curl first (supports progress bar and resume)
+        if curl -L --progress-bar --connect-timeout 30 --max-time 600 "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH" 2>/dev/null; then \
+            echo "✅ RootFS file downloaded successfully via curl" && \
+            FILE_DOWNLOAD_SUCCESS=true; \
+        # Fallback to wget (different retry logic and network handling)
+        elif wget -q --timeout=60 --tries=3 --retry-connrefused -O "$ROOTFS_LOCAL_PATH" "$ROOTFS_URL" 2>/dev/null; then \
+            echo "✅ RootFS file downloaded successfully via wget" && \
+            FILE_DOWNLOAD_SUCCESS=true; \
+        else \
+            echo "❌ Failed to download RootFS file with both curl and wget" && \
+            exit 1; \
+        fi && \
+        \
+        # Extract RootFS based on file type (search result [1] and [2] logic)
+        echo "📦 Extracting RootFS..." && \
+        # Proper RootFS directory naming (Ubuntu_24_04 style)
+        ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
+        EXTRACT_DIR="/home/fex/.fex-emu/RootFS/${ROOTFS_DIRNAME}" && \
+        echo "📋 RootFS directory name: $ROOTFS_DIRNAME" && \
+        \
+        if [ -d "$EXTRACT_DIR" ]; then \
+            echo "🗑️ Removing existing RootFS directory..." && \
+            rm -rf "$EXTRACT_DIR"; \
+        fi && \
+        mkdir -p "$EXTRACT_DIR" && \
+        \
+        if echo "$ROOTFS_FILENAME" | grep -q '\.sqsh$\|\.squashfs$'; then \
+            echo "🔧 Extracting SquashFS file using unsquashfs..." && \
+            # Use unsquashfs to extract (search result [2] method)
+            if command -v unsquashfs >/dev/null 2>&1; then \
+                cd /tmp && \
+                unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+                echo "✅ SquashFS extraction completed"; \
+            else \
+                echo "❌ unsquashfs not found. Installing squashfs-tools..." && \
+                apt-get update -qq && apt-get install -y --no-install-recommends squashfs-tools && \
+                unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+                echo "✅ SquashFS extraction completed"; \
+            fi; \
+        elif echo "$ROOTFS_FILENAME" | grep -q '\.ero$\|\.erofs$'; then \
+            echo "🔧 Extracting EROFS file..." && \
+            # Install erofs-utils if needed
+            if ! command -v dump.erofs >/dev/null 2>&1; then \
+                echo "📦 Installing erofs-utils..." && \
+                apt-get update -qq && \
+                apt-get install -y --no-install-recommends erofs-utils; \
+            fi && \
+            \
+            # Extract EROFS using dump.erofs
+            if dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH"; then \
+                echo "✅ EROFS extraction completed"; \
+            else \
+                echo "❌ EROFS extraction failed" && \
+                exit 1; \
+            fi; \
+        fi; \
+        \
+        # Set proper ownership (search result [2] requirement)
+        chown -R fex:fex /home/fex/.fex-emu && \
+        \
+        # Create FEX configuration with correct format (printf version for readability)
+        echo "⚙️ Writing FEX configuration..." && \
+        CONFIG_PATH="/home/fex/.fex-emu/Config.json" && \
+        \
+        # Create config JSON using printf (formatted)
+        printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > "$CONFIG_PATH" && \
+        \
+        chown fex:fex "$CONFIG_PATH" && \
+        echo "✅ FEX configuration written to $CONFIG_PATH" && \
+        \
+        # Verify config format (NEW)
+        echo "🔍 Verifying configuration format:" && \
+        cat "$CONFIG_PATH" | jq . && \
+        \
+        # Verify installation (search result [2] verification)
+        echo "🔍 Verifying RootFS installation..." && \
+        if [ -d "$EXTRACT_DIR" ]; then \
+            ROOTFS_CONTENT_COUNT=$(find "$EXTRACT_DIR" -type f | wc -l) && \
+            ROOTFS_DIR_COUNT=$(find "$EXTRACT_DIR" -type d | wc -l) && \
+            echo "📊 RootFS verification results:" && \
+            echo "  - Directory: $EXTRACT_DIR" && \
+            echo "  - Files: $ROOTFS_CONTENT_COUNT" && \
+            echo "  - Directories: $ROOTFS_DIR_COUNT" && \
+            \
+            if [ "$ROOTFS_CONTENT_COUNT" -gt 100 ]; then \
+                echo "✅ RootFS appears to be properly extracted"; \
+            else \
+                echo "⚠️ RootFS may be incomplete (too few files)"; \
+            fi; \
+        else \
+            echo "❌ RootFS directory not found after extraction" && \
+            exit 1; \
+        fi && \
+        \
+        # Cleanup temporary files
+        echo "🧹 Cleaning up temporary files..." && \
+        rm -f "$ROOTFS_LOCAL_PATH" "$ROOTFS_JSON" && \
+        \
+        # Final verification with config
+        echo "🎯 Final verification..." && \
+        echo "📋 RootFS setup summary:" && \
+        echo "  - OS: ${ROOTFS_OS}" && \
+        echo "  - Version: ${ROOTFS_VERSION}" && \
+        echo "  - Type: $ROOTFS_TYPE" && \
+        echo "  - Directory Name: $ROOTFS_DIRNAME" && \
+        echo "  - Location: $EXTRACT_DIR" && \
+        echo "  - Config: $CONFIG_PATH" && \
+        echo "  - Size: $(du -sh "$EXTRACT_DIR" 2>/dev/null | cut -f1)" && \
+        \
+        # Display final config content
+        echo "📋 Final Config.json content:" && \
+        cat "$CONFIG_PATH" && \
+        \
+        ROOTFS_SUCCESS=true && echo "🎉 Manual RootFS setup completed successfully!"; \
     fi && \
     \
     # Enhanced FEXRootFSFetcher with retry logic
@@ -361,164 +523,6 @@ RUN echo "🚀 Starting RootFS setup process..." && \
             if [ $attempt -lt 3 ]; then \
                 echo "⏳ Waiting 30 seconds before retry..."; \
                 sleep 30; \
-            else \
-                # Manual RootFS setup script (FEXRootFSFetcher alternative)
-                echo "🔄 Starting manual RootFS setup as FEXRootFSFetcher alternative..." && \
-                \
-                # Create necessary directories
-                mkdir -p /home/fex/.fex-emu/RootFS && \
-                \
-                # Download RootFS JSON list (search result [1] pattern)
-                echo "📥 Downloading RootFS links from FEX server..." && \
-                ROOTFS_JSON_URL="https://rootfs.fex-emu.gg/RootFS_links.json" && \
-                ROOTFS_JSON="/tmp/rootfs_links.json" && \
-                \
-                if curl -s --connect-timeout 30 "$ROOTFS_JSON_URL" -o "$ROOTFS_JSON"; then \
-                    echo "✅ RootFS JSON downloaded successfully"; \
-                else \
-                    echo "❌ Failed to download RootFS JSON list" && \
-                    exit 1; \
-                fi && \
-                \
-                # Parse JSON to find matching OS and version (search result [1] logic)
-                echo "🔍 Searching for ${ROOTFS_OS} ${ROOTFS_VERSION} in RootFS list..." && \
-                ROOTFS_URL="" && \
-                ROOTFS_FILENAME="" && \
-                ROOTFS_TYPE="" && \
-                \
-                # Extract matching entry from JSON using jq
-                MATCHED_ENTRY=$(cat "$ROOTFS_JSON" | jq -r --arg os "$ROOTFS_OS" --arg version "$ROOTFS_VERSION" \
-                    '.v1 | to_entries[] | select(.value.DistroMatch == $os and .value.DistroVersion == $version and .value.Type == "squashfs") | .value') && \
-                \
-                if [ -n "$MATCHED_ENTRY" ] && [ "$MATCHED_ENTRY" != "null" ]; then \
-                    ROOTFS_URL=$(echo "$MATCHED_ENTRY" | jq -r '.URL') && \
-                    ROOTFS_FILENAME=$(basename "$ROOTFS_URL") && \
-                    ROOTFS_TYPE=$(echo "$MATCHED_ENTRY" | jq -r '.Type') && \
-                    echo "✅ Found matching RootFS:" && \
-                    echo "  - URL: $ROOTFS_URL" && \
-                    echo "  - Filename: $ROOTFS_FILENAME" && \
-                    echo "  - Type: $ROOTFS_TYPE"; \
-                else \
-                    echo "❌ No matching RootFS found for ${ROOTFS_OS} ${ROOTFS_VERSION}" && \
-                    echo "📋 Available RootFS options:" && \
-                    cat "$ROOTFS_JSON" | jq -r '.v1 | to_entries[] | "  - \(.value.DistroMatch) \(.value.DistroVersion) (\(.value.Type))"' && \
-                    exit 1; \
-                fi && \
-                \
-                # Download RootFS file (search result [4] pattern)
-                echo "📥 Downloading RootFS file: $ROOTFS_FILENAME..." && \
-                ROOTFS_LOCAL_PATH="/tmp/$ROOTFS_FILENAME" && \
-                \
-                if curl -L --progress-bar --connect-timeout 30 --max-time 600 "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH"; then \
-                    echo "✅ RootFS file downloaded successfully"; \
-                    echo "📊 Downloaded file size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)"; \
-                else \
-                    echo "❌ Failed to download RootFS file" && \
-                    exit 1; \
-                fi && \
-                \
-                # Extract RootFS based on file type (search result [1] and [2] logic)
-                echo "📦 Extracting RootFS..." && \
-                # Proper RootFS directory naming (Ubuntu_24_04 style)
-                ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
-                EXTRACT_DIR="/home/fex/.fex-emu/RootFS/${ROOTFS_DIRNAME}" && \
-                echo "📋 RootFS directory name: $ROOTFS_DIRNAME" && \
-                \
-                if [ -d "$EXTRACT_DIR" ]; then \
-                    echo "🗑️ Removing existing RootFS directory..." && \
-                    rm -rf "$EXTRACT_DIR"; \
-                fi && \
-                mkdir -p "$EXTRACT_DIR" && \
-                \
-                if echo "$ROOTFS_FILENAME" | grep -q '\.sqsh$\|\.squashfs$'; then \
-                    echo "🔧 Extracting SquashFS file using unsquashfs..." && \
-                    # Use unsquashfs to extract (search result [2] method)
-                    if command -v unsquashfs >/dev/null 2>&1; then \
-                        cd /tmp && \
-                        unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
-                        echo "✅ SquashFS extraction completed"; \
-                    else \
-                        echo "❌ unsquashfs not found. Installing squashfs-tools..." && \
-                        apt-get update -qq && apt-get install -y --no-install-recommends squashfs-tools && \
-                        unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
-                        echo "✅ SquashFS extraction completed"; \
-                    fi; \
-                elif echo "$ROOTFS_FILENAME" | grep -q '\.ero$\|\.erofs$'; then \
-                    echo "🔧 Extracting EROFS file..." && \
-                    # Install erofs-utils if needed
-                    if ! command -v dump.erofs >/dev/null 2>&1; then \
-                        echo "📦 Installing erofs-utils..." && \
-                        apt-get update -qq && \
-                        apt-get install -y --no-install-recommends erofs-utils; \
-                    fi && \
-                    \
-                    # Extract EROFS using dump.erofs
-                    if dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH"; then \
-                        echo "✅ EROFS extraction completed"; \
-                    else \
-                        echo "❌ EROFS extraction failed" && \
-                        exit 1; \
-                    fi; \
-                fi; \
-                \
-                # Set proper ownership (search result [2] requirement)
-                chown -R fex:fex /home/fex/.fex-emu && \
-                \
-                # Create FEX configuration with correct format (printf version for readability)
-                echo "⚙️ Writing FEX configuration..." && \
-                CONFIG_PATH="/home/fex/.fex-emu/Config.json" && \
-                \
-                # Create config JSON using printf (formatted)
-                printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > "$CONFIG_PATH" && \
-                \
-                chown fex:fex "$CONFIG_PATH" && \
-                echo "✅ FEX configuration written to $CONFIG_PATH" && \
-                \
-                # Verify config format (NEW)
-                echo "🔍 Verifying configuration format:" && \
-                cat "$CONFIG_PATH" | jq . && \
-                \
-                # Verify installation (search result [2] verification)
-                echo "🔍 Verifying RootFS installation..." && \
-                if [ -d "$EXTRACT_DIR" ]; then \
-                    ROOTFS_CONTENT_COUNT=$(find "$EXTRACT_DIR" -type f | wc -l) && \
-                    ROOTFS_DIR_COUNT=$(find "$EXTRACT_DIR" -type d | wc -l) && \
-                    echo "📊 RootFS verification results:" && \
-                    echo "  - Directory: $EXTRACT_DIR" && \
-                    echo "  - Files: $ROOTFS_CONTENT_COUNT" && \
-                    echo "  - Directories: $ROOTFS_DIR_COUNT" && \
-                    \
-                    if [ "$ROOTFS_CONTENT_COUNT" -gt 100 ]; then \
-                        echo "✅ RootFS appears to be properly extracted"; \
-                    else \
-                        echo "⚠️ RootFS may be incomplete (too few files)"; \
-                    fi; \
-                else \
-                    echo "❌ RootFS directory not found after extraction" && \
-                    exit 1; \
-                fi && \
-                \
-                # Cleanup temporary files
-                echo "🧹 Cleaning up temporary files..." && \
-                rm -f "$ROOTFS_LOCAL_PATH" "$ROOTFS_JSON" && \
-                \
-                # Final verification with config
-                echo "🎯 Final verification..." && \
-                echo "📋 RootFS setup summary:" && \
-                echo "  - OS: ${ROOTFS_OS}" && \
-                echo "  - Version: ${ROOTFS_VERSION}" && \
-                echo "  - Type: $ROOTFS_TYPE" && \
-                echo "  - Directory Name: $ROOTFS_DIRNAME" && \
-                echo "  - Location: $EXTRACT_DIR" && \
-                echo "  - Config: $CONFIG_PATH" && \
-                echo "  - Size: $(du -sh "$EXTRACT_DIR" 2>/dev/null | cut -f1)" && \
-                \
-                # Display final config content
-                echo "📋 Final Config.json content:" && \
-                cat "$CONFIG_PATH" && \
-                \
-                ROOTFS_SUCCESS=true && echo "🎉 Manual RootFS setup completed successfully!"; \
-            fi; \
         fi; \
     done && \
     \
