@@ -338,7 +338,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
     echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
-    FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null && \
+    FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty && \
     echo "✅ RootFS download and extraction completed" && \
     \
     chown -R fex:fex /home/fex/.fex-emu && \
