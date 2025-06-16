@@ -52,41 +52,49 @@ RUN echo "📦 Starting package installation..." && \
             gnupg gnupg2 gpg-agent dirmngr ca-certificates && \
         echo "✅ Base packages installed successfully" && \
         \
-        # ccache 버전 확인 및 업그레이드
+        # ccache version check and upgrade
         echo "🔍 Checking ccache version..." && \
         ccache --version && \
         CCACHE_VERSION=$(ccache --version | head -1 | grep -o '[0-9]\+\.[0-9]\+' | head -1) && \
         echo "📊 Current ccache version: ${CCACHE_VERSION}" && \
+        # Auto-detect and install latest ccache version
+        echo "🔍 Detecting latest ccache version..." && \
+        # Get latest release information via GitHub API
+        LATEST_RELEASE=$(curl -s https://api.github.com/repos/ccache/ccache/releases/latest) && \
+        LATEST_VERSION=$(echo "$LATEST_RELEASE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//') && \
+        echo "📊 Latest ccache version detected: ${LATEST_VERSION}" && \
         \
-        # Check if version is 3.7 or lower (known recursive invocation bug)
-        if dpkg --compare-versions "${CCACHE_VERSION}" "le" "3.7"; then \
-            echo "⚠️ ccache ${CCACHE_VERSION} detected - has recursive invocation bug" && \
-            echo "🔧 Upgrading to ccache 4.0+ to fix the issue..." && \
-            \
-            # Method 1: Try installing from official ccache PPA
-            if add-apt-repository ppa:ccache/ccache -y 2>/dev/null && \
-            apt-get update -qq > /dev/null 2>&1 && \
-            apt-get install -qq -y ccache > /dev/null 2>&1; then \
-                echo "✅ ccache upgraded via PPA" && \
-                ccache --version; \
-            # Method 2: Download and install precompiled binary
-            else \
-                echo "📥 PPA failed, downloading precompiled ccache binary..." && \
-                cd /tmp && \
-                ARCH=$(uname -m) && \
-                if [ "$ARCH" = "aarch64" ]; then CCACHE_ARCH="arm64"; else CCACHE_ARCH="amd64"; fi && \
-                wget -q "https://github.com/ccache/ccache/releases/download/v4.8.3/ccache-4.8.3-linux-${CCACHE_ARCH}.tar.xz" && \
-                tar -xf ccache-4.8.3-linux-${CCACHE_ARCH}.tar.xz && \
-                cp ccache-4.8.3-linux-${CCACHE_ARCH}/ccache /usr/local/bin/ccache && \
-                chmod +x /usr/local/bin/ccache && \
-                rm -rf ccache-4.8.3-linux-* && \
-                echo "✅ ccache 4.8.3 installed from precompiled binary" && \
-                /usr/local/bin/ccache --version; \
-            fi; \
+        # Architecture detection
+        ARCH=$(uname -m) && \
+        if [ "$ARCH" = "aarch64" ]; then CCACHE_ARCH="arm64"; else CCACHE_ARCH="x86_64"; fi && \
+        echo "🔍 Target architecture: ${CCACHE_ARCH}" && \
+        \
+        # Attempt to download latest version
+        DOWNLOAD_URL="https://github.com/ccache/ccache/releases/download/v${LATEST_VERSION}/ccache-${LATEST_VERSION}-linux-${CCACHE_ARCH}.tar.xz" && \
+        echo "📥 Attempting download from: ${DOWNLOAD_URL}" && \
+        \
+        # For ARM64, fallback to source compilation if binary is not available
+        if [ "$CCACHE_ARCH" = "arm64" ] || ! wget -q "$DOWNLOAD_URL"; then \
+            echo "⚠️ Precompiled binary not available, building from source..." && \
+            SOURCE_URL="https://github.com/ccache/ccache/releases/download/v${LATEST_VERSION}/ccache-${LATEST_VERSION}.tar.xz" && \
+            wget -q "$SOURCE_URL" && \
+            tar -xf "ccache-${LATEST_VERSION}.tar.xz" && \
+            cd "ccache-${LATEST_VERSION}" && \
+            mkdir build && cd build && \
+            cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
+            make -j$(nproc) && \
+            make install && \
+            cd ../.. && \
+            rm -rf "ccache-${LATEST_VERSION}"*; \
         else \
-            echo "✅ ccache version ${CCACHE_VERSION} is sufficient (4.0+)"; \
+            echo "✅ Using precompiled binary..." && \
+            tar -xf "ccache-${LATEST_VERSION}-linux-${CCACHE_ARCH}.tar.xz" && \
+            cp "ccache-${LATEST_VERSION}-linux-${CCACHE_ARCH}/ccache" /usr/local/bin/ccache && \
+            chmod +x /usr/local/bin/ccache && \
+            rm -rf "ccache-${LATEST_VERSION}-linux-${CCACHE_ARCH}"*; \
         fi && \
-        echo "🎉 ccache version check and upgrade completed" && \
+        echo "✅ Latest ccache ${LATEST_VERSION} installed successfully" && \
+        /usr/local/bin/ccache --version && \
         \
         # LLVM installation with debugging
         if [ "${ROOTFS_OS}" = "ubuntu" ]; then \
