@@ -10,12 +10,12 @@ on:
             force_rebuild:
                 description: "Force rebuild even if artifacts exist"
                 required: false
-                default: "false"
+                default: false
                 type: boolean
     # Also execute when workflow file changes
-    push:
-        paths:
-            - ".github/workflows/build-ccache.yml"
+    # push:
+    #     paths:
+    #         - ".github/workflows/build-ccache.yml"
 
 env:
     # Environment variables required for ccache build
