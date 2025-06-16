@@ -231,22 +231,31 @@ RUN echo "📦 Setting up ccache with Ubuntu version-specific compatibility..." 
     fi && \
     echo "✅ ccache setup completed with version-specific compatibility"
 
-# Copy FEX source and build with comprehensive debugging
+# Copy FEX source and build with comprehensive debugging (BOTH FIXES APPLIED)
 COPY --from=fex-sources / /tmp/fex-source  
 RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🏗️ Starting FEX build process..." && \
     cd /tmp/fex-source && \
     echo "🔧 Applying Qt compatibility fixes for Ubuntu 20.04..." && \
-    # Method 1: Replace qt_add_resources with qt5_add_resources
-    find . -name "CMakeLists.txt" -exec sed -i 's/qt_add_resources(/qt5_add_resources(/g' {} + && \
+    # Method 1: Replace qt_add_resources with qt5_add_resources (FIXED - no sed -i)
+    find . -name "CMakeLists.txt" -type f | while read file; do \
+        echo "🔄 Processing: $file" && \
+        sed 's/qt_add_resources(/qt5_add_resources(/g' "$file" > "$file.tmp" && \
+        mv "$file.tmp" "$file"; \
+    done && \
     echo "✅ Qt command compatibility fixed" && \
     \
-    # Method 2: Set Qt 5.15 environment for CMake
-    if [ "${UBUNTU_VERSION_NUM:-}" -eq "2004" ]; then \
+    # Method 2: Set Qt 5.15 environment for CMake (FIXED - variable definition)
+    UBUNTU_VERSION_NUM=$(echo "${ROOTFS_VERSION}" | sed 's/\.//g' | sed 's/[^0-9]//g') && \
+    echo "📊 Detected Ubuntu version: ${UBUNTU_VERSION_NUM}" && \
+    if [ -n "$UBUNTU_VERSION_NUM" ] && [ "$UBUNTU_VERSION_NUM" -eq "2004" ]; then \
+        echo "🎨 Configuring Qt 5.15 environment for Ubuntu 20.04..." && \
         source /opt/qt515/bin/qt515-env.sh 2>/dev/null || true && \
         export CMAKE_PREFIX_PATH="/opt/qt515:$CMAKE_PREFIX_PATH" && \
         export Qt5_DIR="/opt/qt515/lib/cmake/Qt5" && \
         echo "✅ Qt 5.15 environment configured for CMake"; \
+    else \
+        echo "ℹ️ Not Ubuntu 20.04, skipping Qt 5.15 setup"; \
     fi && \
     \
     # Check ccache source and setup (SAFE VERSION - no [ -x ] usage)
@@ -280,7 +289,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "ℹ️ ccache disabled for this build"; \
     fi && \
     \
-    # Detect and configure compilers and AR tools (FIXED)
+    # Detect and configure compilers and AR tools (FIXED - absolute paths)
     echo "🔍 Detecting compilers and AR tools..." && \
     if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
         CC_COMPILER=clang-${LLVM_VERSION}; \
@@ -292,18 +301,18 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "⚠️ Using default compilers: $CC_COMPILER / $CXX_COMPILER"; \
     fi && \
     \
-    # Configure AR tools (FIXED - CMAKE_C_COMPILER_AR-NOTFOUND)
+    # Configure AR tools (FIXED - absolute paths to prevent "not found")
     if command -v llvm-ar-${LLVM_VERSION} >/dev/null 2>&1; then \
-        AR_TOOL=llvm-ar-${LLVM_VERSION}; \
-        RANLIB_TOOL=llvm-ranlib-${LLVM_VERSION}; \
+        AR_TOOL=$(which llvm-ar-${LLVM_VERSION}); \
+        RANLIB_TOOL=$(which llvm-ranlib-${LLVM_VERSION}); \
         echo "✅ Using LLVM AR tools: $AR_TOOL"; \
     elif command -v aarch64-linux-gnu-ar >/dev/null 2>&1; then \
-        AR_TOOL=aarch64-linux-gnu-ar; \
-        RANLIB_TOOL=aarch64-linux-gnu-ranlib; \
+        AR_TOOL=$(which aarch64-linux-gnu-ar); \
+        RANLIB_TOOL=$(which aarch64-linux-gnu-ranlib); \
         echo "✅ Using GCC AR tools: $AR_TOOL"; \
     else \
-        AR_TOOL=ar; \
-        RANLIB_TOOL=ranlib; \
+        AR_TOOL=$(which ar 2>/dev/null || echo "ar"); \
+        RANLIB_TOOL=$(which ranlib 2>/dev/null || echo "ranlib"); \
         echo "⚠️ Using default AR tools: $AR_TOOL"; \
     fi && \
     \
@@ -318,11 +327,10 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "📋 Fedora linker flags: $LINKER_FLAGS"; \
     fi && \
     \
-    # Build FEX with conditional ccache and AR tools (FINAL FIX)
+    # Build FEX with all fixes applied
     echo "⚙️ Running CMake configuration with all fixes..." && \
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Building with ccache acceleration (${CCACHE_SOURCE})..." && \
-        # Use CC/CXX environment variables to avoid recursive invocation
         export CC="ccache $CC_COMPILER" && \
         export CXX="ccache $CXX_COMPILER" && \
         echo "✅ ccache configured with CC/CXX environment variables" && \
@@ -335,10 +343,10 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_ASSERTIONS=False \
             -DCMAKE_C_COMPILER=$CC_COMPILER \
             -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
-            -DCMAKE_AR=$AR_TOOL \
-            -DCMAKE_RANLIB=$RANLIB_TOOL \
-            -DCMAKE_C_COMPILER_AR=$AR_TOOL \
-            -DCMAKE_CXX_COMPILER_AR=$AR_TOOL \
+            -DCMAKE_AR="$AR_TOOL" \
+            -DCMAKE_RANLIB="$RANLIB_TOOL" \
+            -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
+            -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
@@ -353,10 +361,10 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_ASSERTIONS=False \
             -DCMAKE_C_COMPILER=$CC_COMPILER \
             -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
-            -DCMAKE_AR=$AR_TOOL \
-            -DCMAKE_RANLIB=$RANLIB_TOOL \
-            -DCMAKE_C_COMPILER_AR=$AR_TOOL \
-            -DCMAKE_CXX_COMPILER_AR=$AR_TOOL \
+            -DCMAKE_AR="$AR_TOOL" \
+            -DCMAKE_RANLIB="$RANLIB_TOOL" \
+            -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
+            -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
@@ -382,6 +390,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🧹 Cleaning up build artifacts..." && \
     rm -rf /tmp/fex-source /tmp/ccache-info /tmp/ccache-binary && \
     echo "🎉 FEX build completed successfully!"
+
 
 #==============================================
 # Runtime Stage - Ubuntu & Fedora Support with Debug
