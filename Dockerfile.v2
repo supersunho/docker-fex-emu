@@ -183,12 +183,25 @@ COPY --from=fex-sources / /tmp/fex-source
 RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🏗️ Starting FEX build process..." && \
     cd /tmp/fex-source && \
-    mkdir -p Build && cd Build && \
+    echo "🔧 Applying Qt compatibility fixes for Ubuntu 20.04..." && \
+    # Method 1: Replace qt_add_resources with qt5_add_resources
+    find . -name "CMakeLists.txt" -exec sed -i 's/qt_add_resources(/qt5_add_resources(/g' {} + && \
+    echo "✅ Qt command compatibility fixed" && \
+    \
+    # Method 2: Set Qt 5.15 environment for CMake
+    if [ "${UBUNTU_VERSION_NUM}" -eq "2004" ]; then \
+        source /opt/qt515/bin/qt515-env.sh 2>/dev/null || true && \
+        export CMAKE_PREFIX_PATH="/opt/qt515:$CMAKE_PREFIX_PATH" && \
+        export Qt5_DIR="/opt/qt515/lib/cmake/Qt5" && \
+        echo "✅ Qt 5.15 environment configured for CMake"; \
+    fi && \
+    \
     echo "📊 Build environment summary:" && \
     echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
     echo "  - CCACHE_DIR: ${CCACHE_DIR}" && \
     echo "  - LLVM_VERSION: ${LLVM_VERSION}" && \
     \
+    mkdir -p Build && cd Build && \
     # Configure ccache environment
     if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
         echo "🚀 Configuring ccache acceleration..." && \
