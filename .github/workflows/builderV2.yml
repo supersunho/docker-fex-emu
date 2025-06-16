@@ -612,7 +612,8 @@ jobs:
                   sudo apt-get install -y --no-install-recommends \
                     build-essential cmake ninja-build \
                     libzstd-dev libhiredis-dev \
-                    xz-utils curl wget jq file  
+                    xz-utils curl wget jq \
+                    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
                   echo "✅ Build environment ready"
 
             - name: Download ccache source
@@ -637,11 +638,19 @@ jobs:
 
                   echo "⚙️ Configuring cmake for ARM64..."
 
-                  # ARM64 native build (since we're running on ARM64 runner)
+                  # ARM64 configuration
                   cmake \
-                    -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-                    -DCMAKE_INSTALL_PREFIX=/usr/local \
-                    -G Ninja ..
+                      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
+                      -DCMAKE_INSTALL_PREFIX=/usr/local \
+                      -DCMAKE_SYSTEM_NAME=Linux \
+                      -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+                      -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+                      -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+                      -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                      -G Ninja ..
+
 
                   echo "✅ CMake configuration completed"
 
