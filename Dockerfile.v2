@@ -42,15 +42,17 @@ RUN echo "📦 Starting package installation..." && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         echo "🔧 Setting up Debian/Ubuntu environment..." && \
         apt-get update -qq && \
-        echo "📦 Installing base development packages..." && \
+        echo "📦 Installing base development packages with AR tools..." && \
         apt-get install -qq -y --no-install-recommends \
             git cmake ninja-build pkg-config ccache \
             nasm python3-dev python3-clang python3-setuptools \
             libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
             linux-headers-generic curl wget \
             software-properties-common openssl libssl-dev \
-            gnupg gnupg2 gpg-agent dirmngr ca-certificates && \
-        echo "✅ Base packages installed successfully" && \
+            gnupg gnupg2 gpg-agent dirmngr ca-certificates \
+            binutils binutils-aarch64-linux-gnu \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu && \
+        echo "✅ Base packages with AR tools installed successfully" && \
         \
         # Robust libhiredis installation with fallback
         echo "📦 Installing libhiredis for ccache support..." && \
@@ -164,14 +166,14 @@ RUN echo "📦 Starting package installation..." && \
                 llvm${LLVM_VERSION} clang${LLVM_VERSION} lld${LLVM_VERSION} \
                 compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} \
                 libstdc++-devel libstdc++-static glibc-devel \
-                gcc-c++ binutils-devel; \
+                gcc-c++ binutils-devel binutils; \
         else \
             echo "⚠️ LLVM ${LLVM_VERSION} not available, using default" && \
             dnf install -q -y \
                 @development-tools cmake ninja-build pkg-config ccache \
                 llvm llvm-devel clang clang-devel lld \
                 libstdc++-devel libstdc++-static glibc-devel \
-                gcc-c++ binutils-devel; \
+                gcc-c++ binutils-devel binutils; \
         fi && \
         echo "🔗 Creating tool symlinks..." && \
         for tool in ar nm objdump strip; do \
@@ -235,7 +237,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "✅ Qt 5.15 environment configured for CMake"; \
     fi && \
     \
-    # Check ccache source and setup  
+    # Check ccache source and setup (SAFE VERSION - no [ -x ] usage)
     . /tmp/ccache-info && \
     echo "📊 Build environment summary:" && \
     echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
@@ -250,7 +252,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     fi && \
     \
     mkdir -p Build && cd Build && \
-    # Configure ccache environment  
+    # Configure ccache environment (FIXED - no recursive invocation)
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Configuring ccache acceleration..." && \
         mkdir -p /tmp/ccache-temp && \
@@ -266,8 +268,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "ℹ️ ccache disabled for this build"; \
     fi && \
     \
-    # Detect and configure compiler
-    echo "🔍 Detecting compilers..." && \
+    # Detect and configure compilers and AR tools (FIXED)
+    echo "🔍 Detecting compilers and AR tools..." && \
     if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
         CC_COMPILER=clang-${LLVM_VERSION}; \
         CXX_COMPILER=clang++-${LLVM_VERSION}; \
@@ -276,6 +278,21 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         CC_COMPILER=clang; \
         CXX_COMPILER=clang++; \
         echo "⚠️ Using default compilers: $CC_COMPILER / $CXX_COMPILER"; \
+    fi && \
+    \
+    # Configure AR tools (FIXED - CMAKE_C_COMPILER_AR-NOTFOUND)
+    if command -v llvm-ar-${LLVM_VERSION} >/dev/null 2>&1; then \
+        AR_TOOL=llvm-ar-${LLVM_VERSION}; \
+        RANLIB_TOOL=llvm-ranlib-${LLVM_VERSION}; \
+        echo "✅ Using LLVM AR tools: $AR_TOOL"; \
+    elif command -v aarch64-linux-gnu-ar >/dev/null 2>&1; then \
+        AR_TOOL=aarch64-linux-gnu-ar; \
+        RANLIB_TOOL=aarch64-linux-gnu-ranlib; \
+        echo "✅ Using GCC AR tools: $AR_TOOL"; \
+    else \
+        AR_TOOL=ar; \
+        RANLIB_TOOL=ranlib; \
+        echo "⚠️ Using default AR tools: $AR_TOOL"; \
     fi && \
     \
     # Configure OS-specific linker flags
@@ -289,8 +306,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "📋 Fedora linker flags: $LINKER_FLAGS"; \
     fi && \
     \
-    # Build FEX with conditional ccache (FIXED - no CMAKE_COMPILER_LAUNCHER)
-    echo "⚙️ Running CMake configuration..." && \
+    # Build FEX with conditional ccache and AR tools (FINAL FIX)
+    echo "⚙️ Running CMake configuration with all fixes..." && \
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Building with ccache acceleration (${CCACHE_SOURCE})..." && \
         # Use CC/CXX environment variables to avoid recursive invocation
@@ -304,6 +321,12 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_LTO=True \
             -DBUILD_TESTS=False \
             -DENABLE_ASSERTIONS=False \
+            -DCMAKE_C_COMPILER=$CC_COMPILER \
+            -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
+            -DCMAKE_AR=$AR_TOOL \
+            -DCMAKE_RANLIB=$RANLIB_TOOL \
+            -DCMAKE_C_COMPILER_AR=$AR_TOOL \
+            -DCMAKE_CXX_COMPILER_AR=$AR_TOOL \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
@@ -316,12 +339,18 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DENABLE_LTO=True \
             -DBUILD_TESTS=False \
             -DENABLE_ASSERTIONS=False \
+            -DCMAKE_C_COMPILER=$CC_COMPILER \
+            -DCMAKE_CXX_COMPILER=$CXX_COMPILER \
+            -DCMAKE_AR=$AR_TOOL \
+            -DCMAKE_RANLIB=$RANLIB_TOOL \
+            -DCMAKE_C_COMPILER_AR=$AR_TOOL \
+            -DCMAKE_CXX_COMPILER_AR=$AR_TOOL \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
     fi && \
     \
-    echo "✅ CMake configuration completed" && \
+    echo "✅ CMake configuration completed with all fixes" && \
     \
     echo "🔨 Starting compilation with $(nproc) cores..." && \
     ninja -j$(nproc) && \
