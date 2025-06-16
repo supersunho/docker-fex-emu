@@ -52,9 +52,7 @@ RUN echo "📦 Starting package installation..." && \
             binutils binutils-aarch64-linux-gnu \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \ 
             qtbase5-dev qtdeclarative5-dev && \
-        echo "✅ Base packages installed successfully" && \
-        \
-        echo "✅ Base packages installed successfully" && \
+        echo "✅ Base packages installed successfully" && \ 
         \
         # Smart LLVM installation with apt-cache check + script fallback
         echo "🔧 Installing LLVM ${LLVM_VERSION} with smart detection..." && \
@@ -84,7 +82,7 @@ RUN echo "📦 Starting package installation..." && \
             echo "🔄 Using official LLVM installation script..." && \
             wget -q https://apt.llvm.org/llvm.sh -O llvm.sh && \
             chmod +x llvm.sh && \
-            ./llvm.sh ${LLVM_VERSION} >/dev/null 2>&1; && \
+            ./llvm.sh ${LLVM_VERSION} >/dev/null 2>&1 && \
             rm llvm.sh && \
             # Verify installation
             if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
