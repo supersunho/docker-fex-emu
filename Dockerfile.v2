@@ -178,12 +178,19 @@ RUN echo "📦 Starting package installation..." && \
     fi && \
     echo "🎉 All package installation completed!"
 
-# Install prebuilt ccache from artifact with fallback
-RUN echo "📦 Setting up ccache from artifact with fallback..." && \
-    # Check if prebuilt ccache artifact is available
-    if [ -d "/ccache-binary" ] && ls /ccache-binary/ccache-*.tar.gz >/dev/null 2>&1; then \
+# Copy ccache binary from build context (matching integrated workflow)
+COPY --from=ccache-binary . /tmp/ccache-binary
+
+# Install prebuilt ccache from artifact with fallback (integrated workflow compatible)
+RUN echo "📦 Setting up ccache from integrated workflow artifact..." && \
+    # Check if ccache artifact directory exists and has files
+    if [ -d "/tmp/ccache-binary" ] && find /tmp/ccache-binary -name "*.tar.gz" | grep -q .; then \
         echo "✅ Prebuilt ccache artifact found, installing..." && \
-        tar -xzf /ccache-binary/ccache-*.tar.gz -C / && \
+        cd /tmp/ccache-binary && \
+        # Find and extract the first .tar.gz file
+        CCACHE_FILE=$(find . -name "*.tar.gz" | head -1) && \
+        echo "📥 Installing ccache from: $CCACHE_FILE" && \
+        tar -xzf "$CCACHE_FILE" -C / && \
         chmod +x /usr/local/bin/ccache && \
         echo "📊 Prebuilt ccache version installed:" && \
         /usr/local/bin/ccache --version && \
@@ -195,9 +202,6 @@ RUN echo "📦 Setting up ccache from artifact with fallback..." && \
         echo "CCACHE_SOURCE=system" > /tmp/ccache-info; \
     fi && \
     echo "✅ ccache setup completed"
-
-# Copy ccache binary from build context (conditional)
-COPY --from=ccache-binary . /ccache-binary
 
 # Copy FEX source and build with comprehensive debugging
 COPY --from=fex-sources / /tmp/fex-source  
@@ -217,13 +221,15 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "✅ Qt 5.15 environment configured for CMake"; \
     fi && \
     \
-    # Check ccache source and setup
+    # Check ccache source and setup (integrated workflow compatible)
     . /tmp/ccache-info && \
     echo "📊 Build environment summary:" && \
     echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
     echo "  - CCACHE_DIR: ${CCACHE_DIR}" && \
     echo "  - CCACHE_SOURCE: ${CCACHE_SOURCE}" && \
     echo "  - LLVM_VERSION: ${LLVM_VERSION}" && \
+    echo "  - CCACHE_BINARY: $(which ccache 2>/dev/null || echo 'not found')" && \
+    echo "  - PREBUILT_CCACHE: $([[ -x /usr/local/bin/ccache ]] && echo 'available' || echo 'not available')" && \
     \
     mkdir -p Build && cd Build && \
     # Configure ccache environment
@@ -236,9 +242,9 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CCACHE_MAXSIZE=2G && \
         export CCACHE_COMPRESS=1 && \
         export CCACHE_SLOPPINESS=pch_defines,time_macros && \
-        # Use appropriate ccache binary
-        if [ "$CCACHE_SOURCE" = "prebuilt" ]; then \
-            echo "📦 Using prebuilt ccache binary" && \
+        # Use appropriate ccache binary (prioritize prebuilt from integrated workflow)
+        if [ "$CCACHE_SOURCE" = "prebuilt" ] && [ -x "/usr/local/bin/ccache" ]; then \
+            echo "📦 Using prebuilt ccache binary from integrated workflow" && \
             /usr/local/bin/ccache --zero-stats; \
         else \
             echo "🔄 Using system ccache" && \
@@ -272,15 +278,17 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "📋 Fedora linker flags: $LINKER_FLAGS"; \
     fi && \
     \
-    # Build FEX with conditional ccache
+    # Build FEX with conditional ccache (integrated workflow optimized)
     echo "⚙️ Running CMake configuration..." && \
     if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
         echo "🚀 Building with ccache acceleration (${CCACHE_SOURCE})..." && \
-        # Set ccache launcher based on source
-        if [ "$CCACHE_SOURCE" = "prebuilt" ]; then \
+        # Set ccache launcher based on source (prioritize prebuilt from integrated workflow)
+        if [ "$CCACHE_SOURCE" = "prebuilt" ] && [ -x "/usr/local/bin/ccache" ]; then \
             CCACHE_LAUNCHER="/usr/local/bin/ccache"; \
+            echo "📦 Using prebuilt ccache launcher: $CCACHE_LAUNCHER"; \
         else \
             CCACHE_LAUNCHER="ccache"; \
+            echo "🔄 Using system ccache launcher: $CCACHE_LAUNCHER"; \
         fi && \
         cmake \
             -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
@@ -320,19 +328,21 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     ninja install && \
     echo "✅ Installation completed" && \
     \
-    # Show ccache statistics if enabled
+    # Show ccache statistics if enabled (integrated workflow compatible)
     if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
         echo "📊 ccache Statistics (${CCACHE_SOURCE}):" && \
-        if [ "$CCACHE_SOURCE" = "prebuilt" ]; then \
+        if [ "$CCACHE_SOURCE" = "prebuilt" ] && [ -x "/usr/local/bin/ccache" ]; then \
+            echo "📦 Prebuilt ccache statistics:" && \
             /usr/local/bin/ccache --show-stats; \
         else \
+            echo "🔄 System ccache statistics:" && \
             ccache --show-stats; \
         fi && \
         echo "💾 ccache directory size: $(du -sh /tmp/.ccache 2>/dev/null || echo 'unknown')"; \
     fi && \
     \
     echo "🧹 Cleaning up build artifacts..." && \
-    rm -rf /tmp/fex-source /tmp/ccache-info /ccache-binary && \
+    rm -rf /tmp/fex-source /tmp/ccache-info /tmp/ccache-binary && \
     echo "🎉 FEX build completed successfully!"
 
 #==============================================
