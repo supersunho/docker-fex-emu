@@ -52,6 +52,12 @@ RUN echo "📦 Starting package installation..." && \
             gnupg gnupg2 gpg-agent dirmngr ca-certificates && \
         echo "✅ Base packages installed successfully" && \
         \
+        # Prerequisites installation for ccache source compilation
+        echo "🔧 Installing build prerequisites..." && \
+        apt-get update -qq > /dev/null 2>&1 && \
+        apt-get install -qq -y xz-utils build-essential cmake libzstd-dev > /dev/null 2>&1 && \
+        echo "✅ Build prerequisites installed" && \
+        \
         # ccache version check and upgrade
         echo "🔍 Checking ccache version..." && \
         ccache --version && \
@@ -69,30 +75,19 @@ RUN echo "📦 Starting package installation..." && \
         if [ "$ARCH" = "aarch64" ]; then CCACHE_ARCH="arm64"; else CCACHE_ARCH="x86_64"; fi && \
         echo "🔍 Target architecture: ${CCACHE_ARCH}" && \
         \
-        # Attempt to download latest version
-        DOWNLOAD_URL="https://github.com/ccache/ccache/releases/download/v${LATEST_VERSION}/ccache-${LATEST_VERSION}-linux-${CCACHE_ARCH}.tar.xz" && \
-        echo "📥 Attempting download from: ${DOWNLOAD_URL}" && \
-        \
-        # For ARM64, fallback to source compilation if binary is not available
-        if [ "$CCACHE_ARCH" = "arm64" ] || ! wget -q "$DOWNLOAD_URL"; then \
-            echo "⚠️ Precompiled binary not available, building from source..." && \
-            SOURCE_URL="https://github.com/ccache/ccache/releases/download/v${LATEST_VERSION}/ccache-${LATEST_VERSION}.tar.xz" && \
-            wget -q "$SOURCE_URL" && \
-            tar -xf "ccache-${LATEST_VERSION}.tar.xz" && \
-            cd "ccache-${LATEST_VERSION}" && \
-            mkdir build && cd build && \
-            cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
-            make -j$(nproc) && \
-            make install && \
-            cd ../.. && \
-            rm -rf "ccache-${LATEST_VERSION}"*; \
-        else \
-            echo "✅ Using precompiled binary..." && \
-            tar -xf "ccache-${LATEST_VERSION}-linux-${CCACHE_ARCH}.tar.xz" && \
-            cp "ccache-${LATEST_VERSION}-linux-${CCACHE_ARCH}/ccache" /usr/local/bin/ccache && \
-            chmod +x /usr/local/bin/ccache && \
-            rm -rf "ccache-${LATEST_VERSION}-linux-${CCACHE_ARCH}"*; \
-        fi && \
+        # For ARM64, build from source (precompiled binaries often unavailable)
+        echo "🔨 Building ccache ${LATEST_VERSION} from source for ARM64..." && \
+        SOURCE_URL="https://github.com/ccache/ccache/releases/download/v${LATEST_VERSION}/ccache-${LATEST_VERSION}.tar.xz" && \
+        echo "📥 Downloading source from: ${SOURCE_URL}" && \
+        wget -q "$SOURCE_URL" && \
+        tar -xf "ccache-${LATEST_VERSION}.tar.xz" && \
+        cd "ccache-${LATEST_VERSION}" && \
+        mkdir build && cd build && \
+        cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local .. && \
+        make -j$(nproc) && \
+        make install && \
+        cd ../.. && \
+        rm -rf "ccache-${LATEST_VERSION}"* && \
         echo "✅ Latest ccache ${LATEST_VERSION} installed successfully" && \
         /usr/local/bin/ccache --version && \
         \
