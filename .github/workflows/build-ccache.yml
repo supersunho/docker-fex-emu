@@ -290,3 +290,5 @@ jobs:
                   echo "    name: ccache-${VERSION}-arm64" >> $GITHUB_STEP_SUMMARY
                   echo '    path: ./ccache-binary' >> $GITHUB_STEP_SUMMARY
                   echo '```' >> $GITHUB_STEP_SUMMARY
+
+                  cat >> $GITHUB_STEP_SUMMARY << 'EOF'
