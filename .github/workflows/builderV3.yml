@@ -540,61 +540,123 @@ jobs:
 
                   echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
                   echo "📋 Using ccache version: ${FINAL_VERSION}"
-
             - name: Check if artifacts already exist
               id: check-artifacts
               run: |
                   VERSION="${{ steps.final-version.outputs.version }}"
                   echo "🔍 Checking for existing ccache ${VERSION} artifacts..."
 
-                  # Check if artifacts exist for this version via GitHub API  
                   REPO="${{ github.repository }}"
                   TOKEN="${{ secrets.GITHUB_TOKEN }}"
 
-                  # Get recent workflow runs with null-safe handling
-                  RUNS_RESPONSE=$(curl -s -H "Authorization: token ${TOKEN}" \
-                      "https://api.github.com/repos/${REPO}/actions/workflows/$(basename ${{ github.workflow_ref }})/runs?status=success&per_page=10")
+                  # Debug workflow information first
+                  echo "🔍 Workflow debugging info:"
+                  echo "  - Repository: $REPO"
+                  echo "  - Workflow ref: ${{ github.workflow_ref }}"
+                  echo "  - Workflow: ${{ github.workflow }}"
 
-                  # Debug API response first
-                  echo "🔍 API Response check:"
-                  echo "$RUNS_RESPONSE" | jq -r 'type'
-
-                  # Check if workflow_runs exists and is array
-                  if echo "$RUNS_RESPONSE" | jq -e '.workflow_runs' >/dev/null 2>&1; then
-                      WORKFLOW_RUNS_COUNT=$(echo "$RUNS_RESPONSE" | jq '.workflow_runs | length')
-                      echo "📊 Found $WORKFLOW_RUNS_COUNT workflow runs"
+                  # Extract workflow filename with multiple methods
+                  WORKFLOW_FILE=""
+                  if [ -n "${{ github.workflow_ref }}" ]; then
+                      WORKFLOW_FILE=$(basename "${{ github.workflow_ref }}")
+                      echo "  - Workflow file (from ref): $WORKFLOW_FILE"
                   else
-                      echo "⚠️ No workflow_runs in API response or invalid format"
-                      WORKFLOW_RUNS_COUNT=0
+                      # Fallback: try common patterns
+                      WORKFLOW_FILE="${{ github.workflow }}.yml"
+                      echo "  - Workflow file (fallback): $WORKFLOW_FILE"
                   fi
 
-                  # Check if any successful run has artifacts for this version (null-safe)
+                  # Try multiple API endpoints (search result [1] workaround)
+                  echo "🔍 Trying multiple API approaches..."
+
+                  # Method 1: Specific workflow file
+                  RUNS_RESPONSE_1=$(curl -s -H "Authorization: token ${TOKEN}" \
+                      "https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=success&per_page=10")
+
+                  # Method 2: All workflows (broader search)
+                  RUNS_RESPONSE_2=$(curl -s -H "Authorization: token ${TOKEN}" \
+                      "https://api.github.com/repos/${REPO}/actions/runs?status=success&per_page=10")
+
+                  echo "🔍 API Response analysis:"
+                  echo "Method 1 (specific workflow):"
+                  echo "$RUNS_RESPONSE_1" | jq -r 'type, .total_count // "no total_count", (.workflow_runs | length) // "no workflow_runs"'
+
+                  echo "Method 2 (all workflows):"  
+                  echo "$RUNS_RESPONSE_2" | jq -r 'type, .total_count // "no total_count", (.workflow_runs | length) // "no workflow_runs"'
+
+                  # Choose the best response
+                  RUNS_RESPONSE=""
+                  METHOD_USED=""
+
+                  # Check Method 1 first
+                  if echo "$RUNS_RESPONSE_1" | jq -e '.workflow_runs' >/dev/null 2>&1; then
+                      WORKFLOW_RUNS_COUNT_1=$(echo "$RUNS_RESPONSE_1" | jq '.workflow_runs | length')
+                      if [ "$WORKFLOW_RUNS_COUNT_1" -gt 0 ]; then
+                          RUNS_RESPONSE="$RUNS_RESPONSE_1"
+                          METHOD_USED="specific workflow"
+                          echo "✅ Using Method 1 (specific workflow): $WORKFLOW_RUNS_COUNT_1 runs found"
+                      fi
+                  fi
+
+                  # Fallback to Method 2 if Method 1 failed
+                  if [ -z "$RUNS_RESPONSE" ] && echo "$RUNS_RESPONSE_2" | jq -e '.workflow_runs' >/dev/null 2>&1; then
+                      WORKFLOW_RUNS_COUNT_2=$(echo "$RUNS_RESPONSE_2" | jq '.workflow_runs | length')
+                      if [ "$WORKFLOW_RUNS_COUNT_2" -gt 0 ]; then
+                          # Filter for current workflow only
+                          RUNS_RESPONSE=$(echo "$RUNS_RESPONSE_2" | jq --arg workflow "${{ github.workflow }}" '
+                              {
+                                  total_count: (.workflow_runs | map(select(.name == $workflow)) | length),
+                                  workflow_runs: (.workflow_runs | map(select(.name == $workflow)))
+                              }
+                          ')
+                          METHOD_USED="all workflows (filtered)"
+                          FILTERED_COUNT=$(echo "$RUNS_RESPONSE" | jq '.workflow_runs | length')
+                          echo "✅ Using Method 2 (filtered): $FILTERED_COUNT relevant runs found"
+                      fi
+                  fi
+
+                  # Final check and artifact search
                   ARTIFACTS_EXIST=false
 
-                  if [ "$WORKFLOW_RUNS_COUNT" -gt 0 ]; then
-                      # Use []? for null-safe iteration (search result [4] solution)
+                  if [ -n "$RUNS_RESPONSE" ]; then
+                      echo "🔍 Searching for ccache artifacts in workflow runs (using: $METHOD_USED)..."
+                      
+                      # Search for artifacts with enhanced error handling
                       for run_id in $(echo "$RUNS_RESPONSE" | jq -r '.workflow_runs[]?.id // empty'); do
                           if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
                           echo "🔍 Checking run: $run_id"
+                          
+                          # Get artifacts for this run
                           ARTIFACTS_RESPONSE=$(curl -s -H "Authorization: token ${TOKEN}" \
                               "https://api.github.com/repos/${REPO}/actions/runs/${run_id}/artifacts")
                           
-                          # Use []? for artifacts as well (search result [4] pattern)
-                          ARM64_ARTIFACT=$(echo "$ARTIFACTS_RESPONSE" | jq -r --arg version "$VERSION" \
-                              '.artifacts[]? | select(.name == "ccache-\($version)-arm64") | .name // empty')
-                          
-                          if [ -n "$ARM64_ARTIFACT" ] && [ "$ARM64_ARTIFACT" != "null" ]; then
-                              echo "✅ Found existing artifacts for ccache ${VERSION}"
-                              ARTIFACTS_EXIST=true
-                              break
+                          # Check if artifacts response is valid
+                          if echo "$ARTIFACTS_RESPONSE" | jq -e '.artifacts' >/dev/null 2>&1; then
+                              ARTIFACT_COUNT=$(echo "$ARTIFACTS_RESPONSE" | jq '.artifacts | length')
+                              echo "  📦 Run $run_id has $ARTIFACT_COUNT artifacts"
+                              
+                              # Look for ccache artifact (search result [2] pattern)
+                              ARM64_ARTIFACT=$(echo "$ARTIFACTS_RESPONSE" | jq -r --arg version "$VERSION" \
+                                  '.artifacts[]? | select(.name == "ccache-\($version)-arm64") | .name // empty')
+                              
+                              if [ -n "$ARM64_ARTIFACT" ] && [ "$ARM64_ARTIFACT" != "null" ]; then
+                                  echo "✅ Found existing ccache artifact: $ARM64_ARTIFACT"
+                                  ARTIFACTS_EXIST=true
+                                  break
+                              fi
+                          else
+                              echo "  ⚠️ Invalid artifacts response for run $run_id"
                           fi
                           fi
                       done
                   else
-                      echo "ℹ️ No workflow runs to check"
+                      echo "⚠️ No valid workflow runs found with any method"
+                      
+                      # Ultimate fallback: assume no artifacts exist (search result [1] workaround)
+                      echo "🔄 Applying GitHub API limitation workaround - proceeding with build"
                   fi
 
-                  # Determine if we should build
+                  # Output results with detailed reasoning
                   FORCE_REBUILD="${{ github.event.inputs.ccache_force_rebuild }}"
                   if [ "$ARTIFACTS_EXIST" = "true" ] && [ "$FORCE_REBUILD" != "true" ]; then
                       echo "should-build=false" >> $GITHUB_OUTPUT
@@ -603,8 +665,10 @@ jobs:
                       echo "should-build=true" >> $GITHUB_OUTPUT
                       if [ "$ARTIFACTS_EXIST" = "true" ]; then
                       echo "🔄 Force rebuild requested for ccache ${VERSION}"
+                      elif [ -n "$RUNS_RESPONSE" ]; then
+                      echo "🔨 Will build ccache ${VERSION} (artifacts not found in existing runs)"
                       else
-                      echo "🔨 Will build ccache ${VERSION} (artifacts not found)"
+                      echo "🔨 Will build ccache ${VERSION} (no workflow runs found - GitHub API limitation)"
                       fi
                   fi
 
