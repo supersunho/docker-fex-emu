@@ -50,12 +50,57 @@ RUN echo "📦 Starting package installation..." && \
             linux-headers-generic curl wget \
             software-properties-common openssl libssl-dev \
             binutils binutils-aarch64-linux-gnu \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \ 
             qtbase5-dev qtdeclarative5-dev && \
         echo "✅ Base packages installed successfully" && \
         \
-        # Simple cleanup
+        echo "✅ Base packages installed successfully" && \
+        \
+        # Smart LLVM installation with apt-cache check + script fallback
+        echo "🔧 Installing LLVM ${LLVM_VERSION} with smart detection..." && \
+        REQUIRED_LLVM_PACKAGES="clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools" && \
+        SYSTEM_LLVM_AVAILABLE=true && \
+        echo "🔍 Checking system repository for LLVM ${LLVM_VERSION}..." && \
+        for pkg in $REQUIRED_LLVM_PACKAGES; do \
+            if apt-cache show "$pkg" >/dev/null 2>&1; then \
+                echo "✅ Found system package: $pkg"; \
+            else \
+                echo "❌ Missing system package: $pkg" && \
+                SYSTEM_LLVM_AVAILABLE=false; \
+            fi; \
+        done && \
+        \
+        if [ "$SYSTEM_LLVM_AVAILABLE" = "true" ]; then \
+            echo "🎯 Installing LLVM ${LLVM_VERSION} from system repository..." && \
+            apt-get install -qq -y \
+                clang-${LLVM_VERSION} \
+                lld-${LLVM_VERSION} \
+                llvm-${LLVM_VERSION} \
+                llvm-${LLVM_VERSION}-dev \
+                llvm-${LLVM_VERSION}-tools \
+                libedit-dev libffi-dev && \
+            echo "✅ LLVM ${LLVM_VERSION} installed from system repository"; \
+        else \
+            echo "🔄 Using official LLVM installation script..." && \
+            wget -q https://apt.llvm.org/llvm.sh -O llvm.sh && \
+            chmod +x llvm.sh && \
+            ./llvm.sh ${LLVM_VERSION} >/dev/null 2>&1; && \
+            rm llvm.sh && \
+            # Verify installation
+            if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
+                echo "✅ LLVM ${LLVM_VERSION} installed via official script"; \
+            else \
+                echo "❌ LLVM installation failed" && \
+                exit 1; \
+            fi; \
+        fi && \
+        \
+        # Verify final installation
+        echo "🔍 Verifying LLVM ${LLVM_VERSION} installation..." && \
+        clang-${LLVM_VERSION} --version && \
+        echo "✅ LLVM ${LLVM_VERSION} verification completed" && \
+        \
+        # Simple cleanup (기존 cleanup 코드 유지)
         echo "🧹 Cleaning up..." && \
         update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \
         apt-get autoremove -qq -y && \
