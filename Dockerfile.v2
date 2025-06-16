@@ -327,8 +327,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "📋 Fedora linker flags: $LINKER_FLAGS"; \
     fi && \
     \
-    # Build FEX with all fixes applied
-    echo "⚙️ Running CMake configuration with all fixes..." && \
+    # Build FEX with system headers compatibility
+    echo "⚙️ Running CMake configuration with system headers compatibility..." && \
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Building with ccache acceleration (${CCACHE_SOURCE})..." && \
         export CC="ccache $CC_COMPILER" && \
@@ -347,6 +347,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DCMAKE_RANLIB="$RANLIB_TOOL" \
             -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
             -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
+            -DCMAKE_CXX_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" \
+            -DCMAKE_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
@@ -365,6 +367,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
             -DCMAKE_RANLIB="$RANLIB_TOOL" \
             -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
             -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
+            -DCMAKE_CXX_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" \
+            -DCMAKE_C_FLAGS="-D_GNU_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200809L" \
             -DCMAKE_EXE_LINKER_FLAGS="$LINKER_FLAGS" \
             -DCMAKE_SHARED_LINKER_FLAGS="$LINKER_FLAGS" \
             -G Ninja ..; \
