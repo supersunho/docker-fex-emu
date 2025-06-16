@@ -196,24 +196,50 @@ RUN echo "📦 Starting package installation..." && \
 # Copy ccache binary from build context (matching integrated workflow)
 COPY --from=ccache-binary . /tmp/ccache-binary
 
-# Install prebuilt ccache from artifact with fallback (integrated workflow compatible)
+# Install prebuilt ccache with Ubuntu 20.04 compatibility
 RUN echo "📦 Setting up ccache from integrated workflow artifact..." && \
-    # Check if ccache artifact directory exists and has files
+    # First install libhiredis if available
+    apt-get update -qq && \
+    (apt-get install -qq -y libhiredis-dev || echo "⚠️ libhiredis-dev not available") && \
+    \
     if [ -d "/tmp/ccache-binary" ] && find /tmp/ccache-binary -name "*.tar.gz" | grep -q .; then \
         echo "✅ Prebuilt ccache artifact found, installing..." && \
         cd /tmp/ccache-binary && \
-        # Find and extract the first .tar.gz file
         CCACHE_FILE=$(find . -name "*.tar.gz" | head -1) && \
         echo "📥 Installing ccache from: $CCACHE_FILE" && \
         tar -xzf "$CCACHE_FILE" -C / && \
         chmod +x /usr/local/bin/ccache && \
-        echo "📊 Prebuilt ccache version installed:" && \
-        /usr/local/bin/ccache --version && \
-        echo "CCACHE_SOURCE=prebuilt" > /tmp/ccache-info; \
+        \
+        # Check available libhiredis versions
+        echo "🔍 Checking available libhiredis libraries..." && \
+        find /usr/lib -name "*hiredis*" 2>/dev/null || echo "No libhiredis found in /usr/lib" && \
+        find /usr/local/lib -name "*hiredis*" 2>/dev/null || echo "No libhiredis found in /usr/local/lib" && \
+        \
+        # Try to create symlink for version compatibility
+        if [ -f "/usr/lib/aarch64-linux-gnu/libhiredis.so.0.14" ]; then \
+            echo "🔗 Creating compatibility symlink..." && \
+            ln -sf /usr/lib/aarch64-linux-gnu/libhiredis.so.0.14 /usr/lib/aarch64-linux-gnu/libhiredis.so.1.1.0; \
+        fi && \
+        \
+        # Update ldconfig
+        echo "🔧 Updating ldconfig..." && \
+        echo "/usr/local/lib" > /etc/ld.so.conf.d/local.conf && \
+        echo "/usr/lib/aarch64-linux-gnu" >> /etc/ld.so.conf.d/local.conf && \
+        ldconfig && \
+        \
+        echo "📊 Testing prebuilt ccache..." && \
+        if /usr/local/bin/ccache --version >/dev/null 2>&1; then \
+            echo "✅ Prebuilt ccache working correctly" && \
+            /usr/local/bin/ccache --version && \
+            echo "CCACHE_SOURCE=prebuilt" > /tmp/ccache-info; \
+        else \
+            echo "⚠️ Prebuilt ccache failed, using system ccache" && \
+            echo "🔍 ccache error details:" && \
+            /usr/local/bin/ccache --version 2>&1 || true && \
+            echo "CCACHE_SOURCE=system" > /tmp/ccache-info; \
+        fi; \
     else \
         echo "⚠️ Prebuilt ccache not available, using system ccache" && \
-        echo "📊 System ccache version:" && \
-        ccache --version && \
         echo "CCACHE_SOURCE=system" > /tmp/ccache-info; \
     fi && \
     echo "✅ ccache setup completed"
