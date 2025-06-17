@@ -588,7 +588,7 @@ jobs:
               uses: actions/cache@v4
               with:
                   path: /tmp/ccache-binary
-                  key: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-arm64
+                  key: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-arm64-v1
                   restore-keys: |
                       ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-
 
@@ -845,7 +845,7 @@ jobs:
               with:
                   path: |
                       /tmp/ccache-binary
-                  key: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-arm64
+                  key: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-arm64-v1
                   restore-keys: |
                       ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-
 
