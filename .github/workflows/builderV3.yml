@@ -636,6 +636,7 @@ jobs:
                   SOURCE_URL="https://github.com/ccache/ccache/releases/download/v${VERSION}/ccache-${VERSION}.tar.xz"
                   echo "📍 Download URL: ${SOURCE_URL}"
 
+                  mkdir -p /tmp/ccache-source
                   wget -q "${SOURCE_URL}"
                   tar -xf "ccache-${VERSION}.tar.xz" -C /tmp/ccache-source
 
