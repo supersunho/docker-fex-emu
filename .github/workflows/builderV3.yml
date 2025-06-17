@@ -855,7 +855,7 @@ jobs:
                       echo "📊 File size: $(du -h "/tmp/ccache-binary/ccache" | cut -f1)"
                       echo "📊 File version: $(/tmp/ccache-binary/ccache --version | cut -f1)"
                   else
-                      echo "❌ ccache file missing
+                      echo "❌ ccache file missing"
                       exit 1
                   fi
             - name: Record build timing
