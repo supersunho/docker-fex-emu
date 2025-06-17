@@ -679,7 +679,6 @@ jobs:
               run: |
                   echo "🔨 Building ccache for ARM64..."
 
-                  # Build directory로 이동 (build.ninja가 있는 곳)
                   cd /tmp/ccache-source/build
 
                   echo "🔍 Verifying build.ninja exists..."
