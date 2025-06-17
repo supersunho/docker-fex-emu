@@ -136,22 +136,31 @@ jobs:
               id: get-version
               run: |
                   if [ "${{ github.event.inputs.version }}" = "latest" ] || [ "${{ github.event.inputs.version }}" = "" ]; then
-                      RELEASE_DATA=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/releases/latest)
-                      VERSION=$(echo "$RELEASE_DATA" | jq -r .tag_name)
+                    echo "🔍 Checking latest FEXBash version..."
+                    RELEASE_DATA=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/releases/latest)
+                    VERSION=$(echo "$RELEASE_DATA" | jq -r .tag_name)
+                    RELEASE_NOTES=$(echo "$RELEASE_DATA" | jq -r .body | head -c 500)
                   else
-                      VERSION="${{ github.event.inputs.version }}"
+                    VERSION="${{ github.event.inputs.version }}"
+                    RELEASE_NOTES="Manual build for version $VERSION"
                   fi
 
                   VERSION_CLEAN=${VERSION#v}
+                  # Convert FEX-YYMM to YY.MM format
                   if [[ $VERSION_CLEAN =~ ^FEX-([0-9]{2})([0-9]{2})$ ]]; then
-                      FEX_SEMANTIC="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+                    FEX_SEMANTIC="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
                   else
-                      FEX_SEMANTIC="$VERSION_CLEAN"
+                    FEX_SEMANTIC="$VERSION_CLEAN"
                   fi
 
                   echo "version=$VERSION" >> $GITHUB_OUTPUT
                   echo "version_clean=$VERSION_CLEAN" >> $GITHUB_OUTPUT
                   echo "fex_semantic=$FEX_SEMANTIC" >> $GITHUB_OUTPUT
+                  echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+                  echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+
+                  echo "📋 Target version: $VERSION (Semantic: $FEX_SEMANTIC)"
 
             - name: Generate and filter matrix
               id: filter-matrix

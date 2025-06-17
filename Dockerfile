@@ -30,7 +30,7 @@ RUN echo "📦 Setting up Alpine build environment..." && \
     # Install essential build tools and dependencies 🛠️
     echo "📦 Installing build essentials..." && \
     apk add --no-cache \
-        git cmake ninja-build pkgconfig ccache \
+        git cmake ninja pkgconfig ccache \
         build-base linux-headers \
         python3 python3-dev py3-setuptools \
         curl wget ca-certificates \
