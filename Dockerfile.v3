@@ -129,26 +129,38 @@ RUN echo "📦 Starting package installation..." && \
 # Copy ccache binary from build context
 COPY --from=ccache-binary . /tmp/ccache-binary
 
-# Simple ccache setup for Ubuntu 22.04+
+# Enhanced ccache setup - USE COPIED BINARY FIRST
 RUN echo "📦 Setting up ccache..." && \
     echo "🔍 System information:" && \
     echo "  - GLIBC version: $(ldd --version | head -1)" && \
     echo "  - Ubuntu version: ${ROOTFS_VERSION}" && \
     echo "  - Architecture: $(uname -m)" && \
     \
-    # Simple ccache configuration
-    echo "🚀 Enabling system ccache for Ubuntu 22.04+" && \
-    echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
-    \
-    # Verify system ccache
-    if ccache --version >/dev/null 2>&1; then \
-        echo "✅ System ccache working correctly:" && \
-        ccache --version; \
+    # Check if copied ccache binary exists and install it
+    if [ -f "/tmp/ccache-binary/ccache" ]; then \
+        echo "🎯 Installing prebuilt ccache binary..." && \
+        cp /tmp/ccache-binary/ccache /usr/local/bin/ccache && \
+        chmod +x /usr/local/bin/ccache && \
+        echo "CCACHE_SOURCE=prebuilt" > /tmp/ccache-info && \
+        echo "✅ Prebuilt ccache binary installed"; \
+    elif command -v ccache >/dev/null 2>&1; then \
+        echo "🔄 Using system ccache as fallback..." && \
+        echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
+        echo "✅ System ccache found"; \
     else \
-        echo "⚠️ System ccache not available, disabling ccache" && \
+        echo "⚠️ No ccache available, disabling" && \
         echo "CCACHE_SOURCE=disabled" > /tmp/ccache-info; \
     fi && \
+    \
+    # Verify final ccache installation
+    if ccache --version >/dev/null 2>&1; then \
+        echo "✅ ccache working correctly:" && \
+        ccache --version; \
+    else \
+        echo "⚠️ ccache not available"; \
+    fi && \
     echo "✅ ccache setup completed"
+
 
 # Copy FEX source and build (simplified)
 COPY --from=fex-sources / /tmp/fex-source  
