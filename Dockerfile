@@ -1,122 +1,169 @@
 ARG BASE_IMAGE=ubuntu:24.04
 
 #==============================================
-# Build Stage - Alpine Unified 🐧
+# Build Stage - Ubuntu & Fedora Support
 #==============================================
-FROM alpine:3.21 AS fex-builder
+FROM ${BASE_IMAGE} AS fex-builder
 
 ARG TARGETPLATFORM 
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG LLVM_VERSION=18
 ARG CCACHE_DIR=/tmp/.ccache
-ARG ENABLE_CCACHE=true
+ARG ENABLE_CCACHE=false
 
-# Set environment variables 🌐
+# Set environment variables for non-interactive installation and ccache
+ENV DEBIAN_FRONTEND=noninteractive 
+ENV TZ=Asia/Seoul
 ENV CCACHE_DIR=${CCACHE_DIR}
 ENV ENABLE_CCACHE=${ENABLE_CCACHE}
-ENV PATH="/usr/local/bin/:$PATH"
 
-# Install all build dependencies with Alpine 📦
-RUN echo "📦 Setting up Alpine build environment..." && \
-    echo "🔍 Alpine information:" && \
-    echo "  - Alpine version: $(cat /etc/alpine-release)" && \
-    echo "  - Architecture: $(uname -m)" && \
-    echo "  - Target platform: ${TARGETPLATFORM}" && \
-    \
-    # Update package index 🔄
-    apk update && \
-    \
-    # Install essential build tools and dependencies 🛠️
-    echo "📦 Installing build essentials..." && \
-    apk add --no-cache \
-        git cmake ninja pkgconfig ccache \
-        build-base linux-headers \
-        python3 python3-dev py3-setuptools \
-        curl wget ca-certificates \
-        openssl openssl-dev \
-        binutils binutils-dev \
-        nasm \
-        libcap-dev \
-        && \
-    echo "✅ Basic build tools installed" && \
-    \
-    # Install LLVM/Clang 🛠️
-    echo "🔧 Installing LLVM ${LLVM_VERSION}..." && \
-    apk add --no-cache \
-        clang${LLVM_VERSION} \
-        clang${LLVM_VERSION}-dev \
-        llvm${LLVM_VERSION} \
-        llvm${LLVM_VERSION}-dev \
-        llvm${LLVM_VERSION}-static \
-        lld \
-        libc-dev \
-        && \
-    echo "✅ LLVM ${LLVM_VERSION} installed" && \
-    \
-    # Create symlinks for version-less commands 🔗
-    echo "🔗 Creating LLVM symlinks..." && \
-    ln -sf clang-${LLVM_VERSION} /usr/bin/clang && \
-    ln -sf clang++-${LLVM_VERSION} /usr/bin/clang++ && \
-    ln -sf llvm-ar-${LLVM_VERSION} /usr/bin/llvm-ar && \
-    ln -sf llvm-ranlib-${LLVM_VERSION} /usr/bin/llvm-ranlib && \
-    ln -sf lld /usr/bin/ld.lld && \
-    echo "✅ LLVM symlinks created" && \
-    \
-    # Install additional development libraries 📚
-    echo "📦 Installing additional libraries..." && \
-    apk add --no-cache \
-        mesa-dev \
-        libepoxy-dev \
-        sdl2-dev \
-        glfw-dev \
-        qt5-qtbase-dev \
-        qt5-qtdeclarative-dev \
-        && \
-    echo "✅ Additional libraries installed" && \
-    \
-    # Verify installations ✅
-    echo "🔍 Verifying installation..." && \
-    clang-${LLVM_VERSION} --version && \
-    cmake --version && \
-    ninja --version && \
-    echo "✅ Alpine build environment setup completed!"
-
-# Enhanced ccache setup for Alpine ⚙️
-RUN echo "📦 Setting up ccache for Alpine..." && \
-    echo "🔍 ccache information:" && \
-    echo "  - ccache version: $(ccache --version | head -1)" && \
-    echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
-    \
-    # Configure ccache 🚀
-    if [ "${ENABLE_CCACHE:-false}" = "true" ]; then \
-        echo "🚀 Enabling ccache acceleration..." && \
-        echo "CCACHE_SOURCE=alpine-system" > /tmp/ccache-info && \
-        echo "✅ ccache enabled for Alpine build"; \
+# Detect OS type
+RUN echo "🔍 Starting OS detection..." && \
+    if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
+        echo "🐧 Detected: Fedora/RHEL distribution" && \
+        echo "DISTRO_TYPE=fedora" > /etc/distro-info; \
+    elif [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then \
+        echo "🐧 Detected: Debian/Ubuntu distribution" && \
+        echo "DISTRO_TYPE=debian" > /etc/distro-info && \
+        export DEBIAN_FRONTEND=noninteractive && \
+        ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+        echo $TZ > /etc/timezone; \
     else \
-        echo "ℹ️ ccache disabled" && \
+        echo "❌ Unknown distribution type" && \
+        echo "DISTRO_TYPE=unknown" > /etc/distro-info; \
+    fi && \
+    echo "✅ OS detection completed"
+
+# Install build dependencies (simplified for Ubuntu 22.04+)
+RUN echo "📦 Starting package installation..." && \
+    . /etc/distro-info && \
+    echo "🔍 Distribution type: $(cat /etc/distro-info)" && \
+    if [ "$DISTRO_TYPE" = "debian" ]; then \
+        echo "🔧 Setting up Debian/Ubuntu environment..." && \
+        apt-get update -qq && \
+        echo "📦 Installing development packages..." && \
+        apt-get install -qq -y --no-install-recommends \
+            git cmake ninja-build pkg-config ccache \
+            nasm python3-dev python3-clang python3-setuptools \
+            libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
+            linux-headers-generic curl wget \
+            software-properties-common openssl libssl-dev \
+            binutils binutils-aarch64-linux-gnu \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            qtbase5-dev qtdeclarative5-dev && \
+        echo "✅ Base packages installed successfully" && \
+        \
+        # Smart LLVM installation with apt-cache check + script fallback
+        echo "🔧 Installing LLVM ${LLVM_VERSION} with smart detection..." && \
+        REQUIRED_LLVM_PACKAGES="clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools" && \
+        SYSTEM_LLVM_AVAILABLE=true && \
+        echo "🔍 Checking system repository for LLVM ${LLVM_VERSION}..." && \
+        for pkg in $REQUIRED_LLVM_PACKAGES; do \
+            if apt-cache show "$pkg" >/dev/null 2>&1; then \
+                echo "✅ Found system package: $pkg"; \
+            else \
+                echo "❌ Missing system package: $pkg" && \
+                SYSTEM_LLVM_AVAILABLE=false; \
+            fi; \
+        done && \
+        \
+        if [ "$SYSTEM_LLVM_AVAILABLE" = "true" ]; then \
+            echo "🎯 Installing LLVM ${LLVM_VERSION} from system repository..." && \
+            apt-get install -qq -y \
+                clang-${LLVM_VERSION} \
+                lld-${LLVM_VERSION} \
+                llvm-${LLVM_VERSION} \
+                llvm-${LLVM_VERSION}-dev \
+                llvm-${LLVM_VERSION}-tools \
+                libedit-dev libffi-dev && \
+            echo "✅ LLVM ${LLVM_VERSION} installed from system repository"; \
+        else \
+            echo "🔄 Using official LLVM installation script..." && \
+            wget --no-cache --no-http-keep-alive -q https://apt.llvm.org/llvm.sh -O llvm.sh && \
+            chmod +x llvm.sh && \
+            ./llvm.sh ${LLVM_VERSION} >/dev/null 2>&1 && \
+            rm llvm.sh && \
+            # Verify installation
+            if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
+                echo "✅ LLVM ${LLVM_VERSION} installed via official script"; \
+            else \
+                echo "❌ LLVM installation failed" && \
+                exit 1; \
+            fi; \
+        fi && \
+        \
+        # Verify final installation
+        echo "🔍 Verifying LLVM ${LLVM_VERSION} installation..." && \
+        clang-${LLVM_VERSION} --version && \
+        echo "✅ LLVM ${LLVM_VERSION} verification completed" && \
+        \
+        # Simple cleanup
+        echo "🧹 Cleaning up..." && \
+        update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \
+        apt-get autoremove -qq -y && \
+        apt-get autoclean -qq && \
+        rm -rf /var/lib/apt/lists/* /var/tmp/* && \
+        echo "✅ Debian/Ubuntu setup completed successfully"; \
+    elif [ "$DISTRO_TYPE" = "fedora" ]; then \
+        echo "🔧 Setting up Fedora environment..." && \
+        dnf update -q -y && \
+        echo "📦 Installing Fedora packages..." && \
+        dnf install -q -y \
+            @development-tools cmake ninja-build pkg-config ccache \
+            llvm${LLVM_VERSION} clang${LLVM_VERSION} lld${LLVM_VERSION} \
+            compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} \
+            libstdc++-devel libstdc++-static glibc-devel \
+            gcc-c++ binutils-devel binutils \
+            nasm python3-clang python3-setuptools openssl-devel \
+            libcap-devel glfw-devel libepoxy-devel SDL2-devel \
+            qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
+            curl wget && \
+        dnf clean all -q && \
+        echo "✅ Fedora setup completed successfully"; \
+    else \
+        echo "❌ Unsupported distribution type" && exit 1; \
+    fi && \
+    echo "🎉 Package installation completed!"
+
+# Enhanced ccache setup
+RUN echo "📦 Setting up ccache..." && \
+    echo "🔍 System information:" && \
+    echo "  - GLIBC version: $(ldd --version | head -1)" && \
+    echo "  - Ubuntu version: ${ROOTFS_VERSION}" && \
+    echo "  - Architecture: $(uname -m)" && \
+    \
+    # Check if copied ccache binary exists and install it
+    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ command -v ccache >/dev/null 2>&1] ; then \
+        echo "🔄 Using system ccache as fallback..." && \
+        echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
+        echo "✅ System ccache found"; \
+    else \
+        echo "⚠️ No ccache available, disabling" && \
         echo "CCACHE_SOURCE=disabled" > /tmp/ccache-info; \
     fi && \
+    \
     echo "✅ ccache setup completed"
 
-# Copy FEX source and build 🏗️
+ENV PATH="/usr/local/bin/:$PATH"
+
+# Copy FEX source and build (simplified)
 COPY --from=fex-sources / /tmp/fex-source  
 RUN --mount=type=cache,target=/tmp/.ccache \
-    echo "🏗️ Starting FEX build process..." && \
+    echo "🏗️ Starting FEX build process (Ubuntu 22.04+ optimized)..." && \
     cd /tmp/fex-source && \
     \
-    # Load ccache configuration 📊
+    # Check ccache setup
     . /tmp/ccache-info && \
-    echo "📊 Alpine build environment summary:" && \
+    echo "📊 Build environment summary:" && \
     echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
     echo "  - CCACHE_SOURCE: ${CCACHE_SOURCE}" && \
     echo "  - LLVM_VERSION: ${LLVM_VERSION}" && \
-    echo "  - Clang: $(which clang-${LLVM_VERSION})" && \
-    echo "  - Compiler: $(clang-${LLVM_VERSION} --version | head -1)" && \
+    echo "  - CCACHE_BINARY: $(which ccache 2>/dev/null || echo 'not found')" && \
     \
     mkdir -p Build && cd Build && \
     \
-    # Set Alpine-optimized compilers 🛠️
+    # Simple compiler detection
     if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
         CC_COMPILER=clang-${LLVM_VERSION} && \
         CXX_COMPILER=clang++-${LLVM_VERSION}; \
@@ -136,9 +183,9 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     fi && \
     echo "✅ Using AR tools: $AR_TOOL" && \
     \
-    # Alpine-specific ccache configuration 🚀
+    # Simple ccache configuration
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
-        echo "🚀 Configuring ccache for Alpine..." && \
+        echo "🚀 Configuring ccache acceleration..." && \
         export CCACHE_BASEDIR=/tmp/fex-source && \
         export CCACHE_DIR=/tmp/.ccache && \
         export CCACHE_MAXSIZE=2G && \
@@ -147,14 +194,12 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CC="ccache $CC_COMPILER" && \
         export CXX="ccache $CXX_COMPILER" && \
         ccache --zero-stats && \
-        echo "✅ ccache enabled with Alpine optimizations"; \
+        echo "✅ ccache enabled"; \
     else \
-        export CC="$CC_COMPILER" && \
-        export CXX="$CXX_COMPILER" && \
         echo "ℹ️ ccache disabled for this build"; \
     fi && \
     \
-    # Alpine-optimized CMake configuration ⚙️
+    # Simple CMake configuration
     echo "⚙️ Running CMake configuration..." && \
     cmake \
         -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
@@ -163,40 +208,34 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DENABLE_LTO=True \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
-        -DCMAKE_C_COMPILER="$CC" \
-        -DCMAKE_CXX_COMPILER="$CXX" \
+        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++ -Wl,--as-needed" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++ -Wl,--as-needed" \
+        -DCMAKE_C_COMPILER="$CC_COMPILER" \
+        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
         -DCMAKE_AR="$AR_TOOL" \
         -DCMAKE_RANLIB="$RANLIB_TOOL" \
         -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
         -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
-        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++ -Wl,--as-needed" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++ -Wl,--as-needed" \
-        -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-        -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-        -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
         -G Ninja .. && \
     echo "✅ CMake configuration completed" && \
     \
-    # Starting compilation with Alpine 🔨
-    echo "🔨 Starting compilation with Alpine..." && \
+    echo "🔨 Starting compilation..." && \
     ninja -j$(($(nproc) - 1)) && \
     echo "✅ Compilation completed successfully" && \
     \
-    # Installing FEX binaries 📦
     echo "📦 Installing FEX binaries..." && \
     ninja install && \
     echo "✅ Installation completed" && \
     \
-    # Show ccache statistics if enabled 📊
+    # Show ccache statistics if enabled
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "📊 ccache Statistics:" && \
         ccache --show-stats; \
     fi && \
     \
-    # Cleaning up build artifacts 🧹
     echo "🧹 Cleaning up build artifacts..." && \
-    rm -rf /tmp/fex-source /tmp/ccache-info && \
-    echo "🎉 FEX build completed successfully with Alpine!"
+    rm -rf /tmp/fex-source /tmp/ccache-info /tmp/ccache-binary && \
+    echo "🎉 FEX build completed successfully!"
 
 #==============================================
 # RootFS Preparation Stage - Alpine OS-Neutral 🐧
