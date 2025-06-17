@@ -336,12 +336,9 @@ RUN echo "🚀 Starting RootFS setup process..." && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
     echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
     \
-    # Create user first (FEXRootFSFetcher is per-user install)
-    useradd -m -s /bin/bash fex 2>/dev/null || true && \
-    \
     # Test FEX RootFS API connectivity to determine primary method
     echo "🔍 Testing FEX RootFS API connectivity..." && \
-    curl -H 'Cache-Control: no-cache, no-store' -s --connect-timeout 10 https://rootfs.fex-emu.gg/RootFS_links.json >/dev/null 2>&1 && \
+    curl -s https://rootfs.fex-emu.gg/RootFS_links.json   && \
     API_TEST_RESULT=$? && \
     \
     if [ $API_TEST_RESULT -eq 0 ]; then \
@@ -352,7 +349,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
         FEXROOTFS_SUCCESS=false && \
         for attempt in 1 2 3; do \
             echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
-            if timeout 300 sudo -u fex FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+            if timeout 300 sudo -u fex FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty  ; then \
                 echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
                 FEXROOTFS_SUCCESS=true && \
                 break; \
@@ -384,14 +381,14 @@ RUN echo "🚀 Starting RootFS setup process..." && \
         \
         # Try wget first (execute outside if statement)
         echo "🔄 Attempting JSON download via wget..." && \
-        wget --no-cache --no-http-keep-alive -q --timeout=30 -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL" >/dev/null 2>&1 && \
+        wget -q -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL"   && \
         WGET_EXIT_CODE=$? && \
         if [ $WGET_EXIT_CODE -eq 0 ]; then \
             echo "✅ RootFS JSON downloaded successfully via wget" && \
             JSON_DOWNLOAD_SUCCESS=true; \
         else \
             echo "🔄 wget failed, trying curl..." && \
-            curl -H 'Cache-Control: no-cache, no-store' -s --connect-timeout 30 "$ROOTFS_JSON_URL" -o "$ROOTFS_JSON" >/dev/null 2>&1 && \
+            curl -s "$ROOTFS_JSON_URL" -o "$ROOTFS_JSON"   && \
             CURL_EXIT_CODE=$? && \
             if [ $CURL_EXIT_CODE -eq 0 ]; then \
                 echo "✅ RootFS JSON downloaded successfully via curl" && \
