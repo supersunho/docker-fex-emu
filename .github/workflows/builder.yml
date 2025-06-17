@@ -501,24 +501,24 @@ jobs:
                       OS=$(echo "$item" | jq -r '.ROOTFS_OS')
                       VERSION=$(echo "$item" | jq -r '.ROOTFS_VERSION')
                       
-                      echo "🔍 Checking: $OS $VERSION"
+                      echo " - 🔍 Checking: $OS $VERSION"
                       
                       SKIP=false
                       
                       if [ "$OS" = "ubuntu" ]; then
                           if echo "|$UBUNTU_EOL_VERSIONS|" | grep -q "|$VERSION|"; then
-                              echo "⚠️ Skipping EOL Ubuntu: $VERSION"
+                              echo " - ⚠️ Skipping EOL Ubuntu: $VERSION"
                               SKIP=true
                           fi
                       elif [ "$OS" = "fedora" ]; then
                           if echo "|$FEDORA_EOL_VERSIONS|" | grep -q "|$VERSION|"; then
-                              echo "⚠️ Skipping EOL Fedora: $VERSION"
+                              echo " - ⚠️ Skipping EOL Fedora: $VERSION"
                               SKIP=true
                           fi
                       fi
                       
                       if [ "$SKIP" = "false" ]; then
-                          echo "✅ Keeping: $OS $VERSION"
+                          echo " - ✅ Keeping: $OS $VERSION"
                           echo "$item" >> /tmp/filtered_items.jsonl
                       fi
                   done < /tmp/matrix_items.jsonl
