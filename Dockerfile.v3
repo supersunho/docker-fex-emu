@@ -80,7 +80,7 @@ RUN echo "📦 Starting package installation..." && \
             echo "✅ LLVM ${LLVM_VERSION} installed from system repository"; \
         else \
             echo "🔄 Using official LLVM installation script..." && \
-            wget -q https://apt.llvm.org/llvm.sh -O llvm.sh && \
+            wget --no-cache --no-http-keep-alive -q https://apt.llvm.org/llvm.sh -O llvm.sh && \
             chmod +x llvm.sh && \
             ./llvm.sh ${LLVM_VERSION} >/dev/null 2>&1 && \
             rm llvm.sh && \
@@ -315,23 +315,7 @@ RUN echo "✅ FEX binaries copied successfully" && \
     find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
     echo "✅ FEX binary optimization completed"
 ENV PATH="/usr/local/fex/bin:$PATH"
-
-# Create user with OS-specific configuration
-RUN echo "👤 Starting user creation and configuration..." && \
-    . /etc/distro-info && \
-    useradd -m -s /bin/bash fex && \
-    echo "✅ User 'fex' created successfully" && \
-    if [ "$DISTRO_TYPE" = "debian" ]; then \
-        usermod -aG sudo fex; \
-    elif [ "$DISTRO_TYPE" = "fedora" ]; then \
-        usermod -aG wheel fex; \
-    fi && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
-    echo "✅ User configuration completed"
-
-USER fex
-WORKDIR /home/fex
-
+ 
 # Setup RootFS using FEXRootFSFetcher with enhanced error handling
 RUN echo "🚀 Starting RootFS setup process..." && \
     echo "📊 RootFS configuration:" && \
@@ -341,7 +325,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
     \
     # Check network connectivity first
     echo "🔍 Checking network connectivity..." && \
-    if curl -s --connect-timeout 10 https://rootfs.fex-emu.gg/RootFS_links.json >/dev/null 2>&1; then \
+    if curl -H 'Cache-Control: no-cache, no-store' -s --connect-timeout 10 https://rootfs.fex-emu.gg/RootFS_links.json >/dev/null 2>&1; then \
         echo "✅ FEX RootFS server reachable"; \
     else \
         echo "⚠️ FEX RootFS server unreachable, will try anyway"; \
@@ -356,7 +340,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
         ROOTFS_JSON_URL="https://rootfs.fex-emu.gg/RootFS_links.json" && \
         ROOTFS_JSON="/tmp/rootfs_links.json" && \
         \
-        if wget -q --timeout=30 -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL"; then \
+        if wget --no-cache --no-http-keep-alive -q --timeout=30 -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL"; then \
             echo "✅ RootFS JSON downloaded successfully"; \
         else \
             echo "⚠️ Both curl and wget failed, using embedded fallback JSON..." && \
@@ -395,11 +379,11 @@ RUN echo "🚀 Starting RootFS setup process..." && \
         FILE_DOWNLOAD_SUCCESS=false && \
         \
         # Try curl first (supports progress bar and resume)
-        if curl -L --progress-bar --connect-timeout 30 --max-time 600 "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH" 2>/dev/null; then \
+        if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600  "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH" 2>/dev/null; then \
             echo "✅ RootFS file downloaded successfully via curl" && \
             FILE_DOWNLOAD_SUCCESS=true; \
         # Fallback to wget (different retry logic and network handling)
-        elif wget -q --timeout=60 --tries=3 --retry-connrefused -O "$ROOTFS_LOCAL_PATH" "$ROOTFS_URL" 2>/dev/null; then \
+        elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 --retry-connrefused -O "$ROOTFS_LOCAL_PATH" "$ROOTFS_URL" 2>/dev/null; then \
             echo "✅ RootFS file downloaded successfully via wget" && \
             FILE_DOWNLOAD_SUCCESS=true; \
         else \
@@ -577,6 +561,23 @@ RUN echo "🚀 Starting RootFS setup process..." && \
     find /home/fex/.fex-emu/RootFS -name "*.ero" -delete 2>/dev/null || true && \
     echo "💾 Final RootFS size: $(du -sh /home/fex/.fex-emu/ 2>/dev/null || echo 'unknown')" && \
     echo "🎉 RootFS setup completed successfully!"
+
+# Create user with OS-specific configuration
+RUN echo "👤 Starting user creation and configuration..." && \
+    . /etc/distro-info && \
+    useradd -m -s /bin/bash fex && \
+    echo "✅ User 'fex' created successfully" && \
+    if [ "$DISTRO_TYPE" = "debian" ]; then \
+        usermod -aG sudo fex; \
+    elif [ "$DISTRO_TYPE" = "fedora" ]; then \
+        usermod -aG wheel fex; \
+    fi && \
+    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
+    chown -R fex:fex /home/fex && \
+    echo "✅ All setup completed, ready to switch user"
+
+USER fex
+WORKDIR /home/fex
 
 ENTRYPOINT ["/bin/bash", "-c"]
 CMD ["/bin/bash"]
