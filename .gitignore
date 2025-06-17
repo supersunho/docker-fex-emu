@@ -1,3 +1,3 @@
 /.vscode
-builder.v*.yml
-Dockerfile.v*
+/Dockerfile.v*
+/.github/workflows/builder.v*.yml
