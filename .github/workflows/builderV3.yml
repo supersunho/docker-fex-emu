@@ -897,11 +897,11 @@ jobs:
                   DOWNLOAD_SUCCESS=false
 
                   # Method 1: curl with cache control
-                  if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "${{ matrix.ROOTFS_URL }}" -o "/tmp/fex-rootfs/$ROOTFS_FILENAME" 2>/dev/null ; then
+                  if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "${{ matrix.ROOTFS_URL }}" -o "/tmp/fex-rootfs/$ROOTFS_FILENAME"  ; then
                       echo "✅ RootFS downloaded via curl"
                       DOWNLOAD_SUCCESS=true
                   # Method 2: wget fallback
-                  elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 -O "/tmp/fex-rootfs/$ROOTFS_FILENAME" "${{ matrix.ROOTFS_URL }}" 2>/dev/null; then
+                  elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 -O "/tmp/fex-rootfs/$ROOTFS_FILENAME" "${{ matrix.ROOTFS_URL }}" ; then
                       echo "✅ RootFS downloaded via wget"
                       DOWNLOAD_SUCCESS=true
                   else

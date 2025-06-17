@@ -127,7 +127,7 @@ RUN echo "📦 Starting package installation..." && \
     echo "🎉 Package installation completed!"
 
 # Copy ccache binary from build context
-COPY --from=ccache-binary . /tmp/ccache-binary
+# COPY --from=ccache-binary . /tmp/ccache-binary
 
 # Enhanced ccache setup - USE COPIED BINARY FIRST
 RUN echo "📦 Setting up ccache..." && \
