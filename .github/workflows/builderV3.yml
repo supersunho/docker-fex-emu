@@ -677,9 +677,20 @@ jobs:
             - name: Build ccache
               if: github.event.inputs.ccache_force_rebuild == 'true' || steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
-                  cd /tmp/ccache-source
-
                   echo "🔨 Building ccache for ARM64..."
+
+                  # Build directory로 이동 (build.ninja가 있는 곳)
+                  cd /tmp/ccache-source/build
+
+                  echo "🔍 Verifying build.ninja exists..."
+                  if [ ! -f "build.ninja" ]; then
+                      echo "❌ build.ninja not found in $(pwd)"
+                      echo "📁 Directory contents:"
+                      ls -la
+                      exit 1
+                  fi
+
+                  echo "✅ build.ninja found, starting build..."
                   ninja -j$(nproc)
 
                   echo "📦 Installing to temporary directory..."
@@ -688,13 +699,15 @@ jobs:
                   echo "✅ Build completed successfully"
 
                   # Verify built binary
+                  echo "🔍 Verifying built binary..."
                   rm -rf /tmp/ccache-binary 
                   mkdir -p /tmp/ccache-binary
                   cp /tmp/ccache-install/usr/local/bin/ccache /tmp/ccache-binary/
                   file /tmp/ccache-binary/ccache
                   /tmp/ccache-binary/ccache --version
 
-                  # Clean
+                  echo "🧹 Cleaning up build directory..."
+                  cd /tmp
                   rm -rf /tmp/ccache-source/build
 
             - name: Build summary
