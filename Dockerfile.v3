@@ -279,7 +279,7 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
         apt-get update -qq && \
         echo "📦 Installing minimal runtime packages..." && \
         apt-get install -qq -y --no-install-recommends \
-            squashfs-tools squashfuse sudo curl \
+            squashfs-tools squashfuse sudo curl wget \
             libstdc++6 libc6 && \
         echo "✅ Runtime packages installed" && \
         \
