@@ -477,7 +477,7 @@ jobs:
             filtered-matrix: ${{ steps.filter-eol.outputs.filtered-matrix }}
             has-builds: ${{ steps.filter-eol.outputs.has-builds }}
         steps:
-            - name: Filter EOL versions from matrix
+            - name: Filter EOL versions from matrix (SAFE VERSION)
               id: filter-eol
               run: |
                   echo "🔍 Filtering EOL versions from matrix..."
@@ -488,39 +488,50 @@ jobs:
                   FEDORA_EOL_VERSIONS="${{ needs.generate-eol-list.outputs.fedora-eol-versions }}"
 
                   echo "📋 Original matrix size: $(echo "$ORIGINAL_MATRIX" | jq '.include | length')"
-                  echo "📋 Ubuntu EOL versions: $UBUNTU_EOL_VERSIONS"
-                  echo "📋 Fedora EOL versions: $FEDORA_EOL_VERSIONS"
 
-                  # Filter matrix using jq
-                  FILTERED_MATRIX=$(echo "$ORIGINAL_MATRIX" | jq --arg ubuntu_eol "$UBUNTU_EOL_VERSIONS" --arg fedora_eol "$FEDORA_EOL_VERSIONS" '
-                  {
-                      "include": [
-                          .include[] | select(
-                              if .ROOTFS_OS == "ubuntu" then
-                                  ($ubuntu_eol | split("|") | index(.ROOTFS_VERSION) | not)
-                              elif .ROOTFS_OS == "fedora" then  
-                                  ($fedora_eol | split("|") | index(.ROOTFS_VERSION) | not)
-                              else
-                                  true
-                              end
-                          )
-                      ]
-                  }')
+                  # Step 1: Extract all elements as individual JSON objects
+                  echo "🔍 Step 1: Extracting matrix elements..."
+                  echo "$ORIGINAL_MATRIX" | jq -c '.include[]' > /tmp/matrix_items.jsonl
+
+                  # Step 2: Filter using shell script (more reliable)
+                  echo "🔍 Step 2: Filtering with shell script..."
+                  > /tmp/filtered_items.jsonl
+
+                  while IFS= read -r item; do
+                      OS=$(echo "$item" | jq -r '.ROOTFS_OS')
+                      VERSION=$(echo "$item" | jq -r '.ROOTFS_VERSION')
+                      
+                      echo "🔍 Checking: $OS $VERSION"
+                      
+                      SKIP=false
+                      
+                      if [ "$OS" = "ubuntu" ]; then
+                          if echo "|$UBUNTU_EOL_VERSIONS|" | grep -q "|$VERSION|"; then
+                              echo "⚠️ Skipping EOL Ubuntu: $VERSION"
+                              SKIP=true
+                          fi
+                      elif [ "$OS" = "fedora" ]; then
+                          if echo "|$FEDORA_EOL_VERSIONS|" | grep -q "|$VERSION|"; then
+                              echo "⚠️ Skipping EOL Fedora: $VERSION"
+                              SKIP=true
+                          fi
+                      fi
+                      
+                      if [ "$SKIP" = "false" ]; then
+                          echo "✅ Keeping: $OS $VERSION"
+                          echo "$item" >> /tmp/filtered_items.jsonl
+                      fi
+                  done < /tmp/matrix_items.jsonl
+
+                  # Step 3: Reconstruct matrix
+                  echo "🔍 Step 3: Reconstructing filtered matrix..."
+                  if [ -s /tmp/filtered_items.jsonl ]; then
+                      FILTERED_MATRIX=$(echo '{"include":[]}' | jq --slurpfile items /tmp/filtered_items.jsonl '.include = $items')
+                  else
+                      FILTERED_MATRIX='{"include":[]}'
+                  fi
 
                   echo "📊 Filtered matrix size: $(echo "$FILTERED_MATRIX" | jq '.include | length')"
-
-                  # Show filtered out items
-                  echo "🚮 Filtered out EOL versions:"
-                  echo "$ORIGINAL_MATRIX" | jq --arg ubuntu_eol "$UBUNTU_EOL_VERSIONS" --arg fedora_eol "$FEDORA_EOL_VERSIONS" -r '
-                  .include[] | select(
-                      if .ROOTFS_OS == "ubuntu" then
-                          ($ubuntu_eol | split("|") | index(.ROOTFS_VERSION))
-                      elif .ROOTFS_OS == "fedora" then
-                          ($fedora_eol | split("|") | index(.ROOTFS_VERSION))  
-                      else
-                          false
-                      end
-                  ) | "  - \(.ROOTFS_OS) \(.ROOTFS_VERSION)"'
 
                   # Set outputs
                   echo "filtered-matrix=$(echo "$FILTERED_MATRIX" | jq -c .)" >> $GITHUB_OUTPUT
@@ -533,6 +544,10 @@ jobs:
                       echo "has-builds=false" >> $GITHUB_OUTPUT
                       echo "⚠️ No distributions to build after EOL filtering"
                   fi
+
+                  # Cleanup
+                  rm -f /tmp/matrix_items.jsonl /tmp/filtered_items.jsonl
+
     build-arm:
         needs: [filter-matrix, check-and-prepare]
         if: needs.filter-matrix.outputs.has-builds == 'true'
