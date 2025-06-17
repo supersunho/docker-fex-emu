@@ -152,15 +152,9 @@ RUN echo "📦 Setting up ccache..." && \
         echo "CCACHE_SOURCE=disabled" > /tmp/ccache-info; \
     fi && \
     \
-    # Verify final ccache installation
-    if ccache --version >/dev/null 2>&1; then \
-        echo "✅ ccache working correctly:" && \
-        ccache --version; \
-    else \
-        echo "⚠️ ccache not available"; \
-    fi && \
     echo "✅ ccache setup completed"
 
+ENV PATH="/usr/local/bin/:$PATH"
 
 # Copy FEX source and build (simplified)
 COPY --from=fex-sources / /tmp/fex-source  

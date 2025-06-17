@@ -618,8 +618,17 @@ jobs:
                       libc6-dev-arm64-cross
                   echo "✅ Build environment ready"
 
+            - name: Cache ccache source
+              id: cache-ccache-source
+              uses: actions/cache@v4
+              with:
+                  path: /tmp/ccache-source
+                  key: ccache-source-${{ needs.ccache-setup.outputs.ccache-version }}
+                  restore-keys: |
+                      ccache-source-
+
             - name: Download ccache source
-              if: steps.cache-ccache.outputs.cache-hit != 'true'
+              if: steps.cache-ccache.outputs.cache-hit != 'true' && steps.cache-ccache-source.outputs.cache-hit != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   echo "📥 Downloading ccache ${VERSION} source..."
@@ -628,15 +637,13 @@ jobs:
                   echo "📍 Download URL: ${SOURCE_URL}"
 
                   wget -q "${SOURCE_URL}"
-                  tar -xf "ccache-${VERSION}.tar.xz"
+                  tar -xf "ccache-${VERSION}.tar.xz" -C /tmp/ccache-source
 
                   echo "✅ Source downloaded and extracted"
-
             - name: Configure ccache build (Ubuntu 22.04+ optimized)
               if: steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
-                  VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
-                  cd "ccache-${VERSION}"
+                  cd /tmp/ccache-source
                   mkdir -p build && cd build
 
                   echo "⚙️ Configuring cmake for Ubuntu 22.04+ compatibility..."
@@ -652,8 +659,11 @@ jobs:
                       -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
                       -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
                       -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                      -DENABLE_TESTING=OFF \
                       -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
-                      -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+                      -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \ 
+                      -DHIREDIS_LIBRARIES="/usr/lib/aarch64-linux-gnu/libhiredis.a" \
+                      -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
                       -G Ninja ..
 
                   echo "✅ CMake configuration completed for modern systems"
@@ -661,8 +671,7 @@ jobs:
             - name: Build ccache
               if: steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
-                  VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
-                  cd "ccache-${VERSION}/build"
+                  cd /tmp/ccache-source
 
                   echo "🔨 Building ccache for ARM64..."
                   ninja -j$(nproc)
@@ -673,21 +682,9 @@ jobs:
                   echo "✅ Build completed successfully"
 
                   # Verify built binary
-                  file /tmp/ccache-install/usr/local/bin/ccache
-                  /tmp/ccache-install/usr/local/bin/ccache --version
-
-                  # Packaging for artifact
-                  mkdir -p /tmp/ccache-package 
                   cp /tmp/ccache-install/usr/local/bin/ccache /tmp/ccache-binary/
-
-            - name: Upload ccache binary artifact
-              if: steps.cache-ccache.outputs.cache-hit != 'true'
-              uses: actions/upload-artifact@v4
-              with:
-                  name: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-arm64
-                  path: /tmp/ccache-binary/
-                  retention-days: 1
-                  compression-level: 0
+                  file /tmp/ccache-binary/ccache
+                  /tmp/ccache-binary/ccache --version
 
             - name: Build summary
               if: steps.cache-ccache.outputs.cache-hit != 'true'
