@@ -109,10 +109,10 @@ RUN echo "📦 Starting package installation..." && \
         echo "🔧 Setting up Fedora environment..." && \
         dnf update -q -y && \
         echo "📦 Installing Fedora packages..." && \
-        dnf install -q -y \
+        dnf install -q -y --setopt=install_weak_deps=False \
             @development-tools cmake ninja-build pkg-config ccache \
-            llvm${LLVM_VERSION} clang${LLVM_VERSION} lld${LLVM_VERSION} \
-            compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} \
+            llvm clang lld \
+            compiler-rt libomp \
             libstdc++-devel libstdc++-static glibc-devel \
             gcc-c++ binutils-devel binutils \
             nasm python3-clang python3-setuptools openssl-devel \
