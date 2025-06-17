@@ -386,30 +386,44 @@ jobs:
                           ENTRY=$(echo "$ROOTFS_DATA" | jq -r --arg os "$OS" --arg version "$VERSION" '
                           .v1 | to_entries[] | select(.value.DistroMatch == $os and .value.DistroVersion == $version and .value.Type == "squashfs") | .value
                           ')
-                          
+
                           if [ "$ENTRY" != "null" ] && [ -n "$ENTRY" ]; then
-                          BASE_IMAGE=""
-                          TAG_VERSION=""
-                          
-                          case "$OS" in
-                              "ubuntu") BASE_IMAGE="ubuntu:$VERSION"; TAG_VERSION="${VERSION//./}" ;;
-                              "fedora") BASE_IMAGE="fedora:$VERSION"; TAG_VERSION="f$VERSION" ;;
-                          esac
-                          
-                          ITEM=$(jq -n --arg os "$OS" --arg version "$VERSION" --arg base "$BASE_IMAGE" --arg tag "$TAG_VERSION" '
-                              {
-                              "ROOTFS_OS": $os,
-                              "ROOTFS_VERSION": $version,
-                              "ROOTFS_TYPE": "squashfs",
-                              "BASE_IMAGE": $base,
-                              "TAG_VERSION": $tag
-                              }
-                          ')
-                          
-                          MATRIX=$(echo "$MATRIX" | jq -c --argjson item "$ITEM" '.include += [$item]')
-                          echo "✅ Added: $distro"
+                              BASE_IMAGE=""
+                              TAG_VERSION=""
+                            
+                              # Extract RootFS information from ENTRY
+                              ROOTFS_TYPE=$(echo "$ENTRY" | jq -r '.Type')
+                              ROOTFS_URL=$(echo "$ENTRY" | jq -r '.URL')
+                              ROOTFS_HASH=$(echo "$ENTRY" | jq -r '.Hash')
+                            
+                              case "$OS" in
+                                  "ubuntu") BASE_IMAGE="ubuntu:$VERSION"; TAG_VERSION="${VERSION//./}" ;;
+                                  "fedora") BASE_IMAGE="fedora:$VERSION"; TAG_VERSION="f$VERSION" ;;
+                              esac
+                            
+                              ITEM=$(jq -n \
+                                  --arg os "$OS" \
+                                  --arg version "$VERSION" \
+                                  --arg type "$ROOTFS_TYPE" \
+                                  --arg url "$ROOTFS_URL" \
+                                  --arg hash "$ROOTFS_HASH" \
+                                  --arg base "$BASE_IMAGE" \
+                                  --arg tag "$TAG_VERSION" '
+                                  {
+                                  "ROOTFS_OS": $os,
+                                  "ROOTFS_VERSION": $version,
+                                  "ROOTFS_TYPE": $type,
+                                  "ROOTFS_URL": $url,
+                                  "ROOTFS_HASH": $hash,
+                                  "BASE_IMAGE": $base,
+                                  "TAG_VERSION": $tag
+                                  }
+                              ')
+                            
+                              MATRIX=$(echo "$MATRIX" | jq -c --argjson item "$ITEM" '.include += [$item]')
+                              echo "✅ Added: $distro (Type: $ROOTFS_TYPE, Hash: $ROOTFS_HASH)"
                           else
-                          echo "❌ Not found: $distro"
+                              echo "❌ Not found: $distro"
                           fi
                       done
                       ;;
