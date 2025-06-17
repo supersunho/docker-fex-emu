@@ -423,7 +423,7 @@ jobs:
             - name: Check existing images
               id: check-images
               run: |
-                  RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
+                  RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-fex-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
                   IMAGE_FULL="ghcr.io/${{ github.repository }}:$RELEASE_TAG"
 
                   if docker manifest inspect "$IMAGE_FULL" >/dev/null 2>&1; then
