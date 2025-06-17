@@ -172,22 +172,192 @@ jobs:
                   # Generate matrix based on scope (existing logic)
                   case "$BUILD_SCOPE" in
                       "latest-only")
-                          MATRIX=$(echo "$ROOTFS_DATA" | jq -c '{
-                              "include": [
-                                  (.v1 | to_entries | map(select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")) | sort_by(.value.DistroVersion | split(".") | map(tonumber)) | last | .value),
-                                  (.v1 | to_entries | map(select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")) | sort_by(.value.DistroVersion | tonumber) | last | .value)
-                              ] | map({
-                                  "ROOTFS_OS": .DistroMatch,
-                                  "ROOTFS_VERSION": .DistroVersion,
-                                  "ROOTFS_URL": .URL,
-                                  "ROOTFS_TYPE": .Type,
-                                  "ROOTFS_HASH": .Hash,
-                                  "BASE_IMAGE": (if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion else "ubuntu:24.04" end),
-                                  "TAG_VERSION": (if .DistroMatch == "ubuntu" then (.DistroVersion | gsub("\\."; "")) elif .DistroMatch == "fedora" then "f" + .DistroVersion else "unknown" end)
-                              })
-                          }')
-                          ;;
-                      # ... other cases similar to original ...
+                      echo "📦 Building latest candidates only (Ubuntu 24.04, Fedora 40)"
+                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
+                          {
+                          "include": [
+                              # Ubuntu latest version - correct array handling
+                              (.v1 | to_entries | map(select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")) | sort_by(.value.DistroVersion | split(".") | map(tonumber)) | last | .value),
+                              # Fedora latest version - correct array handling
+                              (.v1 | to_entries | map(select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")) | sort_by(.value.DistroVersion | tonumber) | last | .value)
+                          ] | map({
+                              "ROOTFS_OS": .DistroMatch,
+                              "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_TYPE": .Type,
+                              "ROOTFS_HASH": .Hash,
+                              "BASE_IMAGE": (
+                              if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
+                              elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
+                              else "ubuntu:24.04"
+                              end
+                              ),
+                              "TAG_VERSION": (
+                              if .DistroMatch == "ubuntu" then (.DistroVersion | gsub("\\."; ""))
+                              elif .DistroMatch == "fedora" then "f" + .DistroVersion
+                              else "unknown"
+                              end
+                              )
+                          })
+                          }
+                      ')
+                      ;;
+                      
+                      "ubuntu-all")
+                      echo "🐧 Building all Ubuntu versions (22.04+ only)"
+                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
+                          {
+                          "include": [
+                              .v1 | to_entries[] | 
+                              select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") |
+                              .value |
+                              {
+                              "ROOTFS_OS": .DistroMatch,
+                              "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
+                              "BASE_IMAGE": ("ubuntu:" + .DistroVersion),
+                              "TAG_VERSION": (.DistroVersion | gsub("\\."; ""))
+                              }
+                          ]
+                          }
+                      ')
+                      ;;
+
+                      "fedora-all")
+                      echo "🎩 Building all Fedora versions"
+                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
+                          {
+                          "include": [
+                              .v1 | to_entries[] | 
+                              select(.value.DistroMatch == "fedora" and .value.Type == "squashfs") |
+                              .value |
+                              {
+                              "ROOTFS_OS": .DistroMatch,
+                              "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
+                              "BASE_IMAGE": ("fedora:" + .DistroVersion),
+                              "TAG_VERSION": ("f" + .DistroVersion)
+                              }
+                          ]
+                          }
+                      ')
+                      ;;
+                      
+                      "full-matrix")
+                      echo "🌍 Building all SquashFS distributions (Ubuntu 22.04+ and Fedora only)"
+                      MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
+                          {
+                          "include": [
+                              .v1 | to_entries[] | 
+                              select(.value.Type == "squashfs") |
+                              select(.value.DistroMatch == "ubuntu" or .value.DistroMatch == "fedora") |
+                              .value |
+                              {
+                              "ROOTFS_OS": .DistroMatch,
+                              "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
+                              "BASE_IMAGE": (
+                                  if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
+                                  elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
+                                  else "ubuntu:24.04"
+                                  end
+                              ),
+                              "TAG_VERSION": (
+                                  if .DistroMatch == "ubuntu" then (.DistroVersion | gsub("\\."; ""))
+                                  elif .DistroMatch == "fedora" then "f" + .DistroVersion
+                                  else "unknown"
+                                  end
+                              )
+                              }
+                          ]
+                          }
+                      ')
+                      ;;
+                      
+                      "custom")
+                      echo "🎨 Building custom distributions (Ubuntu 22.04+ and Fedora only)"
+                      CUSTOM_DISTROS="${{ github.event.inputs.custom_distros }}"
+                      if [ -z "$CUSTOM_DISTROS" ]; then
+                          echo "❌ Custom distributions not specified"
+                          exit 1
+                      fi
+                      
+                      # Parse custom distributions (e.g., "ubuntu-24.04,fedora-40")
+                      MATRIX='{"include":[]}'
+                      IFS=',' read -ra DISTRO_ARRAY <<< "$CUSTOM_DISTROS"
+                      for distro in "${DISTRO_ARRAY[@]}"; do
+                          IFS='-' read -ra PARTS <<< "$distro"
+                          OS="${PARTS[0]}"
+                          VERSION="${PARTS[1]}"
+                          
+                          # Only support Ubuntu 22.04+ and Fedora
+                          if [ "$OS" != "ubuntu" ] && [ "$OS" != "fedora" ]; then
+                              echo "❌ Unsupported OS: $OS (only ubuntu 22.04+ and fedora supported)"
+                              continue
+                          fi
+                          
+                          # Block Ubuntu 20.04 explicitly
+                          if [ "$OS" = "ubuntu" ] && [ "$VERSION" = "20.04" ]; then
+                              echo "❌ Ubuntu 20.04 not supported (FEX compatibility issues)"
+                              continue
+                          fi
+                          
+                          # Find matching entry in RootFS data
+                          ENTRY=$(echo "$ROOTFS_DATA" | jq -r --arg os "$OS" --arg version "$VERSION" '
+                          .v1 | to_entries[] | select(.value.DistroMatch == $os and .value.DistroVersion == $version and .value.Type == "squashfs") | .value
+                          ')
+
+                          if [ "$ENTRY" != "null" ] && [ -n "$ENTRY" ]; then
+                              BASE_IMAGE=""
+                              TAG_VERSION=""
+                            
+                              # Extract RootFS information from ENTRY
+                              ROOTFS_TYPE=$(echo "$ENTRY" | jq -r '.Type')
+                              ROOTFS_URL=$(echo "$ENTRY" | jq -r '.URL')
+                              ROOTFS_HASH=$(echo "$ENTRY" | jq -r '.Hash')
+                            
+                              case "$OS" in
+                                  "ubuntu") BASE_IMAGE="ubuntu:$VERSION"; TAG_VERSION="${VERSION//./}" ;;
+                                  "fedora") BASE_IMAGE="fedora:$VERSION"; TAG_VERSION="f$VERSION" ;;
+                              esac
+                            
+                              ITEM=$(jq -n \
+                                  --arg os "$OS" \
+                                  --arg version "$VERSION" \
+                                  --arg type "$ROOTFS_TYPE" \
+                                  --arg url "$ROOTFS_URL" \
+                                  --arg hash "$ROOTFS_HASH" \
+                                  --arg base "$BASE_IMAGE" \
+                                  --arg tag "$TAG_VERSION" '
+                                  {
+                                  "ROOTFS_OS": $os,
+                                  "ROOTFS_VERSION": $version,
+                                  "ROOTFS_TYPE": $type,
+                                  "ROOTFS_URL": $url,
+                                  "ROOTFS_HASH": $hash,
+                                  "BASE_IMAGE": $base,
+                                  "TAG_VERSION": $tag
+                                  }
+                              ')
+                            
+                              MATRIX=$(echo "$MATRIX" | jq -c --argjson item "$ITEM" '.include += [$item]')
+                              echo "✅ Added: $distro (Type: $ROOTFS_TYPE, Hash: $ROOTFS_HASH)"
+                          else
+                              echo "❌ Not found: $distro"
+                          fi
+                      done
+                      ;;
+                      
+                      *)
+                      echo "❌ Unknown build scope: $BUILD_SCOPE"
+                      exit 1
+                      ;;
                   esac
 
                   # Filter EOL versions (inline for efficiency)
