@@ -215,8 +215,18 @@ jobs:
         steps:
             - id: generate-matrix
               run: |
-                  # Get RootFS data from API
-                  ROOTFS_DATA=$(curl -s https://rootfs.fex-emu.gg/RootFS_links.json)
+
+                  # Get RootFS data from API with fallback
+                  if curl -s https://rootfs.fex-emu.gg/RootFS_links.json -o /tmp/RootFS_links.json; then
+                      ROOTFS_DATA=$(cat /tmp/RootFS_links.json)
+                      echo "✅ RootFS JSON downloaded successfully"
+                  elif wget -q -O /tmp/RootFS_links.json https://rootfs.fex-emu.gg/RootFS_links.json; then
+                      ROOTFS_DATA=$(cat /tmp/RootFS_links.json)
+                      echo "✅ RootFS JSON downloaded via wget"
+                  else
+                      echo "⚠️ Using embedded fallback JSON"
+                      ROOTFS_DATA='{"v1":{"Ubuntu 24.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"24.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh","Hash":"6d469a5d2bb838ac","Type":"squashfs"}}}'
+                  fi
 
                   # Check if API call was successful
                   if [ -z "$ROOTFS_DATA" ] || [ "$ROOTFS_DATA" = "null" ]; then
@@ -247,7 +257,9 @@ jobs:
                           ] | map({
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_URL": .URL,
                               "ROOTFS_TYPE": .Type,
+                              "ROOTFS_HASH": .Hash,
                               "BASE_IMAGE": (
                               if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
                               elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
@@ -277,6 +289,8 @@ jobs:
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
                               "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
                               "BASE_IMAGE": ("ubuntu:" + .DistroVersion),
                               "TAG_VERSION": (.DistroVersion | gsub("\\."; ""))
                               }
@@ -297,6 +311,8 @@ jobs:
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
                               "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
                               "BASE_IMAGE": ("fedora:" + .DistroVersion),
                               "TAG_VERSION": ("f" + .DistroVersion)
                               }
@@ -318,6 +334,8 @@ jobs:
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
                               "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
                               "BASE_IMAGE": (
                                   if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
                                   elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
@@ -471,8 +489,6 @@ jobs:
         outputs:
             ccache-version: ${{ steps.final-version.outputs.version }}
             ccache-strategy: ${{ steps.strategy.outputs.strategy }}
-            should-build: ${{ steps.check-artifacts.outputs.should-build }}
-            artifacts-exist: ${{ steps.check-artifacts.outputs.artifacts-exist }}
         steps:
             - name: Determine ccache version strategy
               id: strategy
@@ -540,161 +556,35 @@ jobs:
 
                   echo "version=${FINAL_VERSION}" >> $GITHUB_OUTPUT
                   echo "📋 Using ccache version: ${FINAL_VERSION}"
-            - name: Check if artifacts already exist
-              id: check-artifacts
-              run: |
-                  VERSION="${{ steps.final-version.outputs.version }}"
-                  echo "🔍 Checking for existing ccache ${VERSION} artifacts..."
-
-                  REPO="${{ github.repository }}"
-                  TOKEN="${{ secrets.GITHUB_TOKEN }}"
-
-                  # Enhanced workflow debugging
-                  echo "🔍 Enhanced workflow debugging info:"
-                  echo "  - Repository: $REPO"
-                  echo "  - Workflow ref: ${{ github.workflow_ref }}"
-                  echo "  - Workflow: ${{ github.workflow }}"
-                  echo "  - Run ID: ${{ github.run_id }}"
-                  echo "  - Event name: ${{ github.event_name }}"
-
-                  WORKFLOW_FILE=""
-                  if [ -n "${{ github.workflow_ref }}" ]; then
-                      WORKFLOW_REF="${{ github.workflow_ref }}"
-                      # Remove @refs/heads/branch part first, then extract filename
-                      WORKFLOW_PATH=$(echo "$WORKFLOW_REF" | sed 's/@.*$//')
-                      WORKFLOW_FILE=$(basename "$WORKFLOW_PATH")
-                      echo "  - Workflow file (corrected): $WORKFLOW_FILE"
-                      echo "  - Debug - Full ref: $WORKFLOW_REF"
-                      echo "  - Debug - Path: $WORKFLOW_PATH"
-                  else
-                      WORKFLOW_FILE="${{ github.workflow }}.yml"
-                      echo "  - Workflow file (fallback): $WORKFLOW_FILE"
-                  fi
-
-                  # Enhanced API testing
-                  echo "🔍 Enhanced API approaches..."
-
-                  # Method 1: Specific workflow file (with corrected filename)
-                  METHOD1_URL="https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=success&per_page=10"
-                  echo "🔍 Method 1 URL: $METHOD1_URL"
-                  RUNS_RESPONSE_1=$(curl -s -H "Authorization: token ${TOKEN}" "$METHOD1_URL")
-
-                  # Method 2: All workflows
-                  METHOD2_URL="https://api.github.com/repos/${REPO}/actions/runs?status=success&per_page=10"
-                  echo "🔍 Method 2 URL: $METHOD2_URL"
-                  RUNS_RESPONSE_2=$(curl -s -H "Authorization: token ${TOKEN}" "$METHOD2_URL")
-
-                  # Enhanced API Response analysis
-                  echo "🔍 Enhanced API Response analysis:"
-                  echo "Method 1 (specific workflow - $WORKFLOW_FILE):"
-                  echo "$RUNS_RESPONSE_1" | jq -r 'type, .total_count // "no total_count", (.workflow_runs | length) // "no workflow_runs"'
-
-                  # Show available workflow names for debugging
-                  echo "🔍 Available workflow names in repository:"
-                  echo "$RUNS_RESPONSE_2" | jq -r '.workflow_runs[]?.name // "no-name"' | sort | uniq
-                  echo "🔍 Looking for workflow: '${{ github.workflow }}'"
-
-                  echo "Method 2 (all workflows):"  
-                  echo "$RUNS_RESPONSE_2" | jq -r 'type, .total_count // "no total_count", (.workflow_runs | length) // "no workflow_runs"'
-
-                  # Choose the best response
-                  RUNS_RESPONSE=""
-                  METHOD_USED=""
-
-                  # Check Method 1 first
-                  if echo "$RUNS_RESPONSE_1" | jq -e '.workflow_runs' >/dev/null 2>&1; then
-                      WORKFLOW_RUNS_COUNT_1=$(echo "$RUNS_RESPONSE_1" | jq '.workflow_runs | length')
-                      if [ "$WORKFLOW_RUNS_COUNT_1" -gt 0 ]; then
-                          RUNS_RESPONSE="$RUNS_RESPONSE_1"
-                          METHOD_USED="specific workflow"
-                          echo "✅ Using Method 1 (specific workflow): $WORKFLOW_RUNS_COUNT_1 runs found"
-                      fi
-                  fi
-
-                  # Fallback to Method 2 if Method 1 failed
-                  if [ -z "$RUNS_RESPONSE" ] && echo "$RUNS_RESPONSE_2" | jq -e '.workflow_runs' >/dev/null 2>&1; then
-                      WORKFLOW_RUNS_COUNT_2=$(echo "$RUNS_RESPONSE_2" | jq '.workflow_runs | length')
-                      if [ "$WORKFLOW_RUNS_COUNT_2" -gt 0 ]; then
-                          # Filter for current workflow only
-                          RUNS_RESPONSE=$(echo "$RUNS_RESPONSE_2" | jq --arg workflow "${{ github.workflow }}" '
-                              {
-                                  total_count: (.workflow_runs | map(select(.name == $workflow)) | length),
-                                  workflow_runs: (.workflow_runs | map(select(.name == $workflow)))
-                              }
-                          ')
-                          METHOD_USED="all workflows (filtered)"
-                          FILTERED_COUNT=$(echo "$RUNS_RESPONSE" | jq '.workflow_runs | length')
-                          echo "✅ Using Method 2 (filtered): $FILTERED_COUNT relevant runs found"
-                      fi
-                  fi
-
-                  # Final check and artifact search
-                  ARTIFACTS_EXIST=false
-
-                  if [ -n "$RUNS_RESPONSE" ]; then
-                      echo "🔍 Searching for ccache artifacts in workflow runs (using: $METHOD_USED)..."
-                      
-                      # Search for artifacts with enhanced error handling
-                      for run_id in $(echo "$RUNS_RESPONSE" | jq -r '.workflow_runs[]?.id // empty'); do
-                          if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
-                          echo "🔍 Checking run: $run_id"
-                          
-                          # Get artifacts for this run
-                          ARTIFACTS_RESPONSE=$(curl -s -H "Authorization: token ${TOKEN}" \
-                              "https://api.github.com/repos/${REPO}/actions/runs/${run_id}/artifacts")
-                          
-                          # Check if artifacts response is valid
-                          if echo "$ARTIFACTS_RESPONSE" | jq -e '.artifacts' >/dev/null 2>&1; then
-                              ARTIFACT_COUNT=$(echo "$ARTIFACTS_RESPONSE" | jq '.artifacts | length')
-                              echo "  📦 Run $run_id has $ARTIFACT_COUNT artifacts"
-                              
-                              # Look for ccache artifact (search result [2] pattern)
-                              ARM64_ARTIFACT=$(echo "$ARTIFACTS_RESPONSE" | jq -r --arg version "$VERSION" \
-                                  '.artifacts[]? | select(.name == "ccache-\($version)-arm64") | .name // empty')
-                              
-                              if [ -n "$ARM64_ARTIFACT" ] && [ "$ARM64_ARTIFACT" != "null" ]; then
-                                  echo "✅ Found existing ccache artifact: $ARM64_ARTIFACT"
-                                  ARTIFACTS_EXIST=true
-                                  break
-                              fi
-                          else
-                              echo "  ⚠️ Invalid artifacts response for run $run_id"
-                          fi
-                          fi
-                      done
-                  else
-                      echo "⚠️ No valid workflow runs found with any method"
-                      
-                      # Ultimate fallback: assume no artifacts exist (search result [1] workaround)
-                      echo "🔄 Applying GitHub API limitation workaround - proceeding with build"
-                  fi
-
-                  # Output results with detailed reasoning
-                  FORCE_REBUILD="${{ github.event.inputs.ccache_force_rebuild }}"
-                  if [ "$ARTIFACTS_EXIST" = "true" ] && [ "$FORCE_REBUILD" != "true" ]; then
-                      echo "should-build=false" >> $GITHUB_OUTPUT
-                      echo "⏭️ Skipping build - artifacts already exist for ccache ${VERSION}"
-                  else
-                      echo "should-build=true" >> $GITHUB_OUTPUT
-                      if [ "$ARTIFACTS_EXIST" = "true" ]; then
-                      echo "🔄 Force rebuild requested for ccache ${VERSION}"
-                      elif [ -n "$RUNS_RESPONSE" ]; then
-                      echo "🔨 Will build ccache ${VERSION} (artifacts not found in existing runs)"
-                      else
-                      echo "🔨 Will build ccache ${VERSION} (no workflow runs found - GitHub API limitation)"
-                      fi
-                  fi
-
-                  echo "artifacts-exist=${ARTIFACTS_EXIST}" >> $GITHUB_OUTPUT
 
     # Simplified ccache build job (Ubuntu 22.04+ optimized)
     build-ccache:
         name: Build ccache ${{ needs.ccache-setup.outputs.ccache-version }} for ARM64
         runs-on: [self-hosted, linux, arm64]
         needs: ccache-setup
-        if: needs.ccache-setup.outputs.should-build == 'true'
         steps:
+            - name: Download ccache binary artifact
+              id: download-ccache
+              uses: actions/download-artifact@v4
+              continue-on-error: true
+              with:
+                  name: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-arm64
+                  path: /tmp/ccache-binary/
+
+            - name: Verify ccache artifact
+              id: verify-ccache
+              run: |
+                  if [ -f "/tmp/ccache-binary/ccache" ]; then
+                      echo "download-success=true" >> $GITHUB_OUTPUT
+                      echo "✅ ccache binary available"
+                  else
+                      echo "download-success=false" >> $GITHUB_OUTPUT
+                      echo "⚠️ ccache binary not available, will use system ccache"
+                      mkdir -p /tmp/ccache-binary/
+                  fi
+
             - name: Set up build environment for ARM64
+              if: steps.verify-ccache.outputs.download-success != 'true'
               run: |
                   echo "🔧 Setting up build environment for ARM64..."
                   sudo apt-get update -qq
@@ -707,6 +597,7 @@ jobs:
                   echo "✅ Build environment ready"
 
             - name: Download ccache source
+              if: steps.verify-ccache.outputs.download-success != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   echo "📥 Downloading ccache ${VERSION} source..."
@@ -721,6 +612,7 @@ jobs:
                   ls -la "ccache-${VERSION}/"
 
             - name: Configure ccache build (Ubuntu 22.04+ optimized)
+              if: steps.verify-ccache.outputs.download-success != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   cd "ccache-${VERSION}"
@@ -744,6 +636,7 @@ jobs:
                   echo "✅ CMake configuration completed for modern systems"
 
             - name: Build ccache
+              if: steps.verify-ccache.outputs.download-success != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   cd "ccache-${VERSION}/build"
@@ -760,49 +653,21 @@ jobs:
                   file /tmp/ccache-install/usr/local/bin/ccache
                   /tmp/ccache-install/usr/local/bin/ccache --version
 
-            - name: Package ccache binary
-              run: |
-                  VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
-                  echo "📦 Packaging ccache binary for ARM64..."
-
-                  cd /tmp/ccache-install
-
-                  # Verify installation structure
-                  echo "🔍 Checking installation structure:"
-                  find usr/ -type f -name "*ccache*" | head -10
-
-                  # Start with essential binary
-                  PACKAGE_FILES="usr/local/bin/ccache"
-
-                  # Add man pages if they exist
-                  if find usr/local/share/man -name "ccache.1*" -type f | grep -q .; then
-                      echo "✅ Man pages found, including in package"
-                      MAN_FILES=$(find usr/local/share/man -name "ccache.1*" -type f)
-                      PACKAGE_FILES="$PACKAGE_FILES $MAN_FILES"
-                  else
-                      echo "⚠️ Man pages not found, packaging binary only"
-                  fi
-
-                  # Create package with verified files
-                  tar -czf "/tmp/ccache-${VERSION}-linux-arm64.tar.gz" $PACKAGE_FILES
-
-                  echo "📊 Package contents:"
-                  tar -tzf "/tmp/ccache-${VERSION}-linux-arm64.tar.gz"
-
-                  echo "📊 Package information:"
-                  ls -lh "/tmp/ccache-${VERSION}-linux-arm64.tar.gz"
-
-                  echo "✅ Packaging completed successfully"
+                  # Packaging for artifact
+                  mkdir -p /tmp/ccache-package 
+                  cp /tmp/ccache-install/usr/local/bin/ccache /tmp/ccache-binary/
 
             - name: Upload ccache binary artifact
+              if: steps.verify-ccache.outputs.download-success != 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-arm64
-                  path: /tmp/ccache-*.tar.gz
-                  retention-days: 30
+                  path: /tmp/ccache-binary/
+                  retention-days: 1
                   compression-level: 9
 
             - name: Build summary
+              if: steps.verify-ccache.outputs.download-success != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   echo "## 🎉 ccache ${VERSION} Build Summary" >> $GITHUB_STEP_SUMMARY
@@ -816,7 +681,6 @@ jobs:
     # Enhanced build-arm job with integrated ccache support
     build-arm:
         needs: [fetch-rootfs-matrix, check-and-prepare, generate-eol-list, ccache-setup, build-ccache]
-        if: always() && (needs.build-ccache.result == 'success' || needs.build-ccache.result == 'skipped')
         runs-on: [self-hosted, linux, arm64]
         permissions:
             contents: read
@@ -937,22 +801,24 @@ jobs:
             - name: Setup ccache binary directory
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
-                  mkdir -p /tmp/ccache-binary
+                  mkdir -p /tmp/ccache-binary/
                   echo "📦 ccache binary directory created"
 
             # Download prebuilt ccache binary if available
             - name: Download prebuilt ccache binary
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && needs.build-ccache.result == 'success'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               uses: actions/download-artifact@v4
               with:
                   name: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-arm64
-                  path: /tmp/ccache-binary
+                  path: /tmp/ccache-binary/
 
             # Set up ccache (fallback if prebuilt not available)
             - name: Set up ccache fallback
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && needs.build-ccache.result != 'success'
-              uses: hendrikmuhs/ccache-action@v1.2
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              uses: actions/cache@v4
               with:
+                  path: |
+                      /tmp/ccache-binary
                   key: ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}
                   restore-keys: |
                       ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-fex-${{ needs.check-and-prepare.outputs.fex_semantic }}-
@@ -962,6 +828,62 @@ jobs:
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
+            - name: Setup RootFS cache directory
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  mkdir -p /tmp/fex-rootfs
+                  echo "📦 RootFS cache directory created"
+
+            - name: Cache RootFS ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              id: cache-fex-rootfs
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      /tmp/fex-rootfs
+                  key: rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_TYPE }}-${{ matrix.ROOTFS_HASH }}
+                  restore-keys: |
+                      rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_TYPE }}
+                      rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_TYPE }}
+
+            - name: Download RootFS if not cached
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-rootfs.outputs.cache-hit != 'true'
+              run: |
+                  echo "📥 Downloading RootFS: ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
+                  echo "🔗 URL: ${{ matrix.ROOTFS_URL }}"
+
+                  # Enhanced download with fallback
+                  ROOTFS_FILENAME=$(basename "${{ matrix.ROOTFS_URL }}")
+                  DOWNLOAD_SUCCESS=false
+
+                  # Method 1: curl with cache control
+                  if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "${{ matrix.ROOTFS_URL }}" -o "/tmp/fex-rootfs/$ROOTFS_FILENAME"; then
+                      echo "✅ RootFS downloaded via curl"
+                      DOWNLOAD_SUCCESS=true
+                  # Method 2: wget fallback
+                  elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 -O "/tmp/fex-rootfs/$ROOTFS_FILENAME" "${{ matrix.ROOTFS_URL }}"; then
+                      echo "✅ RootFS downloaded via wget"
+                      DOWNLOAD_SUCCESS=true
+                  else
+                      echo "❌ Both curl and wget failed"
+                      exit 1
+                  fi
+
+            - name: Verify RootFS cache
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  echo "🔍 Verifying RootFS cache contents..."
+                  ls -la /tmp/fex-rootfs/
+
+                  ROOTFS_FILENAME=$(basename "${{ matrix.ROOTFS_URL }}")
+                  if [ -f "/tmp/fex-rootfs/$ROOTFS_FILENAME" ]; then
+                      echo "✅ RootFS file present: $ROOTFS_FILENAME"
+                      echo "📊 File size: $(du -h "/tmp/fex-rootfs/$ROOTFS_FILENAME" | cut -f1)"
+                  else
+                      echo "❌ RootFS file missing: $ROOTFS_FILENAME"
+                      exit 1
+                  fi
 
             - name: Build and push ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
@@ -984,13 +906,15 @@ jobs:
                       type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
                   build-contexts: |
                       fex-sources=/tmp/fex-source
-                      ccache-binary=/tmp/ccache-binary
+                      fex-rootfs=/tmp/fex-rootfs
+                      ccache-binary=/tmp/ccache-binary/
                   build-args: |
                       TARGETPLATFORM='linux/arm64' 
                       BASE_IMAGE=${{ matrix.BASE_IMAGE }}
                       ROOTFS_OS=${{ matrix.ROOTFS_OS }}
                       ROOTFS_VERSION=${{ matrix.ROOTFS_VERSION }}
                       ROOTFS_TYPE=${{ matrix.ROOTFS_TYPE }}
+                      ROOTFS_URL=${{ matrix.ROOTFS_URL }}
                       LLVM_VERSION=${{ env.LLVM_VERSION }}
                       CCACHE_DIR=/tmp/.ccache
                       ENABLE_CCACHE=true
@@ -1263,7 +1187,6 @@ jobs:
                   echo "**Optimization Level**: LTO enabled for maximum performance" >> $GITHUB_STEP_SUMMARY
                   echo "**Matrix Generation**: Dynamic detection from FEX RootFS API with selective build options" >> $GITHUB_STEP_SUMMARY
                   echo "**ccache Strategy**: ${{ needs.ccache-setup.outputs.ccache-strategy }} (Version: ${{ needs.ccache-setup.outputs.ccache-version }})" >> $GITHUB_STEP_SUMMARY
-                  echo "**ccache Build**: ${{ needs.build-ccache.result == 'success' && 'Prebuilt binary created' || needs.ccache-setup.outputs.artifacts-exist == 'true' && 'Existing artifacts used' || 'System fallback used' }}" >> $GITHUB_STEP_SUMMARY
                   echo "**Platform Focus**: Ubuntu 22.04+ and Fedora (Ubuntu 20.04 excluded)" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -1280,8 +1203,6 @@ jobs:
                   # ccache build results
                   if [ "${{ needs.build-ccache.result }}" = "success" ]; then
                       echo "✅ **ccache Build**: Successfully built ccache ${{ needs.ccache-setup.outputs.ccache-version }} for ARM64" >> $GITHUB_STEP_SUMMARY
-                  elif [ "${{ needs.ccache-setup.outputs.artifacts-exist }}" = "true" ]; then
-                      echo "⏭️ **ccache Build**: Skipped (existing artifacts found for ccache ${{ needs.ccache-setup.outputs.ccache-version }})" >> $GITHUB_STEP_SUMMARY
                   else
                       echo "🔄 **ccache Build**: Used system fallback" >> $GITHUB_STEP_SUMMARY
                   fi
@@ -1334,7 +1255,6 @@ jobs:
                   echo "- **Advanced Caching**: Multi-layer caching strategy optimized for cross-distribution builds" >> $GITHUB_STEP_SUMMARY
                   echo "- **Native Execution**: High-performance x86 emulation through FEX on ARM" >> $GITHUB_STEP_SUMMARY
                   echo "- **Integrated ccache Management**: ${{ needs.ccache-setup.outputs.ccache-strategy }} strategy with version ${{ needs.ccache-setup.outputs.ccache-version }}" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Smart ccache Artifacts**: ${{ needs.build-ccache.result == 'success' && 'Fresh build with latest optimizations' || needs.ccache-setup.outputs.artifacts-exist == 'true' && 'Reused existing build artifacts' || 'System fallback used' }}" >> $GITHUB_STEP_SUMMARY
                   echo "- **Modern Platform Focus**: Ubuntu 22.04+ and Fedora for enhanced compatibility (Ubuntu 20.04 excluded)" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -1369,7 +1289,6 @@ jobs:
                   echo "- **Verification Coverage**: 100% automated testing for all generated images" >> $GITHUB_STEP_SUMMARY
                   echo "- **Architecture Support**: ARM64 native with x86 emulation capability" >> $GITHUB_STEP_SUMMARY
                   echo "- **FEX Version**: ${{ needs.check-and-prepare.outputs.fex_semantic }} (${{ needs.check-and-prepare.outputs.version }})" >> $GITHUB_STEP_SUMMARY
-                  echo "- **ccache Performance**: ${{ needs.build-ccache.result == 'success' && 'Prebuilt binary optimized' || needs.ccache-setup.outputs.artifacts-exist == 'true' && 'Cached artifacts reused' || 'System fallback performance' }}" >> $GITHUB_STEP_SUMMARY
                   MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
                   MATRIX_SIZE=$(echo "$MATRIX" | jq '.include | length')
                   echo "- **Matrix Size**: $MATRIX_SIZE distributions automatically detected and built (Ubuntu 22.04+ and Fedora)" >> $GITHUB_STEP_SUMMARY

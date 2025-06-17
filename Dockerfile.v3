@@ -245,6 +245,7 @@ ARG TARGETPLATFORM
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
+ARG ROOTFS_URL=""
 
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive 
@@ -329,131 +330,72 @@ RUN echo "👤 Starting user creation and configuration..." && \
     echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
     echo "✅ User configuration completed"
 
+# Copy RootFS file from build context  
+COPY --from=fex-rootfs . /tmp/fex-rootfs/
+
 # Setup RootFS using FEXRootFSFetcher FIRST, manual fallback
 RUN echo "🚀 Starting RootFS setup process..." && \
     echo "📊 RootFS configuration:" && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
     echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
+    echo "  - RootFS URL: ${ROOTFS_URL}" && \
     \
-    # Test FEX RootFS API connectivity to determine primary method
-    echo "🔍 Testing FEX RootFS API connectivity..." && \
-    curl -s https://rootfs.fex-emu.gg/RootFS_links.json   && \
-    API_TEST_RESULT=$? && \
-    \
-    if [ $API_TEST_RESULT -eq 0 ]; then \
-        echo "✅ FEX RootFS API accessible - attempting FEXRootFSFetcher (PRIMARY METHOD)" && \
-        \
-        # PRIMARY: FEXRootFSFetcher with retry logic
-        echo "📥 Starting FEXRootFSFetcher (official recommended method)..." && \
-        FEXROOTFS_SUCCESS=false && \
-        for attempt in 1 2 3; do \
-            echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
-            if timeout 300 sudo -u fex FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty  ; then \
-                echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
-                FEXROOTFS_SUCCESS=true && \
-                break; \
-            else \
-                echo "❌ FEXRootFSFetcher failed (attempt $attempt)" && \
-                if [ $attempt -lt 3 ]; then \
-                    echo "⏳ Waiting 30 seconds before retry..." && \
-                    sleep 30; \
-                fi; \
+    # PRIMARY: FEXRootFSFetcher with retry logic
+    echo "📥 Starting FEXRootFSFetcher (official recommended method)..." && \
+    FEXROOTFS_SUCCESS=false && \
+    for attempt in 1 2 3; do \
+        echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
+        if timeout 300 sudo -u fex FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+            echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
+            FEXROOTFS_SUCCESS=true && \
+            break; \
+        else \
+            echo "❌ FEXRootFSFetcher failed (attempt $attempt)" && \
+            if [ $attempt -lt 3 ]; then \
+                echo "⏳ Waiting 5 seconds before retry..." && \
+                sleep 5; \
             fi; \
-        done; \
-    else \
-        echo "❌ FEX RootFS API not accessible - FEXRootFSFetcher will not work" && \
-        FEXROOTFS_SUCCESS=false; \
-    fi && \
+        fi; \
+    done && \
     \
-    # FALLBACK: Manual setup if FEXRootFSFetcher failed or API unavailable
+    # FALLBACK: Manual setup using predownloaded RootFS from build context
     if [ "$FEXROOTFS_SUCCESS" = "false" ]; then \
-        echo "🔄 FEXRootFSFetcher failed or unavailable - falling back to manual setup..." && \
+        echo "🔄 FEXRootFSFetcher failed - falling back to manual setup with predownloaded files..." && \
         \
         # Create necessary directories for manual setup
         mkdir -p /home/fex/.fex-emu/RootFS && \
         \
-        # Download RootFS JSON with enhanced fallback
-        echo "📥 Downloading RootFS links from FEX server (manual method)..." && \
-        ROOTFS_JSON_URL="https://rootfs.fex-emu.gg/RootFS_links.json" && \
-        ROOTFS_JSON="/tmp/rootfs_links.json" && \
-        JSON_DOWNLOAD_SUCCESS=false && \
+        # Find RootFS file in build context (검색 결과 [2] multiple build contexts)
+        echo "🔍 Looking for RootFS files in build context..." && \
+        ls -la /tmp/fex-rootfs/ && \
         \
-        # Try wget first (execute outside if statement)
-        echo "🔄 Attempting JSON download via wget..." && \
-        wget -q -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL"   && \
-        WGET_EXIT_CODE=$? && \
-        if [ $WGET_EXIT_CODE -eq 0 ]; then \
-            echo "✅ RootFS JSON downloaded successfully via wget" && \
-            JSON_DOWNLOAD_SUCCESS=true; \
+        # Detect RootFS file type and name
+        ROOTFS_FILE="" && \
+        if [ -n "$ROOTFS_URL" ]; then \
+            ROOTFS_FILE=$(basename "$ROOTFS_URL"); \
         else \
-            echo "🔄 wget failed, trying curl..." && \
-            curl -s "$ROOTFS_JSON_URL" -o "$ROOTFS_JSON"   && \
-            CURL_EXIT_CODE=$? && \
-            if [ $CURL_EXIT_CODE -eq 0 ]; then \
-                echo "✅ RootFS JSON downloaded successfully via curl" && \
-                JSON_DOWNLOAD_SUCCESS=true; \
-            fi; \
+            # Auto-detect from available files
+            for ext in sqsh squashfs ero erofs; do \
+                FOUND_FILE=$(find /tmp/fex-rootfs -name "*.${ext}" | head -1) && \
+                if [ -n "$FOUND_FILE" ]; then \
+                    ROOTFS_FILE=$(basename "$FOUND_FILE") && \
+                    break; \
+                fi; \
+            done; \
         fi && \
         \
-        # Ultimate fallback: embedded JSON
-        if [ "$JSON_DOWNLOAD_SUCCESS" = "false" ]; then \
-            echo "⚠️ All download methods failed, using embedded fallback JSON..." && \
-            echo '{"v1":{"Fedora 40 (SquashFS)":{"DistroMatch":"fedora","DistroVersion":"40","URL":"https://rootfs.fex-emu.gg/Fedora_40/2025-01-08/Fedora_40.sqsh","Hash":"fb51fcd7f086fa19","Type":"squashfs"},"Ubuntu 24.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"24.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh","Hash":"6d469a5d2bb838ac","Type":"squashfs"},"Ubuntu 22.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"22.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_22_04/2025-01-08/Ubuntu_22_04.sqsh","Hash":"73c9269e4c4ca172","Type":"squashfs"}}}' > "$ROOTFS_JSON" && \
-            echo "✅ Embedded fallback JSON created" && \
-            JSON_DOWNLOAD_SUCCESS=true; \
-        fi && \
-        \
-        # Parse JSON to find matching OS and version
-        echo "🔍 Searching for ${ROOTFS_OS} ${ROOTFS_VERSION} in RootFS list..." && \
-        MATCHED_ENTRY=$(cat "$ROOTFS_JSON" | jq -r --arg os "$ROOTFS_OS" --arg version "$ROOTFS_VERSION" \
-            '.v1 | to_entries[] | select(.value.DistroMatch == $os and .value.DistroVersion == $version and .value.Type == "squashfs") | .value') && \
-        \
-        if [ -n "$MATCHED_ENTRY" ] && [ "$MATCHED_ENTRY" != "null" ]; then \
-            ROOTFS_URL=$(echo "$MATCHED_ENTRY" | jq -r '.URL') && \
-            ROOTFS_FILENAME=$(basename "$ROOTFS_URL") && \
-            ROOTFS_TYPE=$(echo "$MATCHED_ENTRY" | jq -r '.Type') && \
-            echo "✅ Found matching RootFS:" && \
-            echo "  - URL: $ROOTFS_URL" && \
-            echo "  - Filename: $ROOTFS_FILENAME" && \
-            echo "  - Type: $ROOTFS_TYPE"; \
-        else \
-            echo "❌ No matching RootFS found for ${ROOTFS_OS} ${ROOTFS_VERSION}" && \
-            echo "📋 Available RootFS options:" && \
-            cat "$ROOTFS_JSON" | jq -r '.v1 | to_entries[] | "  - \(.value.DistroMatch) \(.value.DistroVersion) (\(.value.Type))"' && \
+        if [ -z "$ROOTFS_FILE" ]; then \
+            echo "❌ No RootFS file found in build context" && \
             exit 1; \
         fi && \
         \
-        # Download RootFS file (execute outside if statement)
-        echo "📥 Downloading RootFS file: $ROOTFS_FILENAME..." && \
-        ROOTFS_LOCAL_PATH="/tmp/$ROOTFS_FILENAME" && \
-        FILE_DOWNLOAD_SUCCESS=false && \
-        \
-        # Try curl first
-        echo "🔄 Attempting file download via curl..." && \
-        curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH" >/dev/null 2>&1 && \
-        CURL_FILE_EXIT_CODE=$? && \
-        if [ $CURL_FILE_EXIT_CODE -eq 0 ]; then \
-            echo "✅ RootFS file downloaded successfully via curl" && \
-            FILE_DOWNLOAD_SUCCESS=true; \
-        else \
-            echo "🔄 curl failed, trying wget..." && \
-            wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 --retry-connrefused -O "$ROOTFS_LOCAL_PATH" "$ROOTFS_URL" >/dev/null 2>&1 && \
-            WGET_FILE_EXIT_CODE=$? && \
-            if [ $WGET_FILE_EXIT_CODE -eq 0 ]; then \
-                echo "✅ RootFS file downloaded successfully via wget" && \
-                FILE_DOWNLOAD_SUCCESS=true; \
-            fi; \
-        fi && \
-        \
-        # Check download success
-        if [ "$FILE_DOWNLOAD_SUCCESS" = "false" ]; then \
-            echo "❌ Failed to download RootFS file with both curl and wget" && \
-            exit 1; \
-        fi && \
+        ROOTFS_LOCAL_PATH="/tmp/fex-rootfs/$ROOTFS_FILE" && \
+        echo "✅ Found RootFS file: $ROOTFS_FILE" && \
+        echo "📊 File size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)" && \
         \
         # Extract RootFS based on file type
-        echo "📦 Extracting RootFS..." && \
+        echo "📦 Extracting RootFS from build context..." && \
         ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
         EXTRACT_DIR="/home/fex/.fex-emu/RootFS/${ROOTFS_DIRNAME}" && \
         echo "📋 RootFS directory name: $ROOTFS_DIRNAME" && \
@@ -464,10 +406,9 @@ RUN echo "🚀 Starting RootFS setup process..." && \
         fi && \
         mkdir -p "$EXTRACT_DIR" && \
         \
-        if echo "$ROOTFS_FILENAME" | grep -q '\.sqsh$\|\.squashfs$'; then \
+        if echo "$ROOTFS_FILE" | grep -q '\.sqsh$\|\.squashfs$'; then \
             echo "🔧 Extracting SquashFS file using unsquashfs..." && \
             if command -v unsquashfs >/dev/null 2>&1; then \
-                cd /tmp && \
                 unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
                 echo "✅ SquashFS extraction completed"; \
             else \
@@ -476,7 +417,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
                 unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
                 echo "✅ SquashFS extraction completed"; \
             fi; \
-        elif echo "$ROOTFS_FILENAME" | grep -q '\.ero$\|\.erofs$'; then \
+        elif echo "$ROOTFS_FILE" | grep -q '\.ero$\|\.erofs$'; then \
             echo "🔧 Extracting EROFS file..." && \
             if ! command -v dump.erofs >/dev/null 2>&1; then \
                 echo "📦 Installing erofs-utils..." && \
@@ -486,7 +427,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
             dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
             echo "✅ EROFS extraction completed"; \
         else \
-            echo "❌ Unknown RootFS file format: $ROOTFS_FILENAME" && \
+            echo "❌ Unknown RootFS file format: $ROOTFS_FILE" && \
             exit 1; \
         fi && \
         \
@@ -516,10 +457,6 @@ RUN echo "🚀 Starting RootFS setup process..." && \
             echo "❌ Manual RootFS directory not found after extraction" && \
             exit 1; \
         fi && \
-        \
-        # Cleanup temporary files
-        echo "🧹 Cleaning up manual setup temporary files..." && \
-        rm -f "$ROOTFS_LOCAL_PATH" "$ROOTFS_JSON" && \
         \
         echo "🎉 Manual RootFS setup completed successfully as fallback!"; \
     else \
@@ -551,6 +488,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
     \
     # Cleanup downloaded artifacts but keep RootFS
     echo "🧹 Cleaning up temporary RootFS artifacts..." && \
+    rm -rf /tmp/fex-rootfs && \
     find /home/fex/.fex-emu/RootFS -name "*.sqsh" -delete 2>/dev/null || true && \
     find /home/fex/.fex-emu/RootFS -name "*.ero" -delete 2>/dev/null || true && \
     echo "💾 Final RootFS size: $(du -sh /home/fex/.fex-emu/ 2>/dev/null || echo 'unknown')" && \
