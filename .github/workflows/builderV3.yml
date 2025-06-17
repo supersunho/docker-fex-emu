@@ -643,7 +643,7 @@ jobs:
 
                   mkdir -p /tmp/ccache-source
                   wget -q "${SOURCE_URL}"
-                  tar -xf "ccache-${VERSION}.tar.xz" -C /tmp/ccache-source
+                  tar -xf "ccache-${VERSION}.tar.xz" -C /tmp/ccache-source/
                   ls -al /tmp/ccache-source
                   echo "✅ Source downloaded and extracted"
             - name: Configure ccache build (Ubuntu 22.04+ optimized)
