@@ -1,6 +1,242 @@
 ARG BASE_IMAGE=ubuntu:24.04
 
 #==============================================
+# Build Stage - Ubuntu & Fedora Support
+#==============================================
+FROM ${BASE_IMAGE} AS fex-builder
+
+ARG TARGETPLATFORM 
+ARG ROOTFS_OS=ubuntu
+ARG ROOTFS_VERSION="24.04"
+ARG LLVM_VERSION=18
+ARG CCACHE_DIR=/tmp/.ccache
+ARG ENABLE_CCACHE=false
+
+# Set environment variables for non-interactive installation and ccache
+ENV DEBIAN_FRONTEND=noninteractive 
+ENV TZ=Asia/Seoul
+ENV CCACHE_DIR=${CCACHE_DIR}
+ENV ENABLE_CCACHE=${ENABLE_CCACHE}
+
+# Detect OS type
+RUN echo "🔍 Starting OS detection..." && \
+    if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
+        echo "🐧 Detected: Fedora/RHEL distribution" && \
+        echo "DISTRO_TYPE=fedora" > /etc/distro-info; \
+    elif [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then \
+        echo "🐧 Detected: Debian/Ubuntu distribution" && \
+        echo "DISTRO_TYPE=debian" > /etc/distro-info && \
+        export DEBIAN_FRONTEND=noninteractive && \
+        ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+        echo $TZ > /etc/timezone; \
+    else \
+        echo "❌ Unknown distribution type" && \
+        echo "DISTRO_TYPE=unknown" > /etc/distro-info; \
+    fi && \
+    echo "✅ OS detection completed"
+
+# Install build dependencies (simplified for Ubuntu 22.04+)
+RUN echo "📦 Starting package installation..." && \
+    . /etc/distro-info && \
+    echo "🔍 Distribution type: $(cat /etc/distro-info)" && \
+    if [ "$DISTRO_TYPE" = "debian" ]; then \
+        echo "🔧 Setting up Debian/Ubuntu environment..." && \
+        apt-get update -qq && \
+        echo "📦 Installing development packages..." && \
+        apt-get install -qq -y --no-install-recommends \
+            git cmake ninja-build pkg-config ccache \
+            nasm python3-dev python3-clang python3-setuptools \
+            libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
+            linux-headers-generic curl wget \
+            software-properties-common openssl libssl-dev \
+            binutils binutils-aarch64-linux-gnu \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            qtbase5-dev qtdeclarative5-dev && \
+        echo "✅ Base packages installed successfully" && \
+        \
+        # Smart LLVM installation with apt-cache check + script fallback
+        echo "🔧 Installing LLVM ${LLVM_VERSION} with smart detection..." && \
+        REQUIRED_LLVM_PACKAGES="clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools" && \
+        SYSTEM_LLVM_AVAILABLE=true && \
+        echo "🔍 Checking system repository for LLVM ${LLVM_VERSION}..." && \
+        for pkg in $REQUIRED_LLVM_PACKAGES; do \
+            if apt-cache show "$pkg" >/dev/null 2>&1; then \
+                echo "✅ Found system package: $pkg"; \
+            else \
+                echo "❌ Missing system package: $pkg" && \
+                SYSTEM_LLVM_AVAILABLE=false; \
+            fi; \
+        done && \
+        \
+        if [ "$SYSTEM_LLVM_AVAILABLE" = "true" ]; then \
+            echo "🎯 Installing LLVM ${LLVM_VERSION} from system repository..." && \
+            apt-get install -qq -y \
+                clang-${LLVM_VERSION} \
+                lld-${LLVM_VERSION} \
+                llvm-${LLVM_VERSION} \
+                llvm-${LLVM_VERSION}-dev \
+                llvm-${LLVM_VERSION}-tools \
+                libedit-dev libffi-dev && \
+            echo "✅ LLVM ${LLVM_VERSION} installed from system repository"; \
+        else \
+            echo "🔄 Using official LLVM installation script..." && \
+            wget --no-cache --no-http-keep-alive -q https://apt.llvm.org/llvm.sh -O llvm.sh && \
+            chmod +x llvm.sh && \
+            ./llvm.sh ${LLVM_VERSION} >/dev/null 2>&1 && \
+            rm llvm.sh && \
+            # Verify installation
+            if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
+                echo "✅ LLVM ${LLVM_VERSION} installed via official script"; \
+            else \
+                echo "❌ LLVM installation failed" && \
+                exit 1; \
+            fi; \
+        fi && \
+        \
+        # Verify final installation
+        echo "🔍 Verifying LLVM ${LLVM_VERSION} installation..." && \
+        clang-${LLVM_VERSION} --version && \
+        echo "✅ LLVM ${LLVM_VERSION} verification completed" && \
+        \
+        # Simple cleanup
+        echo "🧹 Cleaning up..." && \
+        update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \
+        apt-get autoremove -qq -y && \
+        apt-get autoclean -qq && \
+        rm -rf /var/lib/apt/lists/* /var/tmp/* && \
+        echo "✅ Debian/Ubuntu setup completed successfully"; \
+    elif [ "$DISTRO_TYPE" = "fedora" ]; then \
+        echo "🔧 Setting up Fedora environment..." && \
+        dnf update -q -y && \
+        echo "📦 Installing Fedora packages..." && \
+        dnf install -q -y \
+            @development-tools cmake ninja-build pkg-config ccache \
+            llvm${LLVM_VERSION} clang${LLVM_VERSION} lld${LLVM_VERSION} \
+            compiler-rt${LLVM_VERSION} libomp${LLVM_VERSION} \
+            libstdc++-devel libstdc++-static glibc-devel \
+            gcc-c++ binutils-devel binutils \
+            nasm python3-clang python3-setuptools openssl-devel \
+            libcap-devel glfw-devel libepoxy-devel SDL2-devel \
+            qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
+            curl wget && \
+        dnf clean all -q && \
+        echo "✅ Fedora setup completed successfully"; \
+    else \
+        echo "❌ Unsupported distribution type" && exit 1; \
+    fi && \
+    echo "🎉 Package installation completed!"
+
+# Copy ccache binary from build context
+COPY --from=ccache-binary . /tmp/ccache-binary
+
+# Simple ccache setup for Ubuntu 22.04+
+RUN echo "📦 Setting up ccache..." && \
+    echo "🔍 System information:" && \
+    echo "  - GLIBC version: $(ldd --version | head -1)" && \
+    echo "  - Ubuntu version: ${ROOTFS_VERSION}" && \
+    echo "  - Architecture: $(uname -m)" && \
+    \
+    # Simple ccache configuration
+    echo "🚀 Enabling system ccache for Ubuntu 22.04+" && \
+    echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
+    \
+    # Verify system ccache
+    if ccache --version >/dev/null 2>&1; then \
+        echo "✅ System ccache working correctly:" && \
+        ccache --version; \
+    else \
+        echo "⚠️ System ccache not available, disabling ccache" && \
+        echo "CCACHE_SOURCE=disabled" > /tmp/ccache-info; \
+    fi && \
+    echo "✅ ccache setup completed"
+
+# Copy FEX source and build (simplified)
+COPY --from=fex-sources / /tmp/fex-source  
+RUN --mount=type=cache,target=/tmp/.ccache \
+    echo "🏗️ Starting FEX build process (Ubuntu 22.04+ optimized)..." && \
+    cd /tmp/fex-source && \
+    \
+    # Check ccache setup
+    . /tmp/ccache-info && \
+    echo "📊 Build environment summary:" && \
+    echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
+    echo "  - CCACHE_SOURCE: ${CCACHE_SOURCE}" && \
+    echo "  - LLVM_VERSION: ${LLVM_VERSION}" && \
+    echo "  - CCACHE_BINARY: $(which ccache 2>/dev/null || echo 'not found')" && \
+    \
+    mkdir -p Build && cd Build && \
+    \
+    # Simple compiler detection
+    if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
+        CC_COMPILER=clang-${LLVM_VERSION} && \
+        CXX_COMPILER=clang++-${LLVM_VERSION}; \
+    else \
+        CC_COMPILER=clang && \
+        CXX_COMPILER=clang++; \
+    fi && \
+    echo "✅ Using compilers: $CC_COMPILER / $CXX_COMPILER" && \
+    \
+    # Simple AR tools detection
+    if command -v llvm-ar-${LLVM_VERSION} >/dev/null 2>&1; then \
+        AR_TOOL=$(which llvm-ar-${LLVM_VERSION}) && \
+        RANLIB_TOOL=$(which llvm-ranlib-${LLVM_VERSION}); \
+    else \
+        AR_TOOL=$(which ar) && \
+        RANLIB_TOOL=$(which ranlib); \
+    fi && \
+    echo "✅ Using AR tools: $AR_TOOL" && \
+    \
+    # Simple ccache configuration
+    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
+        echo "🚀 Configuring ccache acceleration..." && \
+        export CCACHE_BASEDIR=/tmp/fex-source && \
+        export CCACHE_DIR=/tmp/.ccache && \
+        export CCACHE_MAXSIZE=2G && \
+        export CC="ccache $CC_COMPILER" && \
+        export CXX="ccache $CXX_COMPILER" && \
+        ccache --zero-stats && \
+        echo "✅ ccache enabled"; \
+    else \
+        echo "ℹ️ ccache disabled for this build"; \
+    fi && \
+    \
+    # Simple CMake configuration
+    echo "⚙️ Running CMake configuration..." && \
+    cmake \
+        -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DUSE_LINKER=lld \
+        -DENABLE_LTO=True \
+        -DBUILD_TESTS=False \
+        -DENABLE_ASSERTIONS=False \
+        -DCMAKE_C_COMPILER="$CC_COMPILER" \
+        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+        -DCMAKE_AR="$AR_TOOL" \
+        -DCMAKE_RANLIB="$RANLIB_TOOL" \
+        -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
+        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
+        -G Ninja .. && \
+    echo "✅ CMake configuration completed" && \
+    \
+    echo "🔨 Starting compilation..." && \
+    ninja -j$(($(nproc) - 1)) && \
+    echo "✅ Compilation completed successfully" && \
+    \
+    echo "📦 Installing FEX binaries..." && \
+    ninja install && \
+    echo "✅ Installation completed" && \
+    \
+    # Show ccache statistics if enabled
+    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
+        echo "📊 ccache Statistics:" && \
+        ccache --show-stats; \
+    fi && \
+    \
+    echo "🧹 Cleaning up build artifacts..." && \
+    rm -rf /tmp/fex-source /tmp/ccache-info /tmp/ccache-binary && \
+    echo "🎉 FEX build completed successfully!"
+
+#==============================================
 # Runtime Stage - Ubuntu & Fedora Support
 #==============================================
 FROM ${BASE_IMAGE} AS runtime
@@ -69,46 +305,110 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
     fi && \
     echo "🎉 Runtime dependencies installation completed!"
 
- 
-# Setup RootFS using FEXRootFSFetcher with enhanced error handling
+# Copy FEX binaries from build stage and optimize
+COPY --from=fex-builder /usr/local/fex /usr/local/fex
+RUN echo "✅ FEX binaries copied successfully" && \
+    echo "📊 FEX installation summary:" && \
+    ls -la /usr/local/fex/bin/ && \
+    echo "🔧 Optimizing FEX binaries..." && \
+    strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    echo "✅ FEX binary optimization completed"
+ENV PATH="/usr/local/fex/bin:$PATH"
+
+# Create user with OS-specific configuration (MOVED BEFORE ROOTFS setup)
+RUN echo "👤 Starting user creation and configuration..." && \
+    . /etc/distro-info && \
+    useradd -m -s /bin/bash fex && \
+    echo "✅ User 'fex' created successfully" && \
+    if [ "$DISTRO_TYPE" = "debian" ]; then \
+        usermod -aG sudo fex; \
+    elif [ "$DISTRO_TYPE" = "fedora" ]; then \
+        usermod -aG wheel fex; \
+    fi && \
+    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
+    echo "✅ User configuration completed"
+
+# Setup RootFS using FEXRootFSFetcher FIRST, manual fallback
 RUN echo "🚀 Starting RootFS setup process..." && \
     echo "📊 RootFS configuration:" && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
     echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
     \
-    # Check network connectivity first
-    echo "🔍 Checking network connectivity..." && \
-    if curl -H 'Cache-Control: no-cache, no-store' -s --connect-timeout 10 https://rootfs.fex-emu.gg/RootFS_links.json >/dev/null 2>&1; then \
-        echo "✅ FEX RootFS server reachable"; \
-    else \
-        echo "⚠️ FEX RootFS server unreachable, will try anyway"; \
-        # Manual RootFS setup script (FEXRootFSFetcher alternative)
-        echo "🔄 Starting manual RootFS setup as FEXRootFSFetcher alternative..." && \
+    # Create user first (FEXRootFSFetcher is per-user install)
+    useradd -m -s /bin/bash fex 2>/dev/null || true && \
+    \
+    # Test FEX RootFS API connectivity to determine primary method
+    echo "🔍 Testing FEX RootFS API connectivity..." && \
+    curl -H 'Cache-Control: no-cache, no-store' -s --connect-timeout 10 https://rootfs.fex-emu.gg/RootFS_links.json >/dev/null 2>&1 && \
+    API_TEST_RESULT=$? && \
+    \
+    if [ $API_TEST_RESULT -eq 0 ]; then \
+        echo "✅ FEX RootFS API accessible - attempting FEXRootFSFetcher (PRIMARY METHOD)" && \
         \
-        # Create necessary directories
+        # PRIMARY: FEXRootFSFetcher with retry logic
+        echo "📥 Starting FEXRootFSFetcher (official recommended method)..." && \
+        FEXROOTFS_SUCCESS=false && \
+        for attempt in 1 2 3; do \
+            echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
+            if timeout 300 sudo -u fex FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+                echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
+                FEXROOTFS_SUCCESS=true && \
+                break; \
+            else \
+                echo "❌ FEXRootFSFetcher failed (attempt $attempt)" && \
+                if [ $attempt -lt 3 ]; then \
+                    echo "⏳ Waiting 30 seconds before retry..." && \
+                    sleep 30; \
+                fi; \
+            fi; \
+        done; \
+    else \
+        echo "❌ FEX RootFS API not accessible - FEXRootFSFetcher will not work" && \
+        FEXROOTFS_SUCCESS=false; \
+    fi && \
+    \
+    # FALLBACK: Manual setup if FEXRootFSFetcher failed or API unavailable
+    if [ "$FEXROOTFS_SUCCESS" = "false" ]; then \
+        echo "🔄 FEXRootFSFetcher failed or unavailable - falling back to manual setup..." && \
+        \
+        # Create necessary directories for manual setup
         mkdir -p /home/fex/.fex-emu/RootFS && \
         \
-        # Download RootFS JSON list (search result [1] pattern)
-        echo "📥 Downloading RootFS links from FEX server..." && \
+        # Download RootFS JSON with enhanced fallback
+        echo "📥 Downloading RootFS links from FEX server (manual method)..." && \
         ROOTFS_JSON_URL="https://rootfs.fex-emu.gg/RootFS_links.json" && \
         ROOTFS_JSON="/tmp/rootfs_links.json" && \
+        JSON_DOWNLOAD_SUCCESS=false && \
         \
-        if wget --no-cache --no-http-keep-alive -q --debug --verbose -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL"; then \
-            echo "✅ RootFS JSON downloaded successfully"; \
+        # Try wget first (execute outside if statement)
+        echo "🔄 Attempting JSON download via wget..." && \
+        wget --no-cache --no-http-keep-alive -q --timeout=30 -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL" >/dev/null 2>&1 && \
+        WGET_EXIT_CODE=$? && \
+        if [ $WGET_EXIT_CODE -eq 0 ]; then \
+            echo "✅ RootFS JSON downloaded successfully via wget" && \
+            JSON_DOWNLOAD_SUCCESS=true; \
         else \
-            echo "⚠️ Both curl and wget failed, using embedded fallback JSON..." && \
-            echo '{"v1":{"Fedora 40 (SquashFS)":{"DistroMatch":"fedora","DistroVersion":"40","URL":"https://rootfs.fex-emu.gg/Fedora_40/2025-01-08/Fedora_40.sqsh","Hash":"fb51fcd7f086fa19","Type":"squashfs"},"Ubuntu 24.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"24.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh","Hash":"6d469a5d2bb838ac","Type":"squashfs"},"Ubuntu 22.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"22.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_22_04/2025-01-08/Ubuntu_22_04.sqsh","Hash":"73c9269e4c4ca172","Type":"squashfs"}}}' > "$ROOTFS_JSON" && \
-            echo "✅ Embedded fallback JSON created (compressed format)"; \
+            echo "🔄 wget failed, trying curl..." && \
+            curl -H 'Cache-Control: no-cache, no-store' -s --connect-timeout 30 "$ROOTFS_JSON_URL" -o "$ROOTFS_JSON" >/dev/null 2>&1 && \
+            CURL_EXIT_CODE=$? && \
+            if [ $CURL_EXIT_CODE -eq 0 ]; then \
+                echo "✅ RootFS JSON downloaded successfully via curl" && \
+                JSON_DOWNLOAD_SUCCESS=true; \
+            fi; \
         fi && \
         \
-        # Parse JSON to find matching OS and version (search result [1] logic)
-        echo "🔍 Searching for ${ROOTFS_OS} ${ROOTFS_VERSION} in RootFS list..." && \
-        ROOTFS_URL="" && \
-        ROOTFS_FILENAME="" && \
-        ROOTFS_TYPE="" && \
+        # Ultimate fallback: embedded JSON
+        if [ "$JSON_DOWNLOAD_SUCCESS" = "false" ]; then \
+            echo "⚠️ All download methods failed, using embedded fallback JSON..." && \
+            echo '{"v1":{"Fedora 40 (SquashFS)":{"DistroMatch":"fedora","DistroVersion":"40","URL":"https://rootfs.fex-emu.gg/Fedora_40/2025-01-08/Fedora_40.sqsh","Hash":"fb51fcd7f086fa19","Type":"squashfs"},"Ubuntu 24.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"24.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh","Hash":"6d469a5d2bb838ac","Type":"squashfs"},"Ubuntu 22.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"22.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_22_04/2025-01-08/Ubuntu_22_04.sqsh","Hash":"73c9269e4c4ca172","Type":"squashfs"}}}' > "$ROOTFS_JSON" && \
+            echo "✅ Embedded fallback JSON created" && \
+            JSON_DOWNLOAD_SUCCESS=true; \
+        fi && \
         \
-        # Extract matching entry from JSON using jq
+        # Parse JSON to find matching OS and version
+        echo "🔍 Searching for ${ROOTFS_OS} ${ROOTFS_VERSION} in RootFS list..." && \
         MATCHED_ENTRY=$(cat "$ROOTFS_JSON" | jq -r --arg os "$ROOTFS_OS" --arg version "$ROOTFS_VERSION" \
             '.v1 | to_entries[] | select(.value.DistroMatch == $os and .value.DistroVersion == $version and .value.Type == "squashfs") | .value') && \
         \
@@ -127,27 +427,36 @@ RUN echo "🚀 Starting RootFS setup process..." && \
             exit 1; \
         fi && \
         \
-        # Download RootFS file (search result [4] pattern)
+        # Download RootFS file (execute outside if statement)
         echo "📥 Downloading RootFS file: $ROOTFS_FILENAME..." && \
         ROOTFS_LOCAL_PATH="/tmp/$ROOTFS_FILENAME" && \
         FILE_DOWNLOAD_SUCCESS=false && \
         \
-        # Try curl first (supports progress bar and resume)
-        if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600  "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH" 2>/dev/null; then \
+        # Try curl first
+        echo "🔄 Attempting file download via curl..." && \
+        curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH" >/dev/null 2>&1 && \
+        CURL_FILE_EXIT_CODE=$? && \
+        if [ $CURL_FILE_EXIT_CODE -eq 0 ]; then \
             echo "✅ RootFS file downloaded successfully via curl" && \
             FILE_DOWNLOAD_SUCCESS=true; \
-        # Fallback to wget (different retry logic and network handling)
-        elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 --retry-connrefused -O "$ROOTFS_LOCAL_PATH" "$ROOTFS_URL" 2>/dev/null; then \
-            echo "✅ RootFS file downloaded successfully via wget" && \
-            FILE_DOWNLOAD_SUCCESS=true; \
         else \
+            echo "🔄 curl failed, trying wget..." && \
+            wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 --retry-connrefused -O "$ROOTFS_LOCAL_PATH" "$ROOTFS_URL" >/dev/null 2>&1 && \
+            WGET_FILE_EXIT_CODE=$? && \
+            if [ $WGET_FILE_EXIT_CODE -eq 0 ]; then \
+                echo "✅ RootFS file downloaded successfully via wget" && \
+                FILE_DOWNLOAD_SUCCESS=true; \
+            fi; \
+        fi && \
+        \
+        # Check download success
+        if [ "$FILE_DOWNLOAD_SUCCESS" = "false" ]; then \
             echo "❌ Failed to download RootFS file with both curl and wget" && \
             exit 1; \
         fi && \
         \
-        # Extract RootFS based on file type (search result [1] and [2] logic)
+        # Extract RootFS based on file type
         echo "📦 Extracting RootFS..." && \
-        # Proper RootFS directory naming (Ubuntu_24_04 style)
         ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
         EXTRACT_DIR="/home/fex/.fex-emu/RootFS/${ROOTFS_DIRNAME}" && \
         echo "📋 RootFS directory name: $ROOTFS_DIRNAME" && \
@@ -160,7 +469,6 @@ RUN echo "🚀 Starting RootFS setup process..." && \
         \
         if echo "$ROOTFS_FILENAME" | grep -q '\.sqsh$\|\.squashfs$'; then \
             echo "🔧 Extracting SquashFS file using unsquashfs..." && \
-            # Use unsquashfs to extract (search result [2] method)
             if command -v unsquashfs >/dev/null 2>&1; then \
                 cd /tmp && \
                 unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
@@ -173,141 +481,76 @@ RUN echo "🚀 Starting RootFS setup process..." && \
             fi; \
         elif echo "$ROOTFS_FILENAME" | grep -q '\.ero$\|\.erofs$'; then \
             echo "🔧 Extracting EROFS file..." && \
-            # Install erofs-utils if needed
             if ! command -v dump.erofs >/dev/null 2>&1; then \
                 echo "📦 Installing erofs-utils..." && \
                 apt-get update -qq && \
                 apt-get install -y --no-install-recommends erofs-utils; \
             fi && \
-            \
-            # Extract EROFS using dump.erofs
-            if dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH"; then \
-                echo "✅ EROFS extraction completed"; \
-            else \
-                echo "❌ EROFS extraction failed" && \
-                exit 1; \
-            fi; \
-        fi; \
+            dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+            echo "✅ EROFS extraction completed"; \
+        else \
+            echo "❌ Unknown RootFS file format: $ROOTFS_FILENAME" && \
+            exit 1; \
+        fi && \
         \
-        # Set proper ownership (search result [2] requirement)
-        chown -R fex:fex /home/fex/.fex-emu && \
-        \
-        # Create FEX configuration with correct format (printf version for readability)
+        # Create FEX configuration with correct format
         echo "⚙️ Writing FEX configuration..." && \
         CONFIG_PATH="/home/fex/.fex-emu/Config.json" && \
-        \
-        # Create config JSON using printf (formatted)
         printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > "$CONFIG_PATH" && \
-        \
-        chown fex:fex "$CONFIG_PATH" && \
         echo "✅ FEX configuration written to $CONFIG_PATH" && \
         \
-        # Verify config format (NEW)
-        echo "🔍 Verifying configuration format:" && \
-        cat "$CONFIG_PATH" | jq . && \
+        # Set proper ownership for manual setup
+        chown -R fex:fex /home/fex/.fex-emu && \
         \
-        # Verify installation (search result [2] verification)
-        echo "🔍 Verifying RootFS installation..." && \
+        # Verify manual installation
+        echo "🔍 Verifying manual RootFS installation..." && \
         if [ -d "$EXTRACT_DIR" ]; then \
             ROOTFS_CONTENT_COUNT=$(find "$EXTRACT_DIR" -type f | wc -l) && \
-            ROOTFS_DIR_COUNT=$(find "$EXTRACT_DIR" -type d | wc -l) && \
-            echo "📊 RootFS verification results:" && \
+            echo "📊 Manual RootFS verification results:" && \
             echo "  - Directory: $EXTRACT_DIR" && \
             echo "  - Files: $ROOTFS_CONTENT_COUNT" && \
-            echo "  - Directories: $ROOTFS_DIR_COUNT" && \
             \
             if [ "$ROOTFS_CONTENT_COUNT" -gt 100 ]; then \
-                echo "✅ RootFS appears to be properly extracted"; \
+                echo "✅ Manual RootFS appears to be properly extracted"; \
             else \
-                echo "⚠️ RootFS may be incomplete (too few files)"; \
+                echo "⚠️ Manual RootFS may be incomplete (too few files)"; \
             fi; \
         else \
-            echo "❌ RootFS directory not found after extraction" && \
+            echo "❌ Manual RootFS directory not found after extraction" && \
             exit 1; \
         fi && \
         \
         # Cleanup temporary files
-        echo "🧹 Cleaning up temporary files..." && \
+        echo "🧹 Cleaning up manual setup temporary files..." && \
         rm -f "$ROOTFS_LOCAL_PATH" "$ROOTFS_JSON" && \
         \
-        # Final verification with config
-        echo "🎯 Final verification..." && \
-        echo "📋 RootFS setup summary:" && \
-        echo "  - OS: ${ROOTFS_OS}" && \
-        echo "  - Version: ${ROOTFS_VERSION}" && \
-        echo "  - Type: $ROOTFS_TYPE" && \
-        echo "  - Directory Name: $ROOTFS_DIRNAME" && \
-        echo "  - Location: $EXTRACT_DIR" && \
-        echo "  - Config: $CONFIG_PATH" && \
-        echo "  - Size: $(du -sh "$EXTRACT_DIR" 2>/dev/null | cut -f1)" && \
-        \
-        # Display final config content
-        echo "📋 Final Config.json content:" && \
-        cat "$CONFIG_PATH" && \
-        \
-        ROOTFS_SUCCESS=true && echo "🎉 Manual RootFS setup completed successfully!"; \
-    fi && \
-    \
-    # Enhanced FEXRootFSFetcher with retry logic
-    echo "📥 Starting RootFS download with retry logic..." && \
-    ROOTFS_SUCCESS=false && \
-    for attempt in 1 2 3; do \
-        echo "⏳ RootFS download attempt $attempt/3..." && \
-        if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty; then \
-            echo "✅ RootFS download completed successfully (attempt $attempt)"; \
-            ROOTFS_SUCCESS=true && \
-            break; \
-        else \
-            echo "❌ RootFS download failed (attempt $attempt)"; \
-            if [ $attempt -lt 3 ]; then \
-                echo "⏳ Waiting 30 seconds before retry..."; \
-                sleep 30; \
-            fi; \
-        fi; \
-    done && \
-    \
-    # Check if RootFS was successfully downloaded
-    if [ "$ROOTFS_SUCCESS" = "true" ]; then \
-        echo "🎉 RootFS download and extraction completed successfully"; \
+        echo "🎉 Manual RootFS setup completed successfully as fallback!"; \
     else \
-        echo "❌ All RootFS download attempts failed"; \
-        echo "🔍 Checking for existing RootFS files..."; \
-        if [ -d "/home/fex/.fex-emu/RootFS" ] && [ "$(find /home/fex/.fex-emu/RootFS -type f | wc -l)" -gt 0 ]; then \
-            echo "✅ Found existing RootFS files, proceeding with build"; \
-        else \
-            echo "❌ No RootFS files found. Manual intervention required."; \
-            echo "💡 Troubleshooting steps:"; \
-            echo "  1. Check network connectivity to rootfs.fex-emu.gg"; \
-            echo "  2. Verify RootFS API is accessible"; \
-            echo "  3. Consider using manual RootFS download"; \
-            exit 1; \
-        fi; \
+        echo "🎉 FEXRootFSFetcher setup completed successfully!" && \
+        # Set proper ownership for FEXRootFSFetcher result
+        chown -R fex:fex /home/fex/.fex-emu; \
     fi && \
     \
-    # Verify RootFS installation
-    echo "🔧 Verifying RootFS installation..." && \
+    # Final verification for both methods
+    echo "🔧 Final RootFS verification..." && \
     if [ -d "/home/fex/.fex-emu/RootFS" ]; then \
         ROOTFS_COUNT=$(find /home/fex/.fex-emu/RootFS -maxdepth 1 -type d | wc -l) && \
         ROOTFS_FILES=$(find /home/fex/.fex-emu/RootFS -type f | wc -l) && \
-        echo "📊 RootFS verification:" && \
+        echo "📊 Final RootFS verification:" && \
         echo "  - RootFS directories: $ROOTFS_COUNT" && \
         echo "  - RootFS files: $ROOTFS_FILES" && \
+        echo "  - Method used: $([ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (primary)" || echo "Manual setup (fallback)")" && \
         \
         if [ "$ROOTFS_FILES" -gt 0 ]; then \
-            echo "✅ RootFS verification passed"; \
+            echo "✅ Final RootFS verification passed"; \
         else \
-            echo "❌ RootFS verification failed - no files found"; \
+            echo "❌ Final RootFS verification failed - no files found" && \
             exit 1; \
         fi; \
     else \
-        echo "❌ RootFS directory not found"; \
+        echo "❌ RootFS directory not found" && \
         exit 1; \
     fi && \
-    \
-    # Configure RootFS permissions
-    echo "🔧 Configuring RootFS permissions..." && \
-    chown -R fex:fex /home/fex/.fex-emu && \
-    echo "✅ RootFS permissions configured" && \
     \
     # Cleanup downloaded artifacts but keep RootFS
     echo "🧹 Cleaning up temporary RootFS artifacts..." && \
@@ -316,20 +559,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
     echo "💾 Final RootFS size: $(du -sh /home/fex/.fex-emu/ 2>/dev/null || echo 'unknown')" && \
     echo "🎉 RootFS setup completed successfully!"
 
-# Create user with OS-specific configuration
-RUN echo "👤 Starting user creation and configuration..." && \
-    . /etc/distro-info && \
-    useradd -m -s /bin/bash fex && \
-    echo "✅ User 'fex' created successfully" && \
-    if [ "$DISTRO_TYPE" = "debian" ]; then \
-        usermod -aG sudo fex; \
-    elif [ "$DISTRO_TYPE" = "fedora" ]; then \
-        usermod -aG wheel fex; \
-    fi && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
-    chown -R fex:fex /home/fex && \
-    echo "✅ All setup completed, ready to switch user"
-
+# Switch to fex user
 USER fex
 WORKDIR /home/fex
 
