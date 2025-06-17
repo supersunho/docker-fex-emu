@@ -578,7 +578,6 @@ jobs:
         needs: ccache-setup
         steps:
             - name: Setup ccache binary directory
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   rm -rf /tmp/ccache-binary/
                   mkdir -p /tmp/ccache-binary/
@@ -597,6 +596,8 @@ jobs:
                   if [ -f "/tmp/ccache-binary/ccache" ]; then
                       echo "download-success=true" >> $GITHUB_OUTPUT
                       echo "✅ ccache binary available"
+                      ls -al /tmp/ccache-binary
+                      /tmp/ccache-binary/ccache --version
                   else
                       echo "download-success=false" >> $GITHUB_OUTPUT
                       echo "⚠️ ccache binary not available, will use system ccache" 
