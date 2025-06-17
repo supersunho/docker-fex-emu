@@ -594,62 +594,6 @@ jobs:
               run: |
                   echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
-            - name: Setup RootFS cache directory
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
-              run: |
-                  mkdir -p /tmp/fex-rootfs
-                  echo "📦 RootFS cache directory created"
-
-            - name: Cache RootFS ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
-              id: cache-fex-rootfs
-              uses: actions/cache@v4
-              with:
-                  path: |
-                      /tmp/fex-rootfs
-                  key: rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_TYPE }}-${{ matrix.ROOTFS_HASH }}
-                  restore-keys: |
-                      rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_TYPE }}
-                      rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_TYPE }}
-
-            - name: Download RootFS if not cached
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-rootfs.outputs.cache-hit != 'true'
-              run: |
-                  echo "📥 Downloading RootFS: ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
-                  echo "🔗 URL: ${{ matrix.ROOTFS_URL }}"
-
-                  # Enhanced download with fallback
-                  ROOTFS_FILENAME=$(basename "${{ matrix.ROOTFS_URL }}")
-                  DOWNLOAD_SUCCESS=false
-
-                  # Method 1: curl with cache control
-                  if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "${{ matrix.ROOTFS_URL }}" -o "/tmp/fex-rootfs/$ROOTFS_FILENAME"  ; then
-                      echo "✅ RootFS downloaded via curl"
-                      DOWNLOAD_SUCCESS=true
-                  # Method 2: wget fallback
-                  elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 -O "/tmp/fex-rootfs/$ROOTFS_FILENAME" "${{ matrix.ROOTFS_URL }}" ; then
-                      echo "✅ RootFS downloaded via wget"
-                      DOWNLOAD_SUCCESS=true
-                  else
-                      echo "❌ Both curl and wget failed"
-                      exit 1
-                  fi
-
-            - name: Verify RootFS cache
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
-              run: |
-                  echo "🔍 Verifying RootFS cache contents..."
-                  ls -la /tmp/fex-rootfs/
-
-                  ROOTFS_FILENAME=$(basename "${{ matrix.ROOTFS_URL }}")
-                  if [ -f "/tmp/fex-rootfs/$ROOTFS_FILENAME" ]; then
-                      echo "✅ RootFS file present: $ROOTFS_FILENAME"
-                      echo "📊 File size: $(du -h "/tmp/fex-rootfs/$ROOTFS_FILENAME" | cut -f1)"
-                  else
-                      echo "❌ RootFS file missing: $ROOTFS_FILENAME"
-                      exit 1
-                  fi
-
             - name: Setup ccache cache directory
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
@@ -689,14 +633,9 @@ jobs:
                       type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
                   build-contexts: |
                       fex-sources=/tmp/fex-source
-                      fex-rootfs=/tmp/fex-rootfs
                   build-args: |
                       TARGETPLATFORM='linux/arm64' 
                       BASE_IMAGE=${{ matrix.BASE_IMAGE }}
-                      ROOTFS_OS=${{ matrix.ROOTFS_OS }}
-                      ROOTFS_VERSION=${{ matrix.ROOTFS_VERSION }}
-                      ROOTFS_TYPE=${{ matrix.ROOTFS_TYPE }}
-                      ROOTFS_URL=${{ matrix.ROOTFS_URL }}
                       LLVM_VERSION=${{ env.LLVM_VERSION }}
                       CCACHE_DIR=/tmp/.ccache
                       ENABLE_CCACHE=true
@@ -720,25 +659,6 @@ jobs:
                   echo "Checking if FEX binary executes:"
                   docker run --rm --platform 'linux/arm64' "$IMAGE" 'test -x /usr/local/fex/bin/FEXBash' && echo "✅ FEXBash executable" || { echo "❌ FEXBash not executable"; exit 1; }
 
-                  # Test FEX configuration
-                  echo "FEX configuration test:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" 'test -f /home/fex/.fex-emu/Config.json' && echo "✅ FEXBash config exists" || { echo "❌ FEXBash config missing"; exit 1; }
-
-                  # Test architecture
-                  echo "Architecture test:"
-                  ARCH_OUTPUT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" 'uname -m')
-                  FEXEMU_OUTPUT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" '/usr/local/fex/bin/FEXBash -c "uname -m"')
-                  echo "Detected architecture: $ARCH_OUTPUT / FEX-emu: $FEXEMU_OUTPUT"
-
-                  # Test RootFS
-                  echo "RootFS test:"
-                  SUBDIR_COUNT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" 'ls -1d /home/fex/.fex-emu/RootFS/*/ 2>/dev/null | wc -l')
-                  if [ "$SUBDIR_COUNT" -gt 0 ]; then 
-                      echo "✅ RootFS exists ($SUBDIR_COUNT subdirectories found)"
-                  else
-                       echo "❌ RootFS not exists"
-                       exit 1
-                  fi
                   echo "🎉 All ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} verification tests passed!"
 
             - name: Export digest
@@ -832,7 +752,6 @@ jobs:
                       - **Selective Build System**: Intelligent resource management with latest-only, distribution-specific, and full-matrix build options
                       - **Automated RootFS Setup**: Unattended x86 RootFS installation via FEXRootFSFetcher
                       - **LTO Optimization**: Link-time optimization enabled for maximum performance 
-                      - **Ubuntu 20.04 Excluded**: Optimized for modern systems (Ubuntu 22.04+) for enhanced compatibility
 
                       ## 🔧 Technical Features
                       - **ARM-Exclusive Design**: Streamlined build process focusing solely on ARM64
