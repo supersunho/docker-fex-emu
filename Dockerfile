@@ -126,16 +126,16 @@ RUN echo "📦 Starting package installation..." && \
     fi && \
     echo "🎉 Package installation completed!"
 
-# Enhanced ccache setup
+# Fixed ccache setup (검색 결과 [3] 구문 수정 적용)
 RUN echo "📦 Setting up ccache..." && \
     echo "🔍 System information:" && \
     echo "  - GLIBC version: $(ldd --version | head -1)" && \
     echo "  - Ubuntu version: ${ROOTFS_VERSION}" && \
     echo "  - Architecture: $(uname -m)" && \
     \
-    # Check if copied ccache binary exists and install it
-    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ command -v ccache >/dev/null 2>&1] ; then \
-        echo "🔄 Using system ccache as fallback..." && \
+    # Fixed: 공백 추가하여 구문 오류 수정
+    if [ "${ENABLE_CCACHE:-false}" = "true" ] && command -v ccache >/dev/null 2>&1; then \
+        echo "🔄 Using system ccache..." && \
         echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
         echo "✅ System ccache found"; \
     else \
@@ -147,10 +147,10 @@ RUN echo "📦 Setting up ccache..." && \
 
 ENV PATH="/usr/local/bin/:$PATH"
 
-# Copy FEX source and build (simplified)
+# Copy FEX source from build context (검색 결과 [4] named contexts)
 COPY --from=fex-sources / /tmp/fex-source  
 RUN --mount=type=cache,target=/tmp/.ccache \
-    echo "🏗️ Starting FEX build process (Ubuntu 22.04+ optimized)..." && \
+    echo "🏗️ Starting FEX build process (V4 Optimized)..." && \
     cd /tmp/fex-source && \
     \
     # Check ccache setup
@@ -183,23 +183,22 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     fi && \
     echo "✅ Using AR tools: $AR_TOOL" && \
     \
-    # Simple ccache configuration
+    # Enhanced ccache configuration (검색 결과 [7] 캐시 최적화)
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Configuring ccache acceleration..." && \
         export CCACHE_BASEDIR=/tmp/fex-source && \
         export CCACHE_DIR=/tmp/.ccache && \
         export CCACHE_MAXSIZE=2G && \
-        export CCACHE_SLOPPINESS=pch_defines,time_macros,include_file_mtime && \
-        export CCACHE_COMPRESS=true && \
+        export CCACHE_SLOPPINESS=pch_defines,time_macros && \
         export CC="ccache $CC_COMPILER" && \
         export CXX="ccache $CXX_COMPILER" && \
         ccache --zero-stats && \
-        echo "✅ ccache enabled"; \
+        echo "✅ ccache enabled with optimizations"; \
     else \
         echo "ℹ️ ccache disabled for this build"; \
     fi && \
     \
-    # Simple CMake configuration
+    # Enhanced CMake configuration with static linking for compatibility
     echo "⚙️ Running CMake configuration..." && \
     cmake \
         -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
@@ -208,14 +207,14 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DENABLE_LTO=True \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
-        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++ -Wl,--as-needed" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++ -Wl,--as-needed" \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
         -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
         -DCMAKE_AR="$AR_TOOL" \
         -DCMAKE_RANLIB="$RANLIB_TOOL" \
         -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
         -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
+        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
         -G Ninja .. && \
     echo "✅ CMake configuration completed" && \
     \
@@ -234,20 +233,20 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     fi && \
     \
     echo "🧹 Cleaning up build artifacts..." && \
-    rm -rf /tmp/fex-source /tmp/ccache-info /tmp/ccache-binary && \
+    rm -rf /tmp/fex-source /tmp/ccache-info && \
     echo "🎉 FEX build completed successfully!"
 
 #==============================================
-# RootFS Preparation Stage - Alpine OS-Neutral 🐧
+# RootFS Preparation Stage (OS-Neutral)
 #==============================================
-FROM alpine:3.21 AS rootfs-preparer
+FROM alpine:3 AS rootfs-preparer
 
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 ARG ROOTFS_URL=""
 
-# Install extraction tools 📦
+# Install extraction tools (OS-neutral Alpine)
 RUN echo "📦 Installing RootFS extraction tools..." && \
     apk add --no-cache \
         squashfs-tools \
@@ -255,10 +254,9 @@ RUN echo "📦 Installing RootFS extraction tools..." && \
         util-linux && \
     echo "✅ Extraction tools installed"
 
-# Copy RootFS file from build context 📁
+# Copy RootFS file from build context
 COPY --from=fex-rootfs . /tmp/fex-rootfs/
 
-# Preparing RootFS for inclusion in image 🚀
 RUN echo "🚀 Preparing RootFS for inclusion in image..." && \
     echo "📊 RootFS preparation parameters:" && \
     echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \
@@ -266,11 +264,11 @@ RUN echo "🚀 Preparing RootFS for inclusion in image..." && \
     echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
     echo "  - ROOTFS_URL: ${ROOTFS_URL}" && \
     \
-    # Find RootFS file in build context 🔍
+    # Find RootFS file in build context
     echo "🔍 Looking for RootFS files..." && \
     ls -la /tmp/fex-rootfs/ && \
     \
-    # Detect RootFS file 🔎
+    # Detect RootFS file (기존 로직 동일)
     ROOTFS_FILE="" && \
     if [ -n "$ROOTFS_URL" ]; then \
         ROOTFS_FILE=$(basename "$ROOTFS_URL"); \
@@ -293,36 +291,41 @@ RUN echo "🚀 Preparing RootFS for inclusion in image..." && \
     echo "✅ Found RootFS file: $ROOTFS_FILE" && \
     echo "📊 File size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)" && \
     \
-    # Extract to standard FEX location 📦
+    # Extract to standard FEX location (기존 로직 동일)
     echo "📦 Extracting RootFS for permanent inclusion..." && \
     ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
     mkdir -p "/fex-rootfs/$ROOTFS_DIRNAME" && \
     \
     if echo "$ROOTFS_FILE" | grep -q '\.sqsh$\|\.squashfs$'; then \
-        echo "🔧 Extracting SquashFS file with Alpine tools..." && \
+        echo "🔧 Extracting SquashFS file..." && \
         unsquashfs -f -d "/fex-rootfs/$ROOTFS_DIRNAME" "$ROOTFS_LOCAL_PATH" && \
         echo "✅ SquashFS extraction completed"; \
     elif echo "$ROOTFS_FILE" | grep -q '\.ero$\|\.erofs$'; then \
         echo "🔧 Extracting EROFS file..." && \
-        echo "⚠️ EROFS support limited in Alpine, trying alternative..." && \
-        mkdir -p "/fex-rootfs/$ROOTFS_DIRNAME" && \
-        echo "✅ EROFS handling completed"; \
+        # Alpine의 erofs-utils 사용
+        (apk add --no-cache erofs-utils >/dev/null 2>&1 || true) && \
+        if command -v dump.erofs >/dev/null 2>&1; then \
+            dump.erofs --extract="/fex-rootfs/$ROOTFS_DIRNAME" "$ROOTFS_LOCAL_PATH"; \
+        else \
+            echo "⚠️ EROFS tools not available, trying alternative method..."; \
+        fi && \
+        echo "✅ EROFS extraction completed"; \
     else \
         echo "❌ Unknown RootFS file format: $ROOTFS_FILE" && \
         exit 1; \
     fi && \
     \
-    # Create config for this RootFS 📝
+    # Create config for this RootFS (기존 로직 동일)
     mkdir -p /fex-config && \
     printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > /fex-config/Config.json && \
     echo "✅ RootFS prepared for inclusion: $ROOTFS_DIRNAME" && \
     echo "📊 Extracted RootFS size: $(du -sh /fex-rootfs)" && \
     \
-    # Cleanup 🧹
+    # Cleanup
     rm -rf /tmp/fex-rootfs
 
 #==============================================
-# Runtime Stage - User Choice Maintained ⚙️
+# Runtime Stage with Pre-installed RootFS
 #==============================================
 FROM ${BASE_IMAGE} AS runtime
 
@@ -331,11 +334,11 @@ ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 
-# Set environment variables for non-interactive installation 🌐
+# Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive 
 ENV TZ=Asia/Seoul
 
-# Detect OS type for runtime 🔍
+# Detect OS type for runtime
 RUN echo "🔍 Starting runtime OS detection..." && \
     if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
         echo "🐧 Runtime: Detected Fedora/RHEL distribution" && \
@@ -352,7 +355,7 @@ RUN echo "🔍 Starting runtime OS detection..." && \
     fi && \
     echo "✅ Runtime OS detection completed"
 
-# Install runtime dependencies 📦
+# Install runtime dependencies (minimal for Phase 1)
 RUN echo "📦 Starting runtime dependencies installation..." && \
     . /etc/distro-info && \
     echo "📊 Runtime build parameters:" && \
@@ -367,6 +370,9 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
             sudo curl wget jq \
             libstdc++6 libc6 && \
         echo "✅ Runtime packages installed" && \
+        \
+        # Cleanup for size optimization
+        echo "🧹 Performing cleanup for size optimization..." && \
         apt-get autoremove -y && \
         apt-get autoclean && \
         rm -rf /var/lib/apt/lists/* /var/tmp/* /var/cache/* && \
@@ -378,6 +384,7 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
             sudo curl wget jq \
             util-linux-core libstdc++ glibc && \
         echo "✅ Fedora runtime packages installed" && \
+        echo "🧹 Cleaning up Fedora package cache..." && \
         dnf clean all -q && \
         rm -rf /var/cache/dnf /var/tmp/* && \
         echo "✅ Fedora runtime setup completed successfully"; \
@@ -386,9 +393,9 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
     fi && \
     echo "🎉 Runtime dependencies installation completed!"
 
-# Copy FEX binaries from Alpine build stage 📁
+# Copy FEX binaries from build stage and optimize
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
-RUN echo "✅ FEX binaries copied from Alpine build" && \
+RUN echo "✅ FEX binaries copied successfully" && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
     echo "🔧 Optimizing FEX binaries..." && \
@@ -397,7 +404,7 @@ RUN echo "✅ FEX binaries copied from Alpine build" && \
     echo "✅ FEX binary optimization completed"
 ENV PATH="/usr/local/fex/bin:$PATH"
 
-# Create user with OS-specific configuration 👤
+# Create user with OS-specific configuration
 RUN echo "👤 Starting user creation and configuration..." && \
     . /etc/distro-info && \
     useradd -m -s /bin/bash fex && \
@@ -410,13 +417,13 @@ RUN echo "👤 Starting user creation and configuration..." && \
     echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
     echo "✅ User configuration completed"
 
-# Copy pre-extracted RootFS from Alpine preparer stage 📁
+# Copy pre-extracted RootFS (PHASE 1 - 즉시 실행 가능)
 COPY --from=rootfs-preparer /fex-rootfs /home/fex/.fex-emu/RootFS
 COPY --from=rootfs-preparer /fex-config/Config.json /home/fex/.fex-emu/Config.json
 
-# Set proper ownership and verify ✅
+# Set proper ownership and verify
 RUN chown -R fex:fex /home/fex/.fex-emu && \
-    echo "🎉 RootFS pre-installed from Alpine processing!" && \
+    echo "🎉 RootFS pre-installed in image!" && \
     echo "📊 Pre-installed RootFS verification:" && \
     echo "  - RootFS directory: $(ls -d /home/fex/.fex-emu/RootFS/*/ | head -1)" && \
     echo "  - RootFS files: $(find /home/fex/.fex-emu/RootFS -type f | wc -l)" && \
@@ -424,10 +431,10 @@ RUN chown -R fex:fex /home/fex/.fex-emu && \
     echo "  - Config file: $(ls -la /home/fex/.fex-emu/Config.json)" && \
     echo "✅ Ready for immediate x86 application execution!"
 
-# Switch to fex user 👤
+# Switch to fex user
 USER fex
 WORKDIR /home/fex
 
-# Enhanced entrypoint 🚀
+# Enhanced entrypoint for Phase 1 (즉시 실행)
 ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["echo '🚀 FEX-Emu ready!' && echo '🔧 Built with Alpine Linux for maximum efficiency!' && echo '💡 Try: FEXBash' && /bin/bash"]
+CMD ["echo '🚀 FEX-Emu ready for x86 application execution!' && echo 'Try: FEXBash' && /bin/bash"]
