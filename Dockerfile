@@ -117,11 +117,24 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     mkdir -p Build && cd Build && \
     \
     # Set Alpine-optimized compilers 🛠️
-    CC_COMPILER="clang-${LLVM_VERSION}" && \
-    CXX_COMPILER="clang++-${LLVM_VERSION}" && \
-    AR_TOOL="llvm-ar-${LLVM_VERSION}" && \
-    RANLIB_TOOL="llvm-ranlib-${LLVM_VERSION}" && \
-    echo "✅ Alpine compilers configured: $CC_COMPILER / $CXX_COMPILER" && \
+    if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
+        CC_COMPILER=clang-${LLVM_VERSION} && \
+        CXX_COMPILER=clang++-${LLVM_VERSION}; \
+    else \
+        CC_COMPILER=clang && \
+        CXX_COMPILER=clang++; \
+    fi && \
+    echo "✅ Using compilers: $CC_COMPILER / $CXX_COMPILER" && \
+    \
+    # Simple AR tools detection
+    if command -v llvm-ar-${LLVM_VERSION} >/dev/null 2>&1; then \
+        AR_TOOL=$(which llvm-ar-${LLVM_VERSION}) && \
+        RANLIB_TOOL=$(which llvm-ranlib-${LLVM_VERSION}); \
+    else \
+        AR_TOOL=$(which ar) && \
+        RANLIB_TOOL=$(which ranlib); \
+    fi && \
+    echo "✅ Using AR tools: $AR_TOOL" && \
     \
     # Alpine-specific ccache configuration 🚀
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
