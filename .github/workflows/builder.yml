@@ -470,43 +470,85 @@ jobs:
                     echo "$VERSION is null"
                     exit 1;
                   fi
+    filter-matrix:
+        needs: [fetch-rootfs-matrix, generate-eol-list]
+        runs-on: [self-hosted, linux, arm64]
+        outputs:
+            filtered-matrix: ${{ steps.filter-eol.outputs.filtered-matrix }}
+            has-builds: ${{ steps.filter-eol.outputs.has-builds }}
+        steps:
+            - name: Filter EOL versions from matrix
+              id: filter-eol
+              run: |
+                  echo "🔍 Filtering EOL versions from matrix..."
 
+                  # Get original matrix and EOL lists
+                  ORIGINAL_MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
+                  UBUNTU_EOL_VERSIONS="${{ needs.generate-eol-list.outputs.ubuntu-eol-versions }}"
+                  FEDORA_EOL_VERSIONS="${{ needs.generate-eol-list.outputs.fedora-eol-versions }}"
+
+                  echo "📋 Original matrix size: $(echo "$ORIGINAL_MATRIX" | jq '.include | length')"
+                  echo "📋 Ubuntu EOL versions: $UBUNTU_EOL_VERSIONS"
+                  echo "📋 Fedora EOL versions: $FEDORA_EOL_VERSIONS"
+
+                  # Filter matrix using jq
+                  FILTERED_MATRIX=$(echo "$ORIGINAL_MATRIX" | jq --arg ubuntu_eol "$UBUNTU_EOL_VERSIONS" --arg fedora_eol "$FEDORA_EOL_VERSIONS" '
+                  {
+                      "include": [
+                          .include[] | select(
+                              if .ROOTFS_OS == "ubuntu" then
+                                  ($ubuntu_eol | split("|") | index(.ROOTFS_VERSION) | not)
+                              elif .ROOTFS_OS == "fedora" then  
+                                  ($fedora_eol | split("|") | index(.ROOTFS_VERSION) | not)
+                              else
+                                  true
+                              end
+                          )
+                      ]
+                  }')
+
+                  echo "📊 Filtered matrix size: $(echo "$FILTERED_MATRIX" | jq '.include | length')"
+
+                  # Show filtered out items
+                  echo "🚮 Filtered out EOL versions:"
+                  echo "$ORIGINAL_MATRIX" | jq --arg ubuntu_eol "$UBUNTU_EOL_VERSIONS" --arg fedora_eol "$FEDORA_EOL_VERSIONS" -r '
+                  .include[] | select(
+                      if .ROOTFS_OS == "ubuntu" then
+                          ($ubuntu_eol | split("|") | index(.ROOTFS_VERSION))
+                      elif .ROOTFS_OS == "fedora" then
+                          ($fedora_eol | split("|") | index(.ROOTFS_VERSION))  
+                      else
+                          false
+                      end
+                  ) | "  - \(.ROOTFS_OS) \(.ROOTFS_VERSION)"'
+
+                  # Set outputs
+                  echo "filtered-matrix=$(echo "$FILTERED_MATRIX" | jq -c .)" >> $GITHUB_OUTPUT
+
+                  MATRIX_SIZE=$(echo "$FILTERED_MATRIX" | jq '.include | length')
+                  if [ "$MATRIX_SIZE" -gt 0 ]; then
+                      echo "has-builds=true" >> $GITHUB_OUTPUT
+                      echo "✅ $MATRIX_SIZE distributions will be built"
+                  else
+                      echo "has-builds=false" >> $GITHUB_OUTPUT
+                      echo "⚠️ No distributions to build after EOL filtering"
+                  fi
     build-arm:
-        needs: [fetch-rootfs-matrix, check-and-prepare, generate-eol-list]
+        needs: [filter-matrix, check-and-prepare]
+        if: needs.filter-matrix.outputs.has-builds == 'true'
         runs-on: [self-hosted, linux, arm64]
         permissions:
             contents: read
             packages: write
         strategy:
-            matrix: ${{ fromJson(needs.fetch-rootfs-matrix.outputs.matrix) }}
+            matrix: ${{ fromJson(needs.filter-matrix.outputs.filtered-matrix) }}
         steps:
-            - name: Check if version is EOL (with Ubuntu 20.04 force exclusion)
-              id: eol-check
+            - name: Display build target
               run: |
-                  UBUNTU_EOL_VERSIONS="${{ needs.generate-eol-list.outputs.ubuntu-eol-versions }}"
-                  FEDORA_EOL_VERSIONS="${{ needs.generate-eol-list.outputs.fedora-eol-versions }}"
-
-                  echo "Checking EOL status for ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
-
-                  if [ "${{ matrix.ROOTFS_OS }}" = "ubuntu" ]; then
-                      if [ -n "$UBUNTU_EOL_VERSIONS" ] && echo "|$UBUNTU_EOL_VERSIONS|" | grep -q "|${{ matrix.ROOTFS_VERSION }}|"; then
-                          echo "⚠️ Skipping EOL Ubuntu version: ${{ matrix.ROOTFS_VERSION }}"
-                          echo "skip_build=true" >> $GITHUB_OUTPUT
-                          exit 0
-                      fi
-                  elif [ "${{ matrix.ROOTFS_OS }}" = "fedora" ]; then
-                      if [ -n "$FEDORA_EOL_VERSIONS" ] && echo "|$FEDORA_EOL_VERSIONS|" | grep -q "|${{ matrix.ROOTFS_VERSION }}|"; then
-                          echo "⚠️ Skipping EOL Fedora version: ${{ matrix.ROOTFS_VERSION }}"
-                          echo "skip_build=true" >> $GITHUB_OUTPUT
-                          exit 0
-                      fi
-                  fi
-
-                  echo "skip_build=false" >> $GITHUB_OUTPUT
-                  echo "✅ Proceeding with build for ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
+                  echo "🎯 Building: ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
+                  echo "✅ This version passed EOL filtering"
 
             - name: Check existing images
-              if: steps.eol-check.outputs.skip_build == 'false'
               id: check-images
               run: |
                   RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}"
@@ -542,23 +584,19 @@ jobs:
                   fi
 
             - name: Checkout repository
-              if: steps.eol-check.outputs.skip_build == 'false'
               uses: actions/checkout@v4
 
             - name: Set up QEMU
-              if: steps.eol-check.outputs.skip_build == 'false'
               uses: docker/setup-qemu-action@v3
               with:
                   platforms: linux/arm64
 
             - name: Set up Docker Buildx
-              if: steps.eol-check.outputs.skip_build == 'false'
               uses: docker/setup-buildx-action@v3
               with:
                   install: true
 
             - name: Log in to Container Registry
-              if: steps.eol-check.outputs.skip_build == 'false'
               uses: docker/login-action@v3
               with:
                   registry: ${{ env.REGISTRY }}
@@ -566,14 +604,14 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Get FEX latest commit
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               id: fex-commit
               run: |
                   FEX_COMMIT=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/commits/main | jq -r '.sha')
                   echo "commit=$FEX_COMMIT" >> $GITHUB_OUTPUT
 
             - name: Cache FEX source code
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               id: cache-fex-source
               uses: actions/cache@v4
               with:
@@ -585,23 +623,23 @@ jobs:
                       fex-source-${{ runner.os }}-${{ runner.arch }}-
 
             - name: Clone FEX source if not cached
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-source.outputs.cache-hit != 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-source.outputs.cache-hit != 'true'
               run: |
                   rm -rf /tmp/fex-source && git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
 
             - name: Record build timing
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
 
             - name: Setup ccache cache directory
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   mkdir -p /tmp/.ccache
                   echo "📦 ccache directory created"
 
             - name: Cache ccache ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               id: cache-ccache
               uses: actions/cache@v4
               with:
@@ -613,7 +651,7 @@ jobs:
                       ccache-tmp-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_TYPE }}
 
             - name: Build and push ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               id: build
               uses: docker/build-push-action@v5
               with:
@@ -647,7 +685,7 @@ jobs:
                   exit 1
 
             - name: Verify ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} binary
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}"
                   echo "🧪 Testing ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} binary for FEX-Emu..."
@@ -662,14 +700,14 @@ jobs:
                   echo "🎉 All ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} verification tests passed!"
 
             - name: Export digest
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   mkdir -p /tmp/digests/${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
                   digest="${{ steps.build.outputs.digest }}"
                   touch "/tmp/digests/${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}/${digest#sha256:}"
 
             - name: Upload digest
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: digests-${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}

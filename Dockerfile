@@ -132,9 +132,9 @@ RUN echo "📦 Setting up ccache..." && \
     echo "  - GLIBC version: $(ldd --version | head -1)" && \
     echo "  - Ubuntu version: ${ROOTFS_VERSION}" && \
     echo "  - Architecture: $(uname -m)" && \
-    \
+    \ 
     # Check if copied ccache binary exists and install it
-    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ command -v ccache >/dev/null 2>&1] ; then \
+    if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ command -v ccache >/dev/null 2>&1 ]; then \
         echo "🔄 Using system ccache as fallback..." && \
         echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
         echo "✅ System ccache found"; \
@@ -144,6 +144,7 @@ RUN echo "📦 Setting up ccache..." && \
     fi && \
     \
     echo "✅ ccache setup completed"
+
 
 ENV PATH="/usr/local/bin/:$PATH"
 
