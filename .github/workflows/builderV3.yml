@@ -630,7 +630,7 @@ jobs:
             - name: Download ccache source
               if: github.event.inputs.ccache_force_rebuild == 'true' || (steps.cache-ccache.outputs.cache-hit != 'true' && steps.cache-ccache-source.outputs.cache-hit != 'true')
               run: |
-                  if [ "${{ github.event.inputs.ccache_force_rebuild }}" != "true" ]; then
+                  if [ "${{ github.event.inputs.ccache_force_rebuild }}" == "true" ]; then
                     rm -rf /tmp/ccache-source
                     mkdir -p /tmp/ccache-source
                     ls -al /tmp/ccache-source
@@ -643,34 +643,34 @@ jobs:
 
                   mkdir -p /tmp/ccache-source
                   wget -q "${SOURCE_URL}"
-                  tar -xf "ccache-${VERSION}.tar.xz" -C /tmp/ccache-source/ --strip-components=1  
+                  tar -xf "ccache-${VERSION}.tar.xz" -C /tmp/ccache-source/ 
                   ls -al /tmp/ccache-source
                   echo "✅ Source downloaded and extracted"
             - name: Configure ccache build (Ubuntu 22.04+ optimized)
               if: github.event.inputs.ccache_force_rebuild == 'true' || steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
                   cd /tmp/ccache-source
-                  mkdir -p /tmp/ccache-source/build && cd /tmp/ccache-source/build
+                  mkdir -p build && cd build
 
                   echo "⚙️ Configuring cmake for Ubuntu 22.04+ compatibility..."
 
                   # Simplified build configuration (no complex version checking)
                   cmake \
-                      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} \
-                      -DCMAKE_INSTALL_PREFIX=/usr/local \
-                      -DCMAKE_SYSTEM_NAME=Linux \
-                      -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-                      -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-                      -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-                      -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
-                      -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
-                      -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
-                      -DENABLE_TESTING=OFF \
-                      -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
-                      -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \ 
-                      -DHIREDIS_LIBRARIES="/usr/lib/aarch64-linux-gnu/libhiredis.a" \
-                      -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
-                      -G Ninja ..
+                    -DCMAKE_BUILD_TYPE=Release \
+                    -DCMAKE_INSTALL_PREFIX=/tmp/ccache-install \
+                    -DCMAKE_SYSTEM_NAME=Linux \
+                    -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+                    -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+                    -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+                    -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER \
+                    -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+                    -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+                    -DENABLE_TESTING=OFF \
+                    -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+                    -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+                    -DHIREDIS_LIBRARIES="/usr/lib/aarch64-linux-gnu/libhiredis.a" \
+                    -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
+                    -G Ninja ..
 
                   echo "✅ CMake configuration completed for modern systems"
 
@@ -693,6 +693,9 @@ jobs:
                   cp /tmp/ccache-install/usr/local/bin/ccache /tmp/ccache-binary/
                   file /tmp/ccache-binary/ccache
                   /tmp/ccache-binary/ccache --version
+
+                  # Clean
+                  rm -rf /tmp/ccache-source/build
 
             - name: Build summary
               if: github.event.inputs.ccache_force_rebuild == 'true' || steps.cache-ccache.outputs.cache-hit != 'true'
