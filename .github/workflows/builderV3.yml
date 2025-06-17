@@ -630,6 +630,11 @@ jobs:
             - name: Download ccache source
               if: github.event.inputs.ccache_force_rebuild == 'true' || (steps.cache-ccache.outputs.cache-hit != 'true' && steps.cache-ccache-source.outputs.cache-hit != 'true')
               run: |
+                  if [ "${{ github.event.inputs.ccache_force_rebuild }}" != "true" ]; then
+                    rm -rf /tmp/ccache-source
+                    mkdir -p /tmp/ccache-source
+                    ls -al /tmp/ccache-source
+                  fi
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   echo "📥 Downloading ccache ${VERSION} source..."
 
@@ -639,13 +644,13 @@ jobs:
                   mkdir -p /tmp/ccache-source
                   wget -q "${SOURCE_URL}"
                   tar -xf "ccache-${VERSION}.tar.xz" -C /tmp/ccache-source
-
+                  ls -al /tmp/ccache-source
                   echo "✅ Source downloaded and extracted"
             - name: Configure ccache build (Ubuntu 22.04+ optimized)
               if: github.event.inputs.ccache_force_rebuild == 'true' || steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
                   cd /tmp/ccache-source
-                  mkdir -p build && cd build
+                  mkdir -p /tmp/ccache-source/build && cd /tmp/ccache-source/build
 
                   echo "⚙️ Configuring cmake for Ubuntu 22.04+ compatibility..."
 
@@ -664,7 +669,7 @@ jobs:
                       -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
                       -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \ 
                       -DHIREDIS_LIBRARIES="/usr/lib/aarch64-linux-gnu/libhiredis.a" \
-                      -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
+                      -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
                       -G Ninja ..
 
                   echo "✅ CMake configuration completed for modern systems"
