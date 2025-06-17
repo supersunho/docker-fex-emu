@@ -582,15 +582,17 @@ jobs:
                   rm -rf /tmp/ccache-binary/
                   mkdir -p /tmp/ccache-binary/
                   echo "📦 ccache binary directory created"
-            - name: Download ccache binary artifact
-              id: download-ccache
-              uses: actions/download-artifact@v4
-              continue-on-error: true
-              with:
-                  name: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-arm64
-                  path: /tmp/ccache-binary/
 
-            - name: Verify ccache artifact
+            - name: Cache ccache binary
+              id: cache-ccache
+              uses: actions/cache@v4
+              with:
+                  path: /tmp/ccache-binary
+                  key: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-arm64
+                  restore-keys: |
+                      ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-
+
+            - name: Verify ccache cache
               id: verify-ccache
               run: |
                   if [ -f "/tmp/ccache-binary/ccache" ]; then
@@ -604,7 +606,7 @@ jobs:
                   fi
 
             - name: Set up build environment for ARM64
-              if: steps.verify-ccache.outputs.download-success != 'true'
+              if: steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
                   echo "🔧 Setting up build environment for ARM64..."
                   sudo apt-get update -qq
@@ -617,7 +619,7 @@ jobs:
                   echo "✅ Build environment ready"
 
             - name: Download ccache source
-              if: steps.verify-ccache.outputs.download-success != 'true'
+              if: steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   echo "📥 Downloading ccache ${VERSION} source..."
@@ -629,10 +631,9 @@ jobs:
                   tar -xf "ccache-${VERSION}.tar.xz"
 
                   echo "✅ Source downloaded and extracted"
-                  ls -la "ccache-${VERSION}/"
 
             - name: Configure ccache build (Ubuntu 22.04+ optimized)
-              if: steps.verify-ccache.outputs.download-success != 'true'
+              if: steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   cd "ccache-${VERSION}"
@@ -658,7 +659,7 @@ jobs:
                   echo "✅ CMake configuration completed for modern systems"
 
             - name: Build ccache
-              if: steps.verify-ccache.outputs.download-success != 'true'
+              if: steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   cd "ccache-${VERSION}/build"
@@ -680,7 +681,7 @@ jobs:
                   cp /tmp/ccache-install/usr/local/bin/ccache /tmp/ccache-binary/
 
             - name: Upload ccache binary artifact
-              if: steps.verify-ccache.outputs.download-success != 'true'
+              if: steps.cache-ccache.outputs.cache-hit != 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-arm64
@@ -689,7 +690,7 @@ jobs:
                   compression-level: 0
 
             - name: Build summary
-              if: steps.verify-ccache.outputs.download-success != 'true'
+              if: steps.cache-ccache.outputs.cache-hit != 'true'
               run: |
                   VERSION="${{ needs.ccache-setup.outputs.ccache-version }}"
                   echo "## 🎉 ccache ${VERSION} Build Summary" >> $GITHUB_STEP_SUMMARY
@@ -817,22 +818,6 @@ jobs:
               run: |
                   rm -rf /tmp/fex-source && git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
 
-            # Setup ccache binary directory for Docker build context
-            - name: Setup ccache binary directory
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
-              run: |
-                  mkdir -p /tmp/ccache-binary/
-                  echo "📦 ccache binary directory created"
-
-            # Download prebuilt ccache binary if available
-            - name: Download prebuilt ccache binary
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
-              uses: actions/download-artifact@v4
-              continue-on-error: true
-              with:
-                  name: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-arm64
-                  path: /tmp/ccache-binary/
-
             # Set up ccache (fallback if prebuilt not available)
             - name: Set up ccache fallback
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
@@ -840,10 +825,10 @@ jobs:
               with:
                   path: |
                       /tmp/ccache-binary
-                  key: ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}
+                  key: ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-arm64
                   restore-keys: |
-                      ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-fex-${{ needs.check-and-prepare.outputs.fex_semantic }}-
-                      ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
+                      ccache-${{ needs.ccache-setup.outputs.ccache-version }}-${{ runner.os }}-
+
             - name: Verify ccache cache
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
@@ -851,7 +836,7 @@ jobs:
                   ls -la /tmp/ccache-binary/
 
                   if [ -f "/tmp/ccache-binary/ccache" ]; then
-                      echo "✅ ccache file existed
+                      echo "✅ ccache file existed"
                       echo "📊 File size: $(du -h "/tmp/ccache-binary/ccache" | cut -f1)"
                       echo "📊 File version: $(/tmp/ccache-binary/ccache --version | cut -f1)"
                   else
