@@ -523,6 +523,7 @@ RUN echo "🚀 Starting RootFS setup process..." && \
             if [ $attempt -lt 3 ]; then \
                 echo "⏳ Waiting 30 seconds before retry..."; \
                 sleep 30; \
+            fi; \
         fi; \
     done && \
     \
