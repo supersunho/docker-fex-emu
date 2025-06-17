@@ -485,7 +485,6 @@ jobs:
                   key: ${{ env.CACHE_VERSION }}-fex-source-${{ runner.os }}-${{ steps.fex-commit.outputs.commit }}
                   restore-keys: |
                       ${{ env.CACHE_VERSION }}-fex-source-${{ runner.os }}-
-                      fex-source-${{ runner.os }}-
 
             - name: Clone FEX source if not cached
               if: steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-source.outputs.cache-hit != 'true'
