@@ -359,8 +359,9 @@ RUN echo "🚀 Starting RootFS setup process..." && \
         if wget -q --timeout=30 -O "$ROOTFS_JSON" "$ROOTFS_JSON_URL"; then \
             echo "✅ RootFS JSON downloaded successfully"; \
         else \
-            echo "❌ Failed to download RootFS JSON list" && \
-            exit 1; \
+            echo "⚠️ Both curl and wget failed, using embedded fallback JSON..." && \
+            echo '{"v1":{"Fedora 40 (SquashFS)":{"DistroMatch":"fedora","DistroVersion":"40","URL":"https://rootfs.fex-emu.gg/Fedora_40/2025-01-08/Fedora_40.sqsh","Hash":"fb51fcd7f086fa19","Type":"squashfs"},"Ubuntu 24.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"24.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh","Hash":"6d469a5d2bb838ac","Type":"squashfs"},"Ubuntu 22.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"22.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_22_04/2025-01-08/Ubuntu_22_04.sqsh","Hash":"73c9269e4c4ca172","Type":"squashfs"}}}' > "$ROOTFS_JSON" && \
+            echo "✅ Embedded fallback JSON created (compressed format)"; \
         fi && \
         \
         # Parse JSON to find matching OS and version (search result [1] logic)
