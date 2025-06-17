@@ -1,9 +1,9 @@
-name: FEXBash Builder V1
+name: FEXBash Builder V4
 
 on:
     # Daily automatic builds (Latest candidates only)
-    # schedule:
-    #     - cron: "0 0 * * *"
+    schedule:
+        - cron: "0 0 * * *"
 
     # Manual trigger (Selective builds)
     workflow_dispatch:
@@ -15,9 +15,9 @@ on:
                 type: choice
                 options:
                     - "latest-only" # Latest candidates only (Ubuntu 24.04, Fedora 40)
-                    - "ubuntu-all" # All Ubuntu versions
+                    - "ubuntu-all" # All Ubuntu versions (22.04+)
                     - "fedora-all" # All Fedora versions
-                    - "full-matrix" # Complete SquashFS build (Ubuntu and Fedora only)
+                    - "full-matrix" # Complete SquashFS build (Ubuntu 22.04+ and Fedora only)
                     - "custom" # Custom selection
 
             custom_distros:
@@ -111,7 +111,7 @@ jobs:
                       echo "ℹ️ Ubuntu 20.04 already in EOL list"
                   fi
 
-                  # Continue with Fedora processing...
+                  # Fedora: Get SUPPORTED versions first, then exclude them from all versions
                   echo "🎩 Processing Fedora versions..."
 
                   # Get all Fedora versions
@@ -184,8 +184,18 @@ jobs:
         steps:
             - id: generate-matrix
               run: |
-                  # Get RootFS data from API
-                  ROOTFS_DATA=$(curl -s https://rootfs.fex-emu.gg/RootFS_links.json)
+
+                  # Get RootFS data from API with fallback
+                  if curl -s https://rootfs.fex-emu.gg/RootFS_links.json -o /tmp/RootFS_links.json; then
+                      ROOTFS_DATA=$(cat /tmp/RootFS_links.json)
+                      echo "✅ RootFS JSON downloaded successfully"
+                  elif wget -q -O /tmp/RootFS_links.json https://rootfs.fex-emu.gg/RootFS_links.json; then
+                      ROOTFS_DATA=$(cat /tmp/RootFS_links.json)
+                      echo "✅ RootFS JSON downloaded via wget"
+                  else
+                      echo "⚠️ Using embedded fallback JSON"
+                      ROOTFS_DATA='{"v1":{"Ubuntu 24.04 (SquashFS)":{"DistroMatch":"ubuntu","DistroVersion":"24.04","URL":"https://rootfs.fex-emu.gg/Ubuntu_24_04/2025-03-04/Ubuntu_24_04.sqsh","Hash":"6d469a5d2bb838ac","Type":"squashfs"}}}'
+                  fi
 
                   # Check if API call was successful
                   if [ -z "$ROOTFS_DATA" ] || [ "$ROOTFS_DATA" = "null" ]; then
@@ -205,7 +215,7 @@ jobs:
 
                   case "$BUILD_SCOPE" in
                       "latest-only")
-                      echo "📦 Building latest candidates only (Ubuntu and Fedora)"
+                      echo "📦 Building latest candidates only (Ubuntu 24.04, Fedora 40)"
                       MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
@@ -216,7 +226,9 @@ jobs:
                           ] | map({
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
+                              "ROOTFS_URL": .URL,
                               "ROOTFS_TYPE": .Type,
+                              "ROOTFS_HASH": .Hash,
                               "BASE_IMAGE": (
                               if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
                               elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
@@ -235,7 +247,7 @@ jobs:
                       ;;
                       
                       "ubuntu-all")
-                      echo "🐧 Building all Ubuntu versions"
+                      echo "🐧 Building all Ubuntu versions (22.04+ only)"
                       MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
@@ -246,6 +258,8 @@ jobs:
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
                               "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
                               "BASE_IMAGE": ("ubuntu:" + .DistroVersion),
                               "TAG_VERSION": (.DistroVersion | gsub("\\."; ""))
                               }
@@ -266,6 +280,8 @@ jobs:
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
                               "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
                               "BASE_IMAGE": ("fedora:" + .DistroVersion),
                               "TAG_VERSION": ("f" + .DistroVersion)
                               }
@@ -275,7 +291,7 @@ jobs:
                       ;;
                       
                       "full-matrix")
-                      echo "🌍 Building all SquashFS distributions (Ubuntu and Fedora only)"
+                      echo "🌍 Building all SquashFS distributions (Ubuntu 22.04+ and Fedora only)"
                       MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
                           {
                           "include": [
@@ -287,6 +303,8 @@ jobs:
                               "ROOTFS_OS": .DistroMatch,
                               "ROOTFS_VERSION": .DistroVersion,
                               "ROOTFS_TYPE": .Type,
+                              "ROOTFS_URL": .URL,
+                              "ROOTFS_HASH": .Hash,
                               "BASE_IMAGE": (
                                   if .DistroMatch == "ubuntu" then "ubuntu:" + .DistroVersion
                                   elif .DistroMatch == "fedora" then "fedora:" + .DistroVersion
@@ -306,7 +324,7 @@ jobs:
                       ;;
                       
                       "custom")
-                      echo "🎨 Building custom distributions (Ubuntu and Fedora only)"
+                      echo "🎨 Building custom distributions (Ubuntu 22.04+ and Fedora only)"
                       CUSTOM_DISTROS="${{ github.event.inputs.custom_distros }}"
                       if [ -z "$CUSTOM_DISTROS" ]; then
                           echo "❌ Custom distributions not specified"
@@ -321,9 +339,15 @@ jobs:
                           OS="${PARTS[0]}"
                           VERSION="${PARTS[1]}"
                           
-                          # Only support Ubuntu and Fedora
+                          # Only support Ubuntu 22.04+ and Fedora
                           if [ "$OS" != "ubuntu" ] && [ "$OS" != "fedora" ]; then
-                              echo "❌ Unsupported OS: $OS (only ubuntu and fedora supported)"
+                              echo "❌ Unsupported OS: $OS (only ubuntu 22.04+ and fedora supported)"
+                              continue
+                          fi
+                          
+                          # Block Ubuntu 20.04 explicitly
+                          if [ "$OS" = "ubuntu" ] && [ "$VERSION" = "20.04" ]; then
+                              echo "❌ Ubuntu 20.04 not supported (FEX compatibility issues)"
                               continue
                           fi
                           
@@ -331,30 +355,44 @@ jobs:
                           ENTRY=$(echo "$ROOTFS_DATA" | jq -r --arg os "$OS" --arg version "$VERSION" '
                           .v1 | to_entries[] | select(.value.DistroMatch == $os and .value.DistroVersion == $version and .value.Type == "squashfs") | .value
                           ')
-                          
+
                           if [ "$ENTRY" != "null" ] && [ -n "$ENTRY" ]; then
-                          BASE_IMAGE=""
-                          TAG_VERSION=""
-                          
-                          case "$OS" in
-                              "ubuntu") BASE_IMAGE="ubuntu:$VERSION"; TAG_VERSION="${VERSION//./}" ;;
-                              "fedora") BASE_IMAGE="fedora:$VERSION"; TAG_VERSION="f$VERSION" ;;
-                          esac
-                          
-                          ITEM=$(jq -n --arg os "$OS" --arg version "$VERSION" --arg base "$BASE_IMAGE" --arg tag "$TAG_VERSION" '
-                              {
-                              "ROOTFS_OS": $os,
-                              "ROOTFS_VERSION": $version,
-                              "ROOTFS_TYPE": "squashfs",
-                              "BASE_IMAGE": $base,
-                              "TAG_VERSION": $tag
-                              }
-                          ')
-                          
-                          MATRIX=$(echo "$MATRIX" | jq -c --argjson item "$ITEM" '.include += [$item]')
-                          echo "✅ Added: $distro"
+                              BASE_IMAGE=""
+                              TAG_VERSION=""
+                            
+                              # Extract RootFS information from ENTRY
+                              ROOTFS_TYPE=$(echo "$ENTRY" | jq -r '.Type')
+                              ROOTFS_URL=$(echo "$ENTRY" | jq -r '.URL')
+                              ROOTFS_HASH=$(echo "$ENTRY" | jq -r '.Hash')
+                            
+                              case "$OS" in
+                                  "ubuntu") BASE_IMAGE="ubuntu:$VERSION"; TAG_VERSION="${VERSION//./}" ;;
+                                  "fedora") BASE_IMAGE="fedora:$VERSION"; TAG_VERSION="f$VERSION" ;;
+                              esac
+                            
+                              ITEM=$(jq -n \
+                                  --arg os "$OS" \
+                                  --arg version "$VERSION" \
+                                  --arg type "$ROOTFS_TYPE" \
+                                  --arg url "$ROOTFS_URL" \
+                                  --arg hash "$ROOTFS_HASH" \
+                                  --arg base "$BASE_IMAGE" \
+                                  --arg tag "$TAG_VERSION" '
+                                  {
+                                  "ROOTFS_OS": $os,
+                                  "ROOTFS_VERSION": $version,
+                                  "ROOTFS_TYPE": $type,
+                                  "ROOTFS_URL": $url,
+                                  "ROOTFS_HASH": $hash,
+                                  "BASE_IMAGE": $base,
+                                  "TAG_VERSION": $tag
+                                  }
+                              ')
+                            
+                              MATRIX=$(echo "$MATRIX" | jq -c --argjson item "$ITEM" '.include += [$item]')
+                              echo "✅ Added: $distro (Type: $ROOTFS_TYPE, Hash: $ROOTFS_HASH)"
                           else
-                          echo "❌ Not found: $distro"
+                              echo "❌ Not found: $distro"
                           fi
                       done
                       ;;
@@ -428,7 +466,11 @@ jobs:
 
                   echo "📋 Target version: $VERSION (Semantic: $FEX_SEMANTIC)"
 
-    # Native ARM64 build
+                  if [ $VERSION = null ]; then
+                    echo "$VERSION is null"
+                    exit 1;
+                  fi
+
     build-arm:
         needs: [fetch-rootfs-matrix, check-and-prepare, generate-eol-list]
         runs-on: [self-hosted, linux, arm64]
@@ -437,15 +479,8 @@ jobs:
             packages: write
         strategy:
             matrix: ${{ fromJson(needs.fetch-rootfs-matrix.outputs.matrix) }}
-        # container:
-        #     image: ${{ matrix.BASE_IMAGE }}
-        #     options: --platform linux/arm64
-
         steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
-
-            - name: Check if version is EOL
+            - name: Check if version is EOL (with Ubuntu 20.04 force exclusion)
               id: eol-check
               run: |
                   UBUNTU_EOL_VERSIONS="${{ needs.generate-eol-list.outputs.ubuntu-eol-versions }}"
@@ -474,23 +509,41 @@ jobs:
               if: steps.eol-check.outputs.skip_build == 'false'
               id: check-images
               run: |
-                  VERSION="${{ needs.check-and-prepare.outputs.version }}"
-
-                  # Check FEXBash image
                   RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}"
-                  echo "🔍 Checking FEXBash image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$RELEASE_TAG"
+                  IMAGE_FULL="ghcr.io/${{ github.repository }}:$RELEASE_TAG"
 
-                  RESULT_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-                      -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                      "https://ghcr.io/v2/${{ github.repository }}/${{ github.event.repository.name }}/manifests/$RELEASE_TAG")
+                  echo "🔍 Checking image: $IMAGE_FULL"
 
-                  if [ "$RESULT_HTTP_CODE" = "200" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
-                      echo "⏭️ FEXBash image already exists: $RELEASE_TAG"
+                  # Method 1: docker manifest inspect (fastest)
+                  if docker manifest inspect "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Method 1 (manifest): Image exists"
+                      IMAGE_EXISTS=true
+                  # Method 2: docker pull test (more reliable)
+                  elif docker pull "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Method 2 (pull): Image exists and accessible"
+                      docker rmi "$IMAGE_FULL" >/dev/null 2>&1 || true
+                      IMAGE_EXISTS=true
+                  else
+                      echo "❌ Image not found with both methods"
+                      IMAGE_EXISTS=false
+                  fi
+
+                  # Process results
+                  if [ "$IMAGE_EXISTS" = "true" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
+                      echo "⏭️ Skipping build: $RELEASE_TAG"
                       echo "build_fexbash=false" >> $GITHUB_OUTPUT
                   else
-                      echo "🆕 Will build FEXBash image: $RELEASE_TAG"
+                      if [ "${{ github.event.inputs.force_rebuild }}" = "true" ]; then
+                          echo "🔄 Force rebuild requested: $RELEASE_TAG"
+                      else
+                          echo "🆕 Will build: $RELEASE_TAG"
+                      fi
                       echo "build_fexbash=true" >> $GITHUB_OUTPUT
                   fi
+
+            - name: Checkout repository
+              if: steps.eol-check.outputs.skip_build == 'false'
+              uses: actions/checkout@v4
 
             - name: Set up QEMU
               if: steps.eol-check.outputs.skip_build == 'false'
@@ -504,144 +557,6 @@ jobs:
               with:
                   install: true
 
-            - name: Cache APT packages (Ubuntu/Debian only)
-              if: steps.eol-check.outputs.skip_build == 'false' && contains(matrix.BASE_IMAGE, 'ubuntu')
-              uses: awalsh128/cache-apt-pkgs-action@latest
-              with:
-                  packages: |
-                      lsb-release wget software-properties-common gnupg 
-                      git cmake ninja-build pkgconf ccache 
-                      g++-x86-64-linux-gnu nasm 
-                      python3-clang python3-setuptools 
-                      squashfs-tools binfmt-support 
-                      curl ca-certificates expect sudo 
-                      gdb gdb-multiarch libc6-dev linux-libc-dev 
-                      qtbase5-dev qttools5-dev-tools qtdeclarative5-dev libqt5widgets5 
-                      libqt5core5a libqt5gui5 jq 
-                      libssl-dev
-                  version: 1.0
-
-            - name: Cache DNF packages (Fedora only)
-              id: cache-dnf
-              if: steps.eol-check.outputs.skip_build == 'false' && contains(matrix.BASE_IMAGE, 'fedora')
-              uses: actions/cache@v4
-              with:
-                  path: /var/cache/dnf
-                  key: ${{ runner.os }}-dnf-${{ matrix.BASE_IMAGE }}-${{ hashFiles('**/packages.txt') }}
-                  restore-keys: |
-                      ${{ runner.os }}-dnf-${{ matrix.BASE_IMAGE }}-
-            - name: Install and cache packages by OS
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-dnf.outputs.cache-hit != 'true' && contains(matrix.BASE_IMAGE, 'fedora')
-              run: |
-                  echo "🎩 Fedora detected - using DNF caching"
-                  mkdir -p /var/cache/dnf
-                  dnf install -y \
-                      git cmake ninja-build pkgconf ccache \
-                      gcc-c++ nasm python3-clang python3-setuptools \
-                      squashfs-tools curl ca-certificates expect sudo \
-                      gdb qt5-qtbase-devel qt5-qttools-devel qt5-qtdeclarative-devel \
-                      openssl-devel jq
-
-            - name: Set up paths for self-hosted runner
-              run: |
-                  echo "RUNNER_WORK_DIR=/actions-runner/_work" >> $GITHUB_ENV
-                  echo "FEX_SOURCE_DIR=/tmp/fex-source" >> $GITHUB_ENV
-                  echo "FEX_BUILD_DIR=/tmp/fex-build" >> $GITHUB_ENV
-
-            - name: Create and verify directories
-              run: |
-                  mkdir -p ${{ env.FEX_SOURCE_DIR }}
-                  mkdir -p ${{ env.FEX_BUILD_DIR }}
-                  echo "✅ Directories created:"
-                  ls -la ${{ env.FEX_SOURCE_DIR }}
-                  ls -la ${{ env.FEX_BUILD_DIR }}
-
-            - name: Cache LLVM binaries
-              if: steps.eol-check.outputs.skip_build == 'false'
-              id: cache-llvm
-              uses: actions/cache@v4
-              with:
-                  path: |
-                      /usr/bin/clang-${{ env.LLVM_VERSION }}
-                      /usr/bin/clang++-${{ env.LLVM_VERSION }}
-                      /usr/bin/lld-${{ env.LLVM_VERSION }}
-                      /usr/lib/llvm-${{ env.LLVM_VERSION }}
-                      /usr/share/llvm-${{ env.LLVM_VERSION }}
-                  key: llvm-${{ runner.os }}-${{ runner.arch }}-${{ env.LLVM_VERSION }}
-                  restore-keys: |
-                      llvm-${{ runner.os }}-${{ runner.arch }}-
-            - name: Install LLVM if not cached
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-llvm.outputs.cache-hit != 'true'
-              run: |
-                  if [[ "${{ matrix.BASE_IMAGE }}" == ubuntu:* ]]; then
-                    echo "🐧 Installing LLVM ${{ env.LLVM_VERSION }} for Ubuntu"
-                    wget https://apt.llvm.org/llvm.sh 
-                    chmod +x llvm.sh
-                    ./llvm.sh ${{ env.LLVM_VERSION }}
-                    rm llvm.sh
-                    ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/ld.lld
-                    ln -sf /usr/bin/lld-${{ env.LLVM_VERSION }} /usr/bin/lld
-
-                  elif [[ "${{ matrix.BASE_IMAGE }}" == fedora:* ]]; then
-                    echo "🎩 Configuring LLVM for Fedora (using system default)"
-                    # Fedora 40/41은 LLVM 19가 기본, 필요시 버전 확인
-                    SYSTEM_LLVM_VERSION=$(llvm-config --version | cut -d'.' -f1)
-                    echo "System LLVM version: $SYSTEM_LLVM_VERSION"
-
-                    if [ "$SYSTEM_LLVM_VERSION" != "${{ env.LLVM_VERSION }}" ]; then
-                        echo "Installing specific LLVM version ${{ env.LLVM_VERSION }}"
-                        dnf install -y llvm${{ env.LLVM_VERSION }}* clang${{ env.LLVM_VERSION }}* lld${{ env.LLVM_VERSION }}*
-                    else
-                        echo "System LLVM version matches target, using default"
-                    fi
-                  fi
-
-                  # 공통 검증
-                  which clang
-                  clang --version
-
-            - name: Set LLVM environment variables
-              if: steps.eol-check.outputs.skip_build == 'false'
-              run: |
-                  echo "CLANG_PATH=/usr/bin/clang-${{ env.LLVM_VERSION }}" >> $GITHUB_ENV
-                  echo "CLANGXX_PATH=/usr/bin/clang++-${{ env.LLVM_VERSION }}" >> $GITHUB_ENV
-                  echo "LLD_PATH=/usr/bin/lld-${{ env.LLVM_VERSION }}" >> $GITHUB_ENV
-
-            - name: Create ccache directory
-              if: steps.eol-check.outputs.skip_build == 'false'
-              run: |
-                  mkdir -p /tmp/.ccache
-                  chmod 755 /tmp/.ccache
-
-                  # Set environment variables
-                  export CCACHE_DIR=/tmp/.ccache
-                  export CCACHE_COMPRESS=1
-                  export CCACHE_BASEDIR=/tmp/fex-source
-                  export CCACHE_LOGFILE=/tmp/ccache.log
-
-                  ccache -z
-                  ccache -s
-
-            - name: Cache ccache
-              if: steps.eol-check.outputs.skip_build == 'false'
-              uses: actions/cache@v4
-              with:
-                  path: /tmp/.ccache
-                  key: ccache-${{ runner.os }}-${{ runner.arch }}-fex-${{ needs.check-and-prepare.outputs.fex_semantic }}
-                  restore-keys: |
-                      ccache-${{ runner.os }}-${{ runner.arch }}-fex-
-                      ccache-${{ runner.os }}-${{ runner.arch }}-
-
-            - name: Debug ccache setup
-              if: steps.eol-check.outputs.skip_build == 'false'
-              run: |
-                  echo "ccache version:"
-                  ccache --version
-                  echo "ccache config:"
-                  ccache -p
-                  echo "ccache directory:"
-                  ls -la /tmp/.ccache || echo "Cache directory not found"
-
             - name: Log in to Container Registry
               if: steps.eol-check.outputs.skip_build == 'false'
               uses: docker/login-action@v3
@@ -651,14 +566,14 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Get FEX latest commit
-              if: steps.eol-check.outputs.skip_build == 'false'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               id: fex-commit
               run: |
                   FEX_COMMIT=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/commits/main | jq -r '.sha')
                   echo "commit=$FEX_COMMIT" >> $GITHUB_OUTPUT
 
             - name: Cache FEX source code
-              if: steps.eol-check.outputs.skip_build == 'false'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               id: cache-fex-source
               uses: actions/cache@v4
               with:
@@ -669,73 +584,89 @@ jobs:
                       fex-source-${{ runner.os }}-${{ runner.arch }}-fex-${{ needs.check-and-prepare.outputs.fex_semantic }}-
                       fex-source-${{ runner.os }}-${{ runner.arch }}-
 
-            - name: Verify FEX source integrity
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-fex-source.outputs.cache-hit != 'true'
+            - name: Clone FEX source if not cached
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-source.outputs.cache-hit != 'true'
               run: |
-                  echo "🔍 Verifying FEX source integrity..."
-                  if [ -d "/tmp/fex-source" ]; then
-                      echo "✅ Source directory exists"
-                      if [ -f "/tmp/fex-source/CMakeLists.txt" ]; then
-                          echo "✅ CMakeLists.txt found"
-                          echo "Source directory contents:"
-                          ls -la /tmp/fex-source/ | head -10
-                      else
-                          echo "❌ CMakeLists.txt missing, will re-clone"
-                          rm -rf /tmp/fex-source
-                          git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
-                      fi
-                  else
-                      echo "❌ Source directory missing, will clone"
-                      rm -rf /tmp/fex-source
-                      git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
-                  fi
-            - name: Cache FEX build artifacts
-              if: steps.eol-check.outputs.skip_build == 'false'
-              id: cache-fex-build
+                  rm -rf /tmp/fex-source && git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
+
+            - name: Record build timing
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  echo "BUILD_START_TIME=$(date +%s)" >> $GITHUB_ENV
+
+            - name: Setup RootFS cache directory
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  mkdir -p /tmp/fex-rootfs
+                  echo "📦 RootFS cache directory created"
+
+            - name: Cache RootFS ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              id: cache-fex-rootfs
               uses: actions/cache@v4
               with:
                   path: |
-                      /tmp/fex-build
-                  key: fex-build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ steps.fex-commit.outputs.commit }}
+                      /tmp/fex-rootfs
+                  key: rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_TYPE }}-${{ matrix.ROOTFS_HASH }}
                   restore-keys: |
-                      fex-build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-fex-${{ needs.check-and-prepare.outputs.fex_semantic }}-
-                      fex-build-${{ runner.os }}-${{ runner.arch }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
+                      rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_TYPE }}
+                      rootfs-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_TYPE }}
 
-            - name: Build FEX if not cached
-              if: steps.eol-check.outputs.skip_build == 'false' && steps.cache-fex-build.outputs.cache-hit != 'true'
-              env:
-                  CCACHE_DIR: /tmp/.ccache
-                  CCACHE_COMPRESS: 1
-                  CCACHE_BASEDIR: /tmp/fex-source
-                  CCACHE_LOGFILE: /tmp/ccache.log
+            - name: Download RootFS if not cached
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-rootfs.outputs.cache-hit != 'true'
               run: |
-                  # Perform FEX build
-                  cd /tmp/fex-source && mkdir -p Build && cd Build
-                  cmake \
-                      -DCMAKE_C_COMPILER_LAUNCHER=ccache \
-                      -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-                      -DCMAKE_C_COMPILER=${{ env.CLANG_PATH }} \
-                      -DCMAKE_CXX_COMPILER=${{ env.CLANGXX_PATH }} \
-                      -DCMAKE_INSTALL_PREFIX=/tmp/fex-build \
-                      -DCMAKE_BUILD_TYPE=Release \
-                      -DUSE_LINKER=lld \
-                      -DENABLE_LTO=True \
-                      -DBUILD_TESTS=False \
-                      -DENABLE_ASSERTIONS=False \
-                      -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
-                      -DCMAKE_SHARED_LINKER_FLAGS="-static-libstdc++ -static-libgcc" \
-                      -G Ninja ..
+                  echo "📥 Downloading RootFS: ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
+                  echo "🔗 URL: ${{ matrix.ROOTFS_URL }}"
 
-                  ccache -z && ninja -j$(nproc) && ninja -j$(nproc) install
-                  rm -rf /tmp/fex-build/Build && rm -rf /tmp/fex-build/include
+                  # Enhanced download with fallback
+                  ROOTFS_FILENAME=$(basename "${{ matrix.ROOTFS_URL }}")
+                  DOWNLOAD_SUCCESS=false
 
-            - name: Show ccache debug info
-              if: steps.eol-check.outputs.skip_build == 'false'
+                  # Method 1: curl with cache control
+                  if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "${{ matrix.ROOTFS_URL }}" -o "/tmp/fex-rootfs/$ROOTFS_FILENAME"  ; then
+                      echo "✅ RootFS downloaded via curl"
+                      DOWNLOAD_SUCCESS=true
+                  # Method 2: wget fallback
+                  elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 -O "/tmp/fex-rootfs/$ROOTFS_FILENAME" "${{ matrix.ROOTFS_URL }}" ; then
+                      echo "✅ RootFS downloaded via wget"
+                      DOWNLOAD_SUCCESS=true
+                  else
+                      echo "❌ Both curl and wget failed"
+                      exit 1
+                  fi
+
+            - name: Verify RootFS cache
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
-                  echo "ccache log:"
-                  cat /tmp/ccache.log || echo "No log file"
-                  echo "ccache stats:"
-                  ccache -s
+                  echo "🔍 Verifying RootFS cache contents..."
+                  ls -la /tmp/fex-rootfs/
+
+                  ROOTFS_FILENAME=$(basename "${{ matrix.ROOTFS_URL }}")
+                  if [ -f "/tmp/fex-rootfs/$ROOTFS_FILENAME" ]; then
+                      echo "✅ RootFS file present: $ROOTFS_FILENAME"
+                      echo "📊 File size: $(du -h "/tmp/fex-rootfs/$ROOTFS_FILENAME" | cut -f1)"
+                  else
+                      echo "❌ RootFS file missing: $ROOTFS_FILENAME"
+                      exit 1
+                  fi
+
+            - name: Setup ccache cache directory
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  mkdir -p /tmp/.ccache
+                  echo "📦 ccache directory created"
+
+            - name: Cache ccache ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              id: cache-ccache
+              uses: actions/cache@v4
+              with:
+                  path: |
+                      /tmp/.ccache
+                  key: ccache-tmp-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_TYPE }}-${{ matrix.ROOTFS_HASH }}
+                  restore-keys: |
+                      ccache-tmp-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_TYPE }}
+                      ccache-tmp-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_TYPE }}
 
             - name: Build and push ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
@@ -743,7 +674,7 @@ jobs:
               uses: docker/build-push-action@v5
               with:
                   context: .
-                  file: ./Dockerfile
+                  file: ./Dockerfile.v3
                   platforms: linux/arm64
                   push: ${{ github.event_name != 'pull_request' }}
                   tags: |
@@ -757,13 +688,18 @@ jobs:
                       type=gha,mode=max,scope=${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}
                       type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
                   build-contexts: |
-                      fex-binaries=/tmp/fex-build
+                      fex-sources=/tmp/fex-source
+                      fex-rootfs=/tmp/fex-rootfs
                   build-args: |
                       TARGETPLATFORM='linux/arm64' 
                       BASE_IMAGE=${{ matrix.BASE_IMAGE }}
                       ROOTFS_OS=${{ matrix.ROOTFS_OS }}
                       ROOTFS_VERSION=${{ matrix.ROOTFS_VERSION }}
                       ROOTFS_TYPE=${{ matrix.ROOTFS_TYPE }}
+                      ROOTFS_URL=${{ matrix.ROOTFS_URL }}
+                      LLVM_VERSION=${{ env.LLVM_VERSION }}
+                      CCACHE_DIR=/tmp/.ccache
+                      ENABLE_CCACHE=true
 
             - name: Check build failed
               if: failure()
@@ -777,43 +713,43 @@ jobs:
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.check-and-prepare.outputs.fex_semantic }}"
                   echo "🧪 Testing ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} binary for FEX-Emu..."
 
-                  # Check if FEX binary exists
+                  # Check
                   echo "Checking if FEX binary exists:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /usr/bin/FEXBash && echo "✅ FEXBash exists" || echo "❌ FEXBash missing"
+                  docker run --rm --platform 'linux/arm64' "$IMAGE" 'test -f /usr/local/fex/bin/FEXBash' && echo "✅ FEXBash found" || { echo "❌ FEXBash not found"; exit 1; }
 
-                  # Test architecture
-                  echo "Architecture test:"
-                  ARCH_OUTPUT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" uname -m)
-                  echo "Detected architecture: $ARCH_OUTPUT"
+                  echo "Checking if FEX binary executes:"
+                  docker run --rm --platform 'linux/arm64' "$IMAGE" 'test -x /usr/local/fex/bin/FEXBash' && echo "✅ FEXBash executable" || { echo "❌ FEXBash not executable"; exit 1; }
 
                   # Test FEX configuration
                   echo "FEX configuration test:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /home/fex/.fex-emu/Config.json && echo "✅ FEX config exists" || echo "❌ FEX config missing"
+                  docker run --rm --platform 'linux/arm64' "$IMAGE" 'test -f /home/fex/.fex-emu/Config.json' && echo "✅ FEXBash config exists" || { echo "❌ FEXBash config missing"; exit 1; }
+
+                  # Test architecture
+                  echo "Architecture test:"
+                  ARCH_OUTPUT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" 'uname -m')
+                  FEXEMU_OUTPUT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" '/usr/local/fex/bin/FEXBash -c "uname -m"')
+                  echo "Detected architecture: $ARCH_OUTPUT / FEX-emu: $FEXEMU_OUTPUT"
 
                   # Test RootFS
                   echo "RootFS test:"
-                  docker run --rm --platform 'linux/arm64' "$IMAGE" ls -la /home/fex/.fex-emu/RootFS/ || echo "RootFS directory check completed"
-
-                  # Test FEX execution only if binary exists
-                  if docker run --rm --platform 'linux/arm64' "$IMAGE" test -f /usr/bin/FEXBash; then
-                      echo "FEX execution test:"
-                      docker run --rm --platform 'linux/arm64' "$IMAGE" bash -c "/usr/bin/FEXBash --version" || echo "FEX version check completed"
+                  SUBDIR_COUNT=$(docker run --rm --platform 'linux/arm64' "$IMAGE" 'ls -1d /home/fex/.fex-emu/RootFS/*/ 2>/dev/null | wc -l')
+                  if [ "$SUBDIR_COUNT" -gt 0 ]; then 
+                      echo "✅ RootFS exists ($SUBDIR_COUNT subdirectories found)"
                   else
-                      echo "❌ FEXBash not found, failing build"
-                      exit 1
+                       echo "❌ RootFS not exists"
+                       exit 1
                   fi
-
                   echo "🎉 All ${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }} verification tests passed!"
 
             - name: Export digest
-              if: steps.eol-check.outputs.skip_build == 'false'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   mkdir -p /tmp/digests/${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
                   digest="${{ steps.build.outputs.digest }}"
                   touch "/tmp/digests/${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}/${digest#sha256:}"
 
             - name: Upload digest
-              if: steps.eol-check.outputs.skip_build == 'false'
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: digests-${{ matrix.ROOTFS_OS }}-${{ matrix.TAG_VERSION }}
@@ -887,15 +823,16 @@ jobs:
                   body: |
                       # 🚀 FEX-Emu Multi-Platform Container Build ${{ needs.check-and-prepare.outputs.version }}
 
-                      High-performance ARM64 container images featuring FEX-Emu ${{ needs.check-and-prepare.outputs.fex_semantic }} for running x86 applications natively on ARM architectures across multiple Linux distributions.
+                      High-performance ARM64 container images featuring FEX-Emu ${{ needs.check-and-prepare.outputs.fex_semantic }} for running x86 applications natively on ARM architectures across multiple Linux distributions (Ubuntu 22.04+ and Fedora).
 
                       ## 🏗️ Build Architecture
                       - **Native ARM64 Compilation**: Source-built FEX emulator ${{ needs.check-and-prepare.outputs.fex_semantic }} optimized for ARM64
-                      - **Multi-Distribution Support**: Comprehensive SquashFS RootFS support for Ubuntu and Fedora distributions
+                      - **Multi-Distribution Support**: Comprehensive SquashFS RootFS support for Ubuntu 22.04+ and Fedora distributions
                       - **API-Driven Matrix**: Automated detection and building of supported distributions from FEX RootFS API
                       - **Selective Build System**: Intelligent resource management with latest-only, distribution-specific, and full-matrix build options
                       - **Automated RootFS Setup**: Unattended x86 RootFS installation via FEXRootFSFetcher
-                      - **LTO Optimization**: Link-time optimization enabled for maximum performance
+                      - **LTO Optimization**: Link-time optimization enabled for maximum performance 
+                      - **Ubuntu 20.04 Excluded**: Optimized for modern systems (Ubuntu 22.04+) for enhanced compatibility
 
                       ## 🔧 Technical Features
                       - **ARM-Exclusive Design**: Streamlined build process focusing solely on ARM64
@@ -903,7 +840,8 @@ jobs:
                       - **Automated Configuration**: Zero-touch RootFS and FEX configuration setup
                       - **Dynamic Matrix Generation**: Real-time detection of available distributions
                       - **Advanced Caching Strategy**: Multi-layer caching optimized for cross-distribution builds
-                      - **CI/CD Optimized**: Stable builds with comprehensive resource management
+                      - **CI/CD Optimized**: Stable builds with comprehensive resource management 
+                      - **Modern Platform Focus**: Ubuntu 22.04+ and Fedora for optimal performance
 
                       ## 📥 Usage Instructions
 
@@ -916,7 +854,7 @@ jobs:
 
                       ### Distribution Specific
                       ```
-                      # Ubuntu variants
+                      # Ubuntu variants (22.04+)
                       docker run -d --name fex-ubuntu \
                           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-24.04
 
@@ -939,7 +877,7 @@ jobs:
 
                       ### Distribution Based Images
                       All images are automatically generated from the FEX RootFS API and include:
-                      - **Ubuntu**: All available LTS and current versions (20.04, 22.04, 22.10, 23.04, 23.10, 24.04)
+                      - **Ubuntu**: All available modern versions (22.04, 22.10, 23.04, 23.10, 24.04, 24.10)
                       - **Fedora**: All supported versions (38, 40)
 
                       ### Tagging Strategy
@@ -950,10 +888,10 @@ jobs:
 
                       This release supports flexible build configurations:
                       - **latest-only**: Ubuntu 24.04, Fedora 40 (daily automatic builds)
-                      - **ubuntu-all**: All Ubuntu versions available in FEX RootFS
+                      - **ubuntu-all**: All Ubuntu versions 22.04+ available in FEX RootFS
                       - **fedora-all**: All Fedora versions available in FEX RootFS
-                      - **full-matrix**: Complete SquashFS distribution matrix (Ubuntu and Fedora)
-                      - **custom**: User-defined distribution selection (Ubuntu and Fedora only)
+                      - **full-matrix**: Complete SquashFS distribution matrix (Ubuntu 22.04+ and Fedora)
+                      - **custom**: User-defined distribution selection (Ubuntu 22.04+ and Fedora only)
 
                       ## 🧪 Verification Status
 
@@ -965,19 +903,6 @@ jobs:
                       - ✅ x86 application execution compatibility testing
                       - ✅ Multi-distribution compatibility verification
 
-                      ### Verification Commands
-                      ```
-                      # Architecture confirmation
-                      docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest uname -m
-                      # Expected output: aarch64
-
-                      # FEX version verification
-                      docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest FEXBash --version
-
-                      # x86 binary execution test
-                      docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest FEXBash /bin/ls
-                      ```
-
                       ## 🛠️ Build Specifications
                       - **Source Repository**: FEX-Emu/FEX
                       - **FEX Version**: ${{ needs.check-and-prepare.outputs.version }} (Semantic: ${{ needs.check-and-prepare.outputs.fex_semantic }})
@@ -985,29 +910,15 @@ jobs:
                       - **Supported Architecture**: ARM64 exclusively
                       - **Performance Mode**: x86 emulation with ARM native execution speed
                       - **RootFS Types**: SquashFS with ZSTD compression
-                      - **Matrix Generation**: API-driven dynamic detection with selective build options
-
-                      ## 🎯 Deployment Scenarios
-                      - **ARM64 Production Servers**: High-performance x86 application hosting
-                      - **Cloud ARM Infrastructure**: AWS Graviton, Oracle Ampere, Azure ARM
-                      - **Development Environments**: x86 application testing on ARM-based systems
-                      - **Edge Computing**: ARM-based edge devices running legacy x86 software
-                      - **Multi-Distribution Environments**: Consistent FEX experience across Ubuntu and Fedora
-
-                      ## 🌟 Key Innovations
-                      - **API-Driven Automation**: First FEX container solution with automatic distribution detection
-                      - **Selective Build System**: Resource-efficient build management with multiple scope options
-                      - **Multi-Platform Latest Tag**: Intelligent distribution selection for `latest` tag
-                      - **Comprehensive Coverage**: Support for all FEX-compatible Ubuntu and Fedora distributions
-                      - **Zero-Maintenance Matrix**: Self-updating build matrix from upstream API
+                      - **Matrix Generation**: API-driven dynamic detection with selective build options 
+                      - **Platform Support**: Ubuntu 22.04+ and Fedora (Ubuntu 20.04 excluded for compatibility)
 
                       ## 📋 Release Notes
                       ${{ needs.check-and-prepare.outputs.release_notes }}
 
                       ---
                       **Upstream Project**: [FEX-Emu/FEX](https://github.com/FEX-Emu/FEX)  
-                      **RootFS Repository**: [FEX RootFS Links](https://rootfs.fex-emu.gg/RootFS_links.json)  
-                      **Build Pipeline**: GitHub Actions ARM64 Native Compilation with API Integration
+                      **RootFS Repository**: [FEX RootFS Links](https://rootfs.fex-emu.gg/RootFS_links.json)
                   draft: false
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1019,8 +930,11 @@ jobs:
         steps:
             - name: Generate Build Summary
               run: |
-                  echo "## 🚀 FEX-Emu Multi-Platform Container Build Results" >> $GITHUB_STEP_SUMMARY
-                  echo "" >> $GITHUB_STEP_SUMMARY
+                  cat >> $GITHUB_STEP_SUMMARY << 'EOL'
+                  ## 🚀 FEX-Emu Multi-Platform Container Build Results (Ubuntu 22.04+ Optimized)
+
+                  EOL
+
                   echo "**FEX Version**: ${{ needs.check-and-prepare.outputs.version }} (Semantic: ${{ needs.check-and-prepare.outputs.fex_semantic }})" >> $GITHUB_STEP_SUMMARY
                   echo "**Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
                   echo "**Build Strategy**: API-driven dynamic matrix with selective build scope management" >> $GITHUB_STEP_SUMMARY
@@ -1029,6 +943,7 @@ jobs:
                   echo "**RootFS Management**: Automated FEXRootFSFetcher with API-driven distribution detection" >> $GITHUB_STEP_SUMMARY
                   echo "**Optimization Level**: LTO enabled for maximum performance" >> $GITHUB_STEP_SUMMARY
                   echo "**Matrix Generation**: Dynamic detection from FEX RootFS API with selective build options" >> $GITHUB_STEP_SUMMARY
+                  echo "**Platform Focus**: Ubuntu 22.04+ and Fedora (Ubuntu 20.04 excluded)" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Determine build scope
@@ -1040,13 +955,14 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   echo "### 🔧 Build Execution Results" >> $GITHUB_STEP_SUMMARY
+
                   if [ "${{ needs.build-arm.result }}" = "success" ]; then
-                      echo "✅ **ARM64 Native Build**: Successfully completed with LTO optimization" >> $GITHUB_STEP_SUMMARY
+                      echo "✅ **ARM64 Native Build**: Successfully completed with LTO optimization (Ubuntu 22.04+ optimized)" >> $GITHUB_STEP_SUMMARY
                       
                       # Generate dynamic distribution list
                       MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
                       MATRIX_SIZE=$(echo "$MATRIX" | jq '.include | length')
-                      echo "   - **Total Distributions Built**: $MATRIX_SIZE" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Total Distributions Built**: $MATRIX_SIZE (Ubuntu 22.04+ and Fedora only)" >> $GITHUB_STEP_SUMMARY
                       echo "$MATRIX" | jq -r '.include[] | "   - \(.ROOTFS_OS | ascii_upcase) \(.ROOTFS_VERSION) + FEX ${{ needs.check-and-prepare.outputs.fex_semantic }}: Built and verified"' >> $GITHUB_STEP_SUMMARY
                   else
                       echo "❌ **ARM64 Native Build**: Build process failed" >> $GITHUB_STEP_SUMMARY
@@ -1087,6 +1003,7 @@ jobs:
                   echo "- **LTO Compilation**: Link-time optimization for maximum runtime performance" >> $GITHUB_STEP_SUMMARY
                   echo "- **Advanced Caching**: Multi-layer caching strategy optimized for cross-distribution builds" >> $GITHUB_STEP_SUMMARY
                   echo "- **Native Execution**: High-performance x86 emulation through FEX on ARM" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Modern Platform Focus**: Ubuntu 22.04+ and Fedora for enhanced compatibility (Ubuntu 20.04 excluded)" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   echo "### 🎯 Build Scope Information" >> $GITHUB_STEP_SUMMARY
@@ -1096,19 +1013,19 @@ jobs:
                           echo "- **Purpose**: Daily automatic builds for most common distributions" >> $GITHUB_STEP_SUMMARY
                           ;;
                       "ubuntu-all")
-                          echo "- **Scope**: All Ubuntu versions available in FEX RootFS" >> $GITHUB_STEP_SUMMARY
-                          echo "- **Purpose**: Comprehensive Ubuntu distribution coverage" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Scope**: All Ubuntu versions 22.04+ available in FEX RootFS" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Purpose**: Comprehensive Ubuntu distribution coverage (modern versions only)" >> $GITHUB_STEP_SUMMARY
                           ;;
                       "fedora-all")
                           echo "- **Scope**: All Fedora versions available in FEX RootFS" >> $GITHUB_STEP_SUMMARY
                           echo "- **Purpose**: Comprehensive Fedora distribution coverage" >> $GITHUB_STEP_SUMMARY
                           ;;
                       "full-matrix")
-                          echo "- **Scope**: Complete SquashFS distribution matrix (Ubuntu and Fedora)" >> $GITHUB_STEP_SUMMARY
-                          echo "- **Purpose**: Full coverage of all supported distributions" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Scope**: Complete SquashFS distribution matrix (Ubuntu 22.04+ and Fedora)" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Purpose**: Full coverage of all supported modern distributions" >> $GITHUB_STEP_SUMMARY
                           ;;
                       "custom")
-                          echo "- **Scope**: User-defined distribution selection (Ubuntu and Fedora only)" >> $GITHUB_STEP_SUMMARY
+                          echo "- **Scope**: User-defined distribution selection (Ubuntu 22.04+ and Fedora only)" >> $GITHUB_STEP_SUMMARY
                           echo "- **Distributions**: ${{ github.event.inputs.custom_distros }}" >> $GITHUB_STEP_SUMMARY
                           ;;
                   esac
@@ -1116,10 +1033,11 @@ jobs:
 
                   echo "### 📊 Build Metrics" >> $GITHUB_STEP_SUMMARY
                   echo "- **Build Duration**: Optimized through comprehensive caching and conditional building" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Image Coverage**: Complete SquashFS distribution support via API automation" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Image Coverage**: Complete SquashFS distribution support via API automation (Ubuntu 22.04+ focus)" >> $GITHUB_STEP_SUMMARY
                   echo "- **Verification Coverage**: 100% automated testing for all generated images" >> $GITHUB_STEP_SUMMARY
                   echo "- **Architecture Support**: ARM64 native with x86 emulation capability" >> $GITHUB_STEP_SUMMARY
                   echo "- **FEX Version**: ${{ needs.check-and-prepare.outputs.fex_semantic }} (${{ needs.check-and-prepare.outputs.version }})" >> $GITHUB_STEP_SUMMARY
                   MATRIX='${{ needs.fetch-rootfs-matrix.outputs.matrix }}'
                   MATRIX_SIZE=$(echo "$MATRIX" | jq '.include | length')
-                  echo "- **Matrix Size**: $MATRIX_SIZE distributions automatically detected and built" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Matrix Size**: $MATRIX_SIZE distributions automatically detected and built (Ubuntu 22.04+ and Fedora)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Compatibility Focus**: Modern platforms only (Ubuntu 20.04 excluded for FEX compatibility)" >> $GITHUB_STEP_SUMMARY
