@@ -577,6 +577,12 @@ jobs:
         runs-on: [self-hosted, linux, arm64]
         needs: ccache-setup
         steps:
+            - name: Setup ccache binary directory
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  rm -rf /tmp/ccache-binary/
+                  mkdir -p /tmp/ccache-binary/
+                  echo "📦 ccache binary directory created"
             - name: Download ccache binary artifact
               id: download-ccache
               uses: actions/download-artifact@v4
@@ -593,8 +599,7 @@ jobs:
                       echo "✅ ccache binary available"
                   else
                       echo "download-success=false" >> $GITHUB_OUTPUT
-                      echo "⚠️ ccache binary not available, will use system ccache"
-                      mkdir -p /tmp/ccache-binary/
+                      echo "⚠️ ccache binary not available, will use system ccache" 
                   fi
 
             - name: Set up build environment for ARM64
@@ -689,10 +694,8 @@ jobs:
                   echo "## 🎉 ccache ${VERSION} Build Summary" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- **Architecture**: arm64" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Version**: ${VERSION}" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Package**: ccache-${VERSION}-linux-arm64.tar.gz" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Version**: ${VERSION}" >> $GITHUB_STEP_SUMMARY 
                   echo "- **Status**: ✅ Successfully built and uploaded" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Compatibility**: Ubuntu 22.04+ optimized" >> $GITHUB_STEP_SUMMARY
 
     # Enhanced build-arm job with integrated ccache support
     build-arm:
@@ -840,7 +843,20 @@ jobs:
                   restore-keys: |
                       ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-fex-${{ needs.check-and-prepare.outputs.fex_semantic }}-
                       ccache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
+            - name: Verify ccache cache
+              if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  echo "🔍 Verifying ccache cache contents..."
+                  ls -la /tmp/ccache-binary/
 
+                  if [ -f "/tmp/ccache-binary/ccache" ]; then
+                      echo "✅ ccache file existed
+                      echo "📊 File size: $(du -h "/tmp/ccache-binary/ccache" | cut -f1)"
+                      echo "📊 File version: $(/tmp/ccache-binary/ccache --version | cut -f1)"
+                  else
+                      echo "❌ ccache file missing
+                      exit 1
+                  fi
             - name: Record build timing
               if: steps.eol-check.outputs.skip_build == 'false' && steps.check-images.outputs.build_fexbash == 'true'
               run: |
@@ -875,11 +891,11 @@ jobs:
                   DOWNLOAD_SUCCESS=false
 
                   # Method 1: curl with cache control
-                  if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "${{ matrix.ROOTFS_URL }}" -o "/tmp/fex-rootfs/$ROOTFS_FILENAME"; then
+                  if curl -H 'Cache-Control: no-cache, no-store' -L --progress-bar --connect-timeout 30 --max-time 600 "${{ matrix.ROOTFS_URL }}" -o "/tmp/fex-rootfs/$ROOTFS_FILENAME" 2>/dev/null ; then
                       echo "✅ RootFS downloaded via curl"
                       DOWNLOAD_SUCCESS=true
                   # Method 2: wget fallback
-                  elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 -O "/tmp/fex-rootfs/$ROOTFS_FILENAME" "${{ matrix.ROOTFS_URL }}"; then
+                  elif wget --no-cache --no-http-keep-alive -q --timeout=60 --tries=3 -O "/tmp/fex-rootfs/$ROOTFS_FILENAME" "${{ matrix.ROOTFS_URL }}" 2>/dev/null; then
                       echo "✅ RootFS downloaded via wget"
                       DOWNLOAD_SUCCESS=true
                   else
@@ -924,7 +940,7 @@ jobs:
                   build-contexts: |
                       fex-sources=/tmp/fex-source
                       fex-rootfs=/tmp/fex-rootfs
-                      ccache-binary=/tmp/ccache-binary/
+                      ccache-binary=/tmp/ccache-binary
                   build-args: |
                       TARGETPLATFORM='linux/arm64' 
                       BASE_IMAGE=${{ matrix.BASE_IMAGE }}
