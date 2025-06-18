@@ -399,10 +399,7 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
     fi && \
     echo "🎉 Runtime dependencies installation completed!"
 
-# Switch to fex user
-USER fex
-WORKDIR /home/fex
-ENV PATH="/usr/local/fex/bin:$PATH"
+
 
 # Copy FEX binaries from build stage and optimize
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
@@ -413,6 +410,7 @@ RUN echo "✅ FEX binaries copied successfully" && \
     strip /usr/local/fex/bin/* 2>/dev/null || true && \
     find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
     echo "✅ FEX binary optimization completed"
+ENV PATH="/usr/local/fex/bin:$PATH"
 
 # Create user with OS-specific configuration
 RUN echo "👤 Starting user creation and configuration..." && \
@@ -441,4 +439,8 @@ RUN chown -R fex:fex /home/fex/.fex-emu && \
     echo "  - Config file: $(ls -la /home/fex/.fex-emu/Config.json)" && \
     echo "✅ Ready for immediate x86 application execution!"
 
+# Switch to fex user
+USER fex
+WORKDIR /home/fex
+ENV PATH="/usr/local/fex/bin:$PATH"
 CMD ["/bin/bash", "-c", "echo '🚀 FEX-Emu ready!' && echo '🔧 Built with Alpine Linux for maximum efficiency!' && echo '💡 Try: FEXBash' && /bin/bash"]
