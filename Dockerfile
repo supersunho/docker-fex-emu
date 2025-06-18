@@ -22,13 +22,19 @@ ENV ENABLE_CCACHE=${ENABLE_CCACHE}
 RUN echo "🔍 Starting OS detection..." && \
     if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
         echo "🐧 Detected: Fedora/RHEL distribution" && \
-        echo "DISTRO_TYPE=fedora" > /etc/distro-info; \
+        echo "DISTRO_TYPE=fedora" > /etc/distro-info && \
+        echo "🔧 Configuring DNF cache for Fedora/RHEL..." && \
+        echo "keepcache=True" >> /etc/dnf/dnf.conf && \
+        echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf; \
     elif [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then \
         echo "🐧 Detected: Debian/Ubuntu distribution" && \
         echo "DISTRO_TYPE=debian" > /etc/distro-info && \
         export DEBIAN_FRONTEND=noninteractive && \
         ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
-        echo $TZ > /etc/timezone; \
+        echo $TZ > /etc/timezone && \
+        echo "🔧 Configuring APT cache for Ubuntu/Debian..." && \
+        rm -f /etc/apt/apt.conf.d/docker-clean && \
+        echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache; \
     else \
         echo "❌ Unknown distribution type" && \
         echo "DISTRO_TYPE=unknown" > /etc/distro-info; \
@@ -36,7 +42,9 @@ RUN echo "🔍 Starting OS detection..." && \
     echo "✅ OS detection completed"
 
 # Install build dependencies  
-RUN echo "📦 Starting package installation..." && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/cache/dnf,sharing=locked \
+    echo "📦 Starting package installation..." && \
     . /etc/distro-info && \
     echo "🔍 Distribution type: $(cat /etc/distro-info)" && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
@@ -344,25 +352,32 @@ ARG ROOTFS_TYPE=squashfs
 ENV DEBIAN_FRONTEND=noninteractive 
 ENV TZ=Asia/Seoul
 
-# Detect OS type for runtime
-RUN echo "🔍 Starting runtime OS detection..." && \
+RUN echo "🔍 Starting OS detection..." && \
     if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
-        echo "🐧 Runtime: Detected Fedora/RHEL distribution" && \
-        echo "DISTRO_TYPE=fedora" > /etc/distro-info; \
+        echo "🐧 Detected: Fedora/RHEL distribution" && \
+        echo "DISTRO_TYPE=fedora" > /etc/distro-info && \
+        echo "🔧 Configuring DNF cache for Fedora/RHEL..." && \
+        echo "keepcache=True" >> /etc/dnf/dnf.conf && \
+        echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf; \
     elif [ -f /etc/debian_version ] || [ -f /etc/lsb-release ]; then \
-        echo "🐧 Runtime: Detected Debian/Ubuntu distribution" && \
+        echo "🐧 Detected: Debian/Ubuntu distribution" && \
         echo "DISTRO_TYPE=debian" > /etc/distro-info && \
         export DEBIAN_FRONTEND=noninteractive && \
         ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
-        echo $TZ > /etc/timezone; \
+        echo $TZ > /etc/timezone && \
+        echo "🔧 Configuring APT cache for Ubuntu/Debian..." && \
+        rm -f /etc/apt/apt.conf.d/docker-clean && \
+        echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache; \
     else \
-        echo "❌ Runtime: Unknown distribution type" && \
+        echo "❌ Unknown distribution type" && \
         echo "DISTRO_TYPE=unknown" > /etc/distro-info; \
     fi && \
-    echo "✅ Runtime OS detection completed"
-
+    echo "✅ OS detection completed"
+    
 # Install runtime dependencies 
-RUN echo "📦 Starting runtime dependencies installation..." && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/cache/dnf,sharing=locked \
+    echo "📦 Starting runtime dependencies installation..." && \
     . /etc/distro-info && \
     echo "📊 Runtime build parameters:" && \
     echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \

@@ -481,6 +481,33 @@ jobs:
                   FEX_COMMIT=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/commits/main | jq -r '.sha[:7]')
                   echo "commit=$FEX_COMMIT" >> $GITHUB_OUTPUT
 
+            - name: Setup system package caches
+              run: |
+                  mkdir -p /tmp/apt-cache 
+                  mkdir -p /tmp/dnf-cache
+
+            - name: Cache system packages
+              uses: actions/cache@v4
+              id: system-cache
+              with:
+                  path: |
+                      /tmp/apt-cache 
+                      /tmp/dnf-cache
+                  key: ${{ env.CACHE_VERSION }}-system-cache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ steps.fex-commit.outputs.commit }}
+                  restore-keys: |
+                      ${{ env.CACHE_VERSION }}-system-cache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
+
+            - name: Inject system caches into docker
+              if: steps.check-images.outputs.build_fexbash == 'true'
+              uses: reproducible-containers/buildkit-cache-dance@v3.1.2
+              with:
+                  cache-map: |
+                      {
+                          "apt-cache": "/var/cache/apt", 
+                          "dnf-cache": "/var/cache/dnf"
+                      }
+                  skip-extraction: ${{ steps.system-cache.outputs.cache-hit }}
+
             - name: Cache FEX source with optimized keys
               if: steps.check-images.outputs.build_fexbash == 'true'
               id: cache-fex-source
@@ -513,6 +540,7 @@ jobs:
                   fi
 
             - name: Cache ccache with optimized keys
+              id: fex-ccache
               if: steps.check-images.outputs.build_fexbash == 'true'
               uses: actions/cache@v4
               with:
@@ -521,6 +549,15 @@ jobs:
                   restore-keys: |
                       ${{ env.CACHE_VERSION }}-ccache-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
                       ${{ env.CACHE_VERSION }}-ccache-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-
+            - name: Inject FEX ccache into docker
+              if: steps.check-images.outputs.build_fexbash == 'true'
+              uses: reproducible-containers/buildkit-cache-dance@v3.1.2
+              with:
+                  cache-map: |
+                      {
+                          "fex-ccache": "/tmp/.ccache"
+                      }
+                  skip-extraction: ${{ steps.fex-ccache.outputs.cache-hit }}
 
             - name: Build and push with optimized caching
               if: steps.check-images.outputs.build_fexbash == 'true'
@@ -539,6 +576,7 @@ jobs:
                       type=gha,scope=${{ env.CACHE_VERSION }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
                   cache-to: |
                       type=gha,mode=min,scope=${{ env.CACHE_VERSION }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
+
                   build-contexts: |
                       fex-sources=/tmp/fex-source
                       fex-rootfs=/tmp/fex-rootfs
@@ -578,6 +616,24 @@ jobs:
                   docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "ls /usr/bin" >/dev/null && echo "✅ X86 binary execution working" || echo "❌ X86 binary execution failed"
 
                   echo "🎉 All FEXBash verification tests completed!"
+            - name: Extract and report system cache stats
+              if: steps.check-images.outputs.build_fexbash == 'true'
+              uses: reproducible-containers/buildkit-cache-dance@v3.1.2
+              with:
+                  cache-map: |
+                      {
+                        "apt-cache": "/var/cache/apt",
+                        "dnf-cache": "/var/cache/dnf",
+                        "fex-ccache": "/tmp/.ccache"
+                      }
+                  skip-extraction: true
+            - name: Display cache statistics
+              run: |
+                  echo "📊 System Package Cache Statistics:"
+                  echo "APT $(du -sh apt-cache 2>/dev/null || echo '0B') cached"
+                  echo "DNF $(du -sh dnf-cache 2>/dev/null || echo '0B') cached"
+                  echo "ccache $(du -sh fex-ccache 2>/dev/null || echo '0B') cached"
+                  echo "Total: $(du -sh fex-ccache apt-cache dnf-cache 2>/dev/null | tail -1 || echo '0B')"
 
             - name: Export digest for manifest
               if: steps.check-images.outputs.build_fexbash == 'true'
