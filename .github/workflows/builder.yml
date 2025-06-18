@@ -572,7 +572,7 @@ jobs:
                   echo "🔍 Multi-method verification of FEXBash binary..."
 
                   # Method 1: ls verification
-                  if docker run --rm --platform linux/arm64 "$IMAGE" 'ls /usr/local/fex/bin/FEXBash >/dev/null 2>&1'; then
+                  if docker run --rm --platform linux/arm64 "$IMAGE" ls /usr/local/fex/bin/FEXBash >/dev/null 2>&1; then
                       echo "✅ FEXBash binary exists"
                   else
                       echo "❌ FEXBash binary missing"
@@ -580,7 +580,7 @@ jobs:
                   fi
 
                   # Method 2: file type verification
-                  FILE_INFO=$(docker run --rm --platform linux/arm64 "$IMAGE" 'file /usr/local/fex/bin/FEXBash 2>/dev/null')
+                  FILE_INFO=$(docker run --rm --platform linux/arm64 "$IMAGE" file /usr/local/fex/bin/FEXBash 2>/dev/null)
                   if echo "$FILE_INFO" | grep -q "executable"; then
                       echo "✅ FEXBash is executable binary: $FILE_INFO"
                   else
@@ -589,7 +589,7 @@ jobs:
                   fi
 
                   # Method 3: Permission verification  
-                  if docker run --rm --platform linux/arm64 "$IMAGE" 'ls -l /usr/local/fex/bin/FEXBash | grep -q "^-r.x"'; then
+                  if docker run --rm --platform linux/arm64 "$IMAGE" ls -l /usr/local/fex/bin/FEXBash | grep -q "^-r.x"; then
                       echo "✅ FEXBash has proper permissions"
                   else
                       echo "❌ FEXBash permission issue"
@@ -597,7 +597,7 @@ jobs:
                   fi
 
                   echo "🔍 Testing Config.json with ls..."
-                  if docker run --rm --platform linux/arm64 "$IMAGE" 'ls /home/fex/.fex-emu/Config.json >/dev/null 2>&1'; then
+                  if docker run --rm --platform linux/arm64 "$IMAGE" ls /home/fex/.fex-emu/Config.json >/dev/null 2>&1; then
                       echo "✅ Config.json exists"
                   else
                       echo "❌ Config.json missing"
