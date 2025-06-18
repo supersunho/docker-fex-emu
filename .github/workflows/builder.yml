@@ -11,7 +11,7 @@ on:
             runner:
                 description: "Choose runner type"
                 type: choice
-                default: "self-hosted-arm64"
+                default: "ubuntu-24.04-arm"
                 options:
                     - "ubuntu-24.04"
                     - "ubuntu-22.04"
