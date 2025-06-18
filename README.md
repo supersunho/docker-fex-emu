@@ -282,16 +282,16 @@ We welcome contributions! Please see our **[Contributing Guidelines](https://git
 └── Security: Regular base image updates
 ```
 
-### 🌟 **GitHub Statistics**
+<!-- ### 🌟 **GitHub Statistics**
 
 -   **Stars**: Growing community adoption
 -   **Forks**: Active development contributions
 -   **Issues**: Responsive community support
 -   **Releases**: Regular feature updates
 
----
+--- -->
 
-## 🏷️ Tags \& SEO
+<!-- ## 🏷️ Tags \& SEO
 
 **Primary Keywords**: `ARM64` `x86-emulation` `Linux` `gaming` `performance` `FEX-Emu` `Docker` `container` `emulator` `cross-platform`
 
@@ -299,7 +299,7 @@ We welcome contributions! Please see our **[Contributing Guidelines](https://git
 
 **Use Cases**: `edge-computing` `cloud-arm` `development` `testing` `legacy-software` `gaming` `CI-CD` `microservices`
 
----
+--- -->
 
 ## 📄 Legal \& Credits
 
@@ -321,15 +321,13 @@ If this project helps you, please consider:
 <p align="center">
   <strong>🚀 Ready to run x86 applications on ARM64? Get started now!</strong>
 </p>
-<p align="center">
+<!-- <p align="center">
   <a href="#-quick-start">Quick Start</a> - 
   <a href="#-docker-usage">Docker Usage</a> - 
   <a href="#-documentation">Documentation</a> - 
   <a href="#-community--support">Community</a>
-</p>
+</p> -->
 
 ---
 
 **Built with ❤️ for the ARM64 and emulation community**
-
-<div style="text-align: center">⁂</div>
