@@ -338,7 +338,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         DOWNLOAD_SUCCESS=false && \
         for download_attempt in 1 2 3; do \
             echo "⏳ Download attempt $download_attempt/3..." && \
-            if curl -k -H 'Cache-Control: no-cache' -L --connect-timeout 30 --max-time 600 \
+            if curl -S -s -o -k -H 'Cache-Control: no-cache' -L --connect-timeout 30 --max-time 600 \
                     --retry 3 --retry-delay 5 \
                     "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH"; then \
                 echo "✅ RootFS downloaded successfully (attempt $download_attempt)" && \
@@ -374,7 +374,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         if echo "$ROOTFS_FILE" | grep -q '\.sqsh$\|\.squashfs$'; then \
             echo "🔧 Extracting SquashFS file using unsquashfs..." && \
             if command -v unsquashfs >/dev/null 2>&1; then \
-                unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+                unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" >/dev/null 2>&1 && \
                 echo "✅ SquashFS extraction completed"; \
             else \
                 echo "📦 unsquashfs not found. Installing squashfs-tools..." && \
@@ -388,7 +388,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
                 echo "📦 Installing erofs-utils..." && \
                 apt-get update && apt-get install -y erofs-utils; \
             fi && \
-            dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+            dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" >/dev/null 2>&1 && \
             echo "✅ EROFS extraction completed"; \
         else \
             echo "❌ Unknown RootFS file format: $ROOTFS_FILE" && \
