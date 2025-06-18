@@ -338,7 +338,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         DOWNLOAD_SUCCESS=false && \
         for download_attempt in 1 2 3; do \
             echo "⏳ Download attempt $download_attempt/3..." && \
-            if curl -H 'Cache-Control: no-cache' -L --connect-timeout 30 --max-time 600 \
+            if curl -k -H 'Cache-Control: no-cache' -L --connect-timeout 30 --max-time 600 \
                     --retry 3 --retry-delay 5 \
                     "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH"; then \
                 echo "✅ RootFS downloaded successfully (attempt $download_attempt)" && \
