@@ -5,10 +5,8 @@
 <p align="center">
   <img src="https://img.shields.io/github/stars/supersunho/docker-fex-emu?style=for-the-badge&logo=github&color=gold" alt="GitHub Stars"/>
   <img src="https://img.shields.io/github/forks/supersunho/docker-fex-emu?style=for-the-badge&logo=github&color=blue" alt="GitHub Forks"/>
-  <img src="https://img.shields.io/github/workflow/status/supersunho/docker-fex-emu/FEXBash%20Builder%20V4%20(Optimized)?style=for-the-badge&logo=github-actions" alt="Build Status"/>
-  <img src="https://img.shields.io/docker/pulls/ghcr.io/supersunho/docker-fex-emu?style=for-the-badge&logo=docker" alt="Docker Pulls"/>
-  <img src="https://img.shields.io/github/license/supersunho/docker-fex-emu?style=for-the-badge" alt="License"/>
-  <img src="https://img.shields.io/github/v/release/supersunho/docker-fex-emu?style=for-the-badge&logo=github" alt="Latest Release"/>
+  <img src="https://github.com/supersunho/docker-fex-emu/actions/workflows/builderV3.yml/badge.svg" alt="Build Status"/>  
+  
 </p>
 **Production-ready ARM64 containers with pre-configured FEX-Emu runtime for seamless x86 application execution across multiple Linux distributions**
 
