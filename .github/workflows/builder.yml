@@ -564,47 +564,32 @@ jobs:
                       CCACHE_DIR=/tmp/.ccache
                       ENABLE_CCACHE=true
 
-            - name: Comprehensive file verification without test
+            - name: Comprehensive FEXBash verification
               if: steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
 
-                  echo "🔍 Multi-method verification of FEXBash binary..."
+                  echo "🔍 Starting comprehensive FEXBash verification..."
 
-                  # Method 1: ls verification
-                  if docker run --rm --platform linux/arm64 "$IMAGE" ls /usr/local/fex/bin/FEXBash >/dev/null 2>&1; then
-                      echo "✅ FEXBash binary exists"
-                  else
-                      echo "❌ FEXBash binary missing"
-                    #   exit 1
-                  fi
+                  # Test 1: Binary existence and permissions
+                  echo "📋 Test 1: Binary Verification"
+                  docker run --rm --platform linux/arm64 "$IMAGE" test -f /usr/local/fex/bin/FEXBash && echo "✅ FEXBash binary exists" || echo "❌ FEXBash binary missing"
+                  docker run --rm --platform linux/arm64 "$IMAGE" test -x /usr/local/fex/bin/FEXBash && echo "✅ FEXBash is executable" || echo "❌ FEXBash is not executable"
+                  docker run --rm --platform linux/arm64 "$IMAGE" command -v FEXBash >/dev/null && echo "✅ FEXBash in PATH" || echo "❌ FEXBash not in PATH"
 
-                  # Method 2: file type verification
-                  FILE_INFO=$(docker run --rm --platform linux/arm64 "$IMAGE" file /usr/local/fex/bin/FEXBash 2>/dev/null)
-                  if echo "$FILE_INFO" | grep -q "executable"; then
-                      echo "✅ FEXBash is executable binary: $FILE_INFO"
-                  else
-                      echo "❌ FEXBash is not a valid executable"
-                    #   exit 1
-                  fi
+                  # Test 2: RootFS verification
+                  echo "📋 Test 2: RootFS Verification"
+                  docker run --rm --platform linux/arm64 "$IMAGE" test -d /home/fex/.fex-emu/RootFS && echo "✅ RootFS directory exists" || echo "❌ RootFS directory missing"
+                  docker run --rm --platform linux/arm64 "$IMAGE" test -f /home/fex/.fex-emu/Config.json && echo "✅ Config.json exists" || echo "❌ Config.json missing"
+                  docker run --rm --platform linux/arm64 "$IMAGE" ls -la /home/fex/.fex-emu/RootFS/ 2>/dev/null | wc -l | grep -q "^[1-9]" && echo "✅ RootFS contains OS directory" || echo "❌ RootFS OS directory missing"
 
-                  # Method 3: Permission verification  
-                  if docker run --rm --platform linux/arm64 "$IMAGE" ls -l /usr/local/fex/bin/FEXBash | grep -q "^-r.x"; then
-                      echo "✅ FEXBash has proper permissions"
-                  else
-                      echo "❌ FEXBash permission issue"
-                    #   exit 1
-                  fi
+                  # Test 3: Functionality tests
+                  echo "📋 Test 3: Functionality Tests"
+                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "uname -m | grep -q x86_64" && echo "✅ Architecture emulation working" || echo "❌ Architecture emulation failed"
+                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "echo Hello FEXBash" >/dev/null && echo "✅ Basic execution working" || echo "❌ Basic execution failed"
+                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "ls /usr/bin" >/dev/null && echo "✅ X86 binary execution working" || echo "❌ X86 binary execution failed"
 
-                  echo "🔍 Testing Config.json with ls..."
-                  if docker run --rm --platform linux/arm64 "$IMAGE" ls /home/fex/.fex-emu/Config.json >/dev/null 2>&1; then
-                      echo "✅ Config.json exists"
-                  else
-                      echo "❌ Config.json missing"
-                    #   exit 1
-                  fi
-
-                  # echo "🎉 All verification tests passed using alternative methods!"
+                  echo "🎉 All FEXBash verification tests completed!"
 
             - name: Export digest for manifest
               if: steps.check-images.outputs.build_fexbash == 'true'
