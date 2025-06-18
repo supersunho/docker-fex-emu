@@ -56,7 +56,7 @@ RUN echo "📦 Starting package installation..." && \
         \
         # Smart LLVM installation with apt-cache check + script fallback
         echo "🔧 Installing LLVM ${LLVM_VERSION} with smart detection..." && \
-        REQUIRED_LLVM_PACKAGES="clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION}" && \
+        REQUIRED_LLVM_PACKAGES="clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools" && \
         SYSTEM_LLVM_AVAILABLE=true && \
         echo "🔍 Checking system repository for LLVM ${LLVM_VERSION}..." && \
         for pkg in $REQUIRED_LLVM_PACKAGES; do \
