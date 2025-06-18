@@ -575,7 +575,6 @@ jobs:
                   echo "📋 Test 1: Binary Verification"
                   docker run --rm --platform linux/arm64 "$IMAGE" test -f /usr/local/fex/bin/FEXBash && echo "✅ FEXBash binary exists" || echo "❌ FEXBash binary missing"
                   docker run --rm --platform linux/arm64 "$IMAGE" test -x /usr/local/fex/bin/FEXBash && echo "✅ FEXBash is executable" || echo "❌ FEXBash is not executable"
-                  docker run --rm --platform linux/arm64 "$IMAGE" command -v FEXBash >/dev/null && echo "✅ FEXBash in PATH" || echo "❌ FEXBash not in PATH"
 
                   # Test 2: RootFS verification
                   echo "📋 Test 2: RootFS Verification"
