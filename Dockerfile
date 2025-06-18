@@ -120,7 +120,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf && \
         echo "fastestmirror=True" >> /etc/dnf/dnf.conf && \
         echo "📦 Installing Fedora packages with optimizations..." && \
-        dnf groupinstall -q -y "Development Tools" -x grubby && \
+        dnf groupinstall -q -y "Development Tools" -x grubby >/dev/null 2>&1 && \
         dnf install -q -y --setopt=install_weak_deps=False \
             cmake ninja-build pkg-config ccache \
             llvm clang lld compiler-rt libomp \
