@@ -517,7 +517,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "🔧 Setting up Fedora runtime environment..." && \
         echo "📦 Installing minimal Fedora runtime packages..." && \
         dnf install -q -y --setopt=install_weak_deps=False \
-            sudo curl wget jq \
+            sudo curl wget jq binutils \
             util-linux-core libstdc++ glibc file >/dev/null 2>&1 && \
         echo "✅ Fedora runtime packages installed" && \
         echo "🧹 Cleaning up Fedora package cache..." && \ 
