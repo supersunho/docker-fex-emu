@@ -122,7 +122,7 @@ RUN echo "📦 Starting package installation..." && \
             nasm python3-clang python3-setuptools openssl-devel \
             libcap-devel glfw-devel libepoxy-devel SDL2-devel \
             qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
-            curl wget && \
+            curl wget which && \
         dnf clean all -q && \
         \
         echo "✅ Fedora setup completed successfully"; \
