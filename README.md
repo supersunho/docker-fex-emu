@@ -3,7 +3,7 @@
 <p>
   <img src="https://img.shields.io/github/stars/supersunho/docker-fex-emu?style=for-the-badge&logo=github&color=gold" alt="GitHub Stars"/>
   <img src="https://img.shields.io/github/forks/supersunho/docker-fex-emu?style=for-the-badge&logo=github&color=blue" alt="GitHub Forks"/>
-  <img src="https://github.com/supersunho/docker-fex-emu/actions/workflows/builder.yml/badge.svg" alt="Build Status"/>  
+  <img src="https://img.shields.io/github/actions/workflow/status/supersunho/docker-fex-emu/builder.yml?style=for-the-badge&logo=github&color=blue" alt="Build Status"/>  
   
 </p>
 **Production-ready ARM64 containers with pre-configured FEX-Emu runtime for seamless x86 application execution across multiple Linux distributions**
