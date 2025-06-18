@@ -35,7 +35,7 @@ RUN echo "🔍 Starting OS detection..." && \
     fi && \
     echo "✅ OS detection completed"
 
-# Install build dependencies (simplified for Ubuntu 22.04+)
+# Install build dependencies  
 RUN echo "📦 Starting package installation..." && \
     . /etc/distro-info && \
     echo "🔍 Distribution type: $(cat /etc/distro-info)" && \
@@ -108,7 +108,7 @@ RUN echo "📦 Starting package installation..." && \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         echo "🔧 Setting up Fedora environment..." && \
         dnf update -q -y && \
-        # Universal Fedora dnf optimization (compatible with all versions)
+        # Universal Fedora dnf optimization  
         echo "📦 Optimizing dnf configuration for all Fedora versions..." && \
         echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf && \
         echo "fastestmirror=True" >> /etc/dnf/dnf.conf && \
@@ -131,14 +131,13 @@ RUN echo "📦 Starting package installation..." && \
     fi && \
     echo "🎉 Package installation completed!"
 
-# Fixed ccache setup (검색 결과 [3] 구문 수정 적용)
+# ccache setup 
 RUN echo "📦 Setting up ccache..." && \
     echo "🔍 System information:" && \
     echo "  - GLIBC version: $(ldd --version | head -1)" && \
     echo "  - Ubuntu version: ${ROOTFS_VERSION}" && \
     echo "  - Architecture: $(uname -m)" && \
     \
-    # Fixed: 공백 추가하여 구문 오류 수정
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && command -v ccache >/dev/null 2>&1; then \
         echo "🔄 Using system ccache..." && \
         echo "CCACHE_SOURCE=system" > /tmp/ccache-info && \
@@ -152,7 +151,7 @@ RUN echo "📦 Setting up ccache..." && \
 
 ENV PATH="/usr/local/bin/:$PATH"
 
-# Copy FEX source from build context (검색 결과 [4] named contexts)
+# Copy FEX source from build context  
 COPY --from=fex-sources / /tmp/fex-source  
 RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🏗️ Starting FEX build process (V4 Optimized)..." && \
@@ -188,7 +187,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     fi && \
     echo "✅ Using AR tools: $AR_TOOL" && \
     \
-    # Enhanced ccache configuration (검색 결과 [7] 캐시 최적화)
+    # Enhanced ccache configuration  
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
         echo "🚀 Configuring ccache acceleration..." && \
         export CCACHE_BASEDIR=/tmp/fex-source && \
@@ -273,7 +272,7 @@ RUN echo "🚀 Preparing RootFS for inclusion in image..." && \
     echo "🔍 Looking for RootFS files..." && \
     ls -la /tmp/fex-rootfs/ && \
     \
-    # Detect RootFS file (기존 로직 동일)
+    # Detect RootFS file 
     ROOTFS_FILE="" && \
     if [ -n "$ROOTFS_URL" ]; then \
         ROOTFS_FILE=$(basename "$ROOTFS_URL"); \
@@ -362,7 +361,7 @@ RUN echo "🔍 Starting runtime OS detection..." && \
     fi && \
     echo "✅ Runtime OS detection completed"
 
-# Install runtime dependencies (minimal for Phase 1)
+# Install runtime dependencies 
 RUN echo "📦 Starting runtime dependencies installation..." && \
     . /etc/distro-info && \
     echo "📊 Runtime build parameters:" && \
