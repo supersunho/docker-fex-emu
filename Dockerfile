@@ -429,10 +429,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     if [ -d "/home/fex/.fex-emu/RootFS" ]; then \
         ROOTFS_COUNT=$(find /home/fex/.fex-emu/RootFS -maxdepth 1 -type d | wc -l) && \
         ROOTFS_FILES=$(find /home/fex/.fex-emu/RootFS -type f | wc -l) && \
-        echo "📊 Final RootFS verification:" && \
+        echo "🎉 RootFS setup completed successfully!" && \ 
+        echo "📊 RootFS verification:" && \
         echo "  - RootFS directories: $ROOTFS_COUNT" && \
         echo "  - RootFS files: $ROOTFS_FILES" && \
         echo "  - Method used: $( [ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (primary)" || echo "Manual setup (fallback)" )" && \
+        echo "  - RootFS size: $(du -sh /home/fex/.fex-emu/RootFS)" && \
+        echo "  - Config file: $(ls -la /home/fex/.fex-emu/Config.json)" && \
         if [ "$ROOTFS_FILES" -gt 0 ]; then \
             echo "✅ Final RootFS verification passed"; \
         else \
@@ -449,13 +452,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -rf /tmp/fex-rootfs && \
     find /home/fex/.fex-emu/RootFS -name "*.sqsh" -delete 2>/dev/null || true && \
     find /home/fex/.fex-emu/RootFS -name "*.ero" -delete 2>/dev/null || true && \
-    echo "💾 Final RootFS size: $(du -sh /home/fex/.fex-emu/ 2>/dev/null || echo 'unknown')" && \
-    echo "🎉 RootFS setup completed successfully!" && \
-    echo "📊 Pre-installed RootFS verification:" && \
-    echo "  - RootFS directory: $(ls -d /home/fex/.fex-emu/RootFS/*/ | head -1)" && \
-    echo "  - RootFS files: $(find /home/fex/.fex-emu/RootFS -type f | wc -l)" && \
-    echo "  - RootFS size: $(du -sh /home/fex/.fex-emu/RootFS)" && \
-    echo "  - Config file: $(ls -la /home/fex/.fex-emu/Config.json)" && \
     echo "✅ Ready for immediate x86 application execution!"
 
 #==============================================
