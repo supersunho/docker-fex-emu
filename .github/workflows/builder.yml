@@ -484,8 +484,7 @@ jobs:
 
             - name: Setup system package caches
               run: |
-                  mkdir -p /tmp/apt-cache 
-                  mkdir -p /tmp/dnf-cache
+                  mkdir -p /tmp/apt-cache /tmp/dnf-cache /tmp/.ccache /tmp/apt-lib
 
             - name: Cache system packages
               uses: actions/cache@v4
@@ -494,6 +493,8 @@ jobs:
                   path: |
                       /tmp/apt-cache 
                       /tmp/dnf-cache
+                      /tmp/.ccache
+                      /tmp/apt-lib
                   key: ${{ env.CACHE_VERSION }}-system-cache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ steps.fex-commit.outputs.commit }}
                   restore-keys: |
                       ${{ env.CACHE_VERSION }}-system-cache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
@@ -506,7 +507,9 @@ jobs:
                   cache-map: |
                       {
                           "apt-cache": "/var/cache/apt", 
-                          "dnf-cache": "/var/cache/dnf"
+                          "apt-lib": "/var/lib/apt",
+                          "dnf-cache": "/var/cache/dnf",
+                          "fex-ccache": "/tmp/.ccache"
                       }
                   skip-extraction: ${{ steps.system-cache.outputs.cache-hit }}
 
@@ -540,27 +543,6 @@ jobs:
                       echo "❌ RootFS download failed"
                       exit 1
                   fi
-
-            - name: Cache ccache with optimized keys
-              id: fex-ccache
-              if: steps.check-images.outputs.build_fexbash == 'true'
-              uses: actions/cache@v4
-              with:
-                  path: /tmp/.ccache
-                  key: ${{ env.CACHE_VERSION }}-ccache-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
-                  restore-keys: |
-                      ${{ env.CACHE_VERSION }}-ccache-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
-                      ${{ env.CACHE_VERSION }}-ccache-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-
-            - name: Inject FEX ccache into docker
-              if: steps.check-images.outputs.build_fexbash == 'true'
-              uses: reproducible-containers/buildkit-cache-dance@v3.1.2
-              with:
-                  builder: ${{ steps.setup-buildx.outputs.name }}
-                  cache-map: |
-                      {
-                          "fex-ccache": "/tmp/.ccache"
-                      }
-                  skip-extraction: ${{ steps.fex-ccache.outputs.cache-hit }}
 
             - name: Build and push with optimized caching
               if: steps.check-images.outputs.build_fexbash == 'true'
@@ -626,6 +608,7 @@ jobs:
                   cache-map: |
                       {
                         "apt-cache": "/var/cache/apt",
+                        "apt-lib": "/var/lib/apt",
                         "dnf-cache": "/var/cache/dnf",
                         "fex-ccache": "/tmp/.ccache"
                       }

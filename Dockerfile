@@ -43,6 +43,7 @@ RUN echo "🔍 Starting OS detection..." && \
 
 # Install build dependencies  
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "📦 Starting package installation..." && \
     . /etc/distro-info && \
@@ -376,6 +377,7 @@ RUN echo "🔍 Starting OS detection..." && \
 
 # Install runtime dependencies 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
     --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "📦 Starting runtime dependencies installation..." && \
     . /etc/distro-info && \
