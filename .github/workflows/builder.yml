@@ -419,96 +419,37 @@ jobs:
               run: |
                   echo "🎯 Building: ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
                   echo "✅ Passed EOL filtering"
+            - name: Check existing images using GitHub Action
+              id: check-images-action
+              uses: cloudposse/github-action-docker-image-exists@main
+              continue-on-error: true
+              with:
+                  registry: ghcr.io
+                  organization: "${{ github.repository_owner }}"
+                  repository: "${{ github.event.repository.name }}"
+                  login: "${{ github.actor }}"
+                  password: "${{ secrets.GITHUB_TOKEN }}"
+                  tag: "${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
 
-            - name: Check existing images using buildx imagetools
+            - name: Determine build necessity
               id: check-images
               run: |
-                  RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
-                  IMAGE_FULL="ghcr.io/${{ github.repository }}:$RELEASE_TAG"
-
-                  echo "🔍 Checking image existence with buildx imagetools..."
-                  if docker buildx imagetools inspect "$IMAGE_FULL" >/dev/null 2>&1; then
-                      echo "✅ Image exists: $IMAGE_FULL"
-                      IMAGE_EXISTS=true
-                  elif docker pull "$IMAGE_FULL" >/dev/null 2>&1; then
-                      echo "✅ Image exists (verified by pull): $IMAGE_FULL"
-                      IMAGE_EXISTS=true
-                      docker rmi "$IMAGE_FULL" >/dev/null 2>&1 || true
+                  IMAGE_EXISTS=false
+                  if [ "${{ steps.check-images-action.conclusion }}" = "success" ]; then
+                  echo "✅ Image found: ${{ steps.check-images-action.outputs.image }}"
+                  IMAGE_EXISTS=true
                   else
-                      echo "❌ Image does not exist: $IMAGE_FULL"
-                      IMAGE_EXISTS=false
+                  echo "❌ Image not found or inaccessible"
+                  IMAGE_EXISTS=false
                   fi
 
                   if [ "$IMAGE_EXISTS" = "true" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
-                      echo "build_fexbash=false" >> $GITHUB_OUTPUT
                       echo "⏭️ Skipping build - image already exists"
-                  else
-                      echo "build_fexbash=true" >> $GITHUB_OUTPUT
-                      echo "🔨 Proceeding with build"
-                  fi
-            - name: Check image via GitHub API
-              id: check-images-api
-              run: |
-                  RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
-                  REPO_NAME="${{ github.repository }}"
-                  PACKAGE_NAME="${REPO_NAME##*/}"
-
-                  echo "🔍 Checking via GitHub Packages API..."
-                  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-                      -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/users/${{ github.repository_owner }}/packages/container/$PACKAGE_NAME/versions")
-
-                  if [ "$HTTP_STATUS" = "200" ]; then
-                      echo "✅ Package exists"
                       echo "build_fexbash=false" >> $GITHUB_OUTPUT
                   else
-                      echo "❌ Package not found or private"
+                      echo "🔨 Proceeding with build"
                       echo "build_fexbash=true" >> $GITHUB_OUTPUT
                   fi
-
-            - name: Debug image existence check
-              run: |
-                  RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
-                  IMAGE_FULL="ghcr.io/${{ github.repository }}:$RELEASE_TAG"
-
-                  echo "🔍 Testing multiple image existence methods..."
-                  echo "📋 Target image: $IMAGE_FULL"
-
-                  echo "🔍 Method 1: docker manifest inspect"
-                  if docker manifest inspect "$IMAGE_FULL" >/dev/null 2>&1; then
-                      echo "✅ Manifest inspect: SUCCESS"
-                      MANIFEST_SUCCESS=true
-                  else
-                      echo "❌ Manifest inspect: FAILED"
-                      docker manifest inspect "$IMAGE_FULL" 2>&1 | head -3
-                      MANIFEST_SUCCESS=false
-                  fi
-
-                  echo "🔍 Method 2: docker buildx imagetools inspect"
-                  if docker buildx imagetools inspect "$IMAGE_FULL" >/dev/null 2>&1; then
-                      echo "✅ Buildx imagetools: SUCCESS"
-                      BUILDX_SUCCESS=true
-                  else
-                      echo "❌ Buildx imagetools: FAILED"
-                      docker buildx imagetools inspect "$IMAGE_FULL" 2>&1 | head -3
-                      BUILDX_SUCCESS=false
-                  fi
-
-                  echo "🔍 Method 3: docker pull test"
-                  if docker pull "$IMAGE_FULL" >/dev/null 2>&1; then
-                      echo "✅ Docker pull: SUCCESS"
-                      docker rmi "$IMAGE_FULL" >/dev/null 2>&1 || true
-                      PULL_SUCCESS=true
-                  else
-                      echo "❌ Docker pull: FAILED"
-                      PULL_SUCCESS=false
-                  fi
-
-                  echo "📊 Results summary:"
-                  echo "  - Manifest inspect: $MANIFEST_SUCCESS"
-                  echo "  - Buildx imagetools: $BUILDX_SUCCESS"  
-                  echo "  - Docker pull: $PULL_SUCCESS"
 
             - name: Checkout repository
               if: steps.check-images.outputs.build_fexbash == 'true'
