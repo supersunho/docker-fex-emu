@@ -109,10 +109,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         \
         # Simple cleanup
         echo "🧹 Cleaning up..." && \
-        update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \
-        apt-get autoremove -qq -y && \
-        apt-get autoclean -qq && \
-        rm -rf /var/lib/apt/lists/* /var/tmp/* && \
+        update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \ 
+        rm -rf /var/tmp/* && \
         echo "✅ Debian/Ubuntu setup completed successfully"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         echo "🔧 Setting up Fedora environment..." && \
@@ -131,8 +129,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
             nasm python3-clang python3-setuptools openssl-devel \
             libcap-devel glfw-devel libepoxy-devel SDL2-devel \
             qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
-            curl wget which && \
-        dnf clean all -q && \
+            curl wget which && \ 
         \
         echo "✅ Fedora setup completed successfully"; \
     else \
@@ -250,94 +247,221 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🎉 FEX build completed successfully!"
 
 #==============================================
-# RootFS Preparation Stage (OS-Neutral)
+# RootFS Preparation Stage (Ubuntu-based)
 #==============================================
-FROM alpine:3 AS rootfs-preparer
+FROM ubuntu:24.04 AS rootfs-preparer
 
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 ARG ROOTFS_URL=""
 
-# Install extraction tools (OS-neutral Alpine)
-RUN echo "📦 Installing RootFS extraction tools..." && \
-    apk add --no-cache \
+# Install RootFS extraction tools and dependencies for Ubuntu
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
+    echo "📦 Installing RootFS extraction tools and dependencies..." && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        sudo \
+        coreutils \
         squashfs-tools \
-        e2fsprogs-extra \
-        util-linux && \
-    echo "✅ Extraction tools installed"
+        erofs-utils \
+        e2fsprogs \
+        util-linux && \   
+    echo "✅ All RootFS tools and dependencies installed"
 
-# Copy RootFS file from build context
-COPY --from=fex-rootfs . /tmp/fex-rootfs/
+# Create fex user for FEXRootFSFetcher
+RUN echo "👤 Creating fex user..." && \
+    useradd -m -s /bin/bash fex && \
+    usermod -aG sudo fex && \
+    echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    echo "✅ fex user created with sudo privileges"
+    
+COPY --from=fex-builder /usr/local/fex /usr/local/fex
+RUN echo "✅ FEX binaries copied successfully" && \
+    echo "📊 FEX installation summary:" && \
+    ls -la /usr/local/fex/bin/ && \
+    echo "🔧 Optimizing FEX binaries..." && \
+    strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    echo "✅ FEX binary optimization completed"
 
-RUN echo "🚀 Preparing RootFS for inclusion in image..." && \
-    echo "📊 RootFS preparation parameters:" && \
-    echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \
-    echo "  - ROOTFS_VERSION: ${ROOTFS_VERSION}" && \
-    echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
-    echo "  - ROOTFS_URL: ${ROOTFS_URL}" && \
+ENV PATH="/usr/local/fex/bin:$PATH"
+
+# Setup RootFS using FEXRootFSFetcher first, manual fallback for Ubuntu
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    echo "🚀 Starting RootFS setup process..." && \
+    echo "📊 RootFS configuration:" && \
+    echo "  - Target OS: ${ROOTFS_OS}" && \
+    echo "  - Target Version: ${ROOTFS_VERSION}" && \
+    echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
+    echo "  - RootFS URL: ${ROOTFS_URL}" && \
     \
-    # Find RootFS file in build context
-    echo "🔍 Looking for RootFS files..." && \
-    ls -la /tmp/fex-rootfs/ && \
-    \
-    # Detect RootFS file 
-    ROOTFS_FILE="" && \
-    if [ -n "$ROOTFS_URL" ]; then \
-        ROOTFS_FILE=$(basename "$ROOTFS_URL"); \
-    else \
-        for ext in sqsh squashfs ero erofs; do \
-            FOUND_FILE=$(find /tmp/fex-rootfs -name "*.${ext}" | head -1) && \
-            if [ -n "$FOUND_FILE" ]; then \
-                ROOTFS_FILE=$(basename "$FOUND_FILE") && \
-                break; \
-            fi; \
-        done; \
-    fi && \
-    \
-    if [ -z "$ROOTFS_FILE" ]; then \
-        echo "❌ No RootFS file found" && \
-        exit 1; \
-    fi && \
-    \
-    ROOTFS_LOCAL_PATH="/tmp/fex-rootfs/$ROOTFS_FILE" && \
-    echo "✅ Found RootFS file: $ROOTFS_FILE" && \
-    echo "📊 File size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)" && \
-    \
-    # Extract to standard FEX location
-    echo "📦 Extracting RootFS for permanent inclusion..." && \
-    ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
-    mkdir -p "/fex-rootfs/$ROOTFS_DIRNAME" && \
-    \
-    # Verify the directory name is correct
-    echo "🔍 Created directory name: $ROOTFS_DIRNAME" && \
-    \
-    if echo "$ROOTFS_FILE" | grep -q '\.sqsh$\|\.squashfs$'; then \
-        echo "🔧 Extracting SquashFS file..." && \
-        unsquashfs -f -d "/fex-rootfs/$ROOTFS_DIRNAME" "$ROOTFS_LOCAL_PATH" && \
-        echo "✅ SquashFS extraction completed"; \
-    elif echo "$ROOTFS_FILE" | grep -q '\.ero$\|\.erofs$'; then \
-        echo "🔧 Extracting EROFS file..." && \
-        (apk add --no-cache erofs-utils >/dev/null 2>&1 || true) && \
-        if command -v dump.erofs >/dev/null 2>&1; then \
-            dump.erofs --extract="/fex-rootfs/$ROOTFS_DIRNAME" "$ROOTFS_LOCAL_PATH"; \
+    # Try FEXRootFSFetcher first
+    FEXROOTFS_SUCCESS=false && \
+    for attempt in 1 2 3; do \
+        echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
+        if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+            echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
+            FEXROOTFS_SUCCESS=true && \
+            break; \
         else \
-            echo "⚠️ EROFS tools not available, trying alternative method..."; \
+            echo "❌ FEXRootFSFetcher failed (attempt $attempt)" && \
+            if [ $attempt -lt 3 ]; then \
+                echo "⏳ Waiting 5 seconds before retry..." && \
+                sleep 5; \
+            fi; \
+        fi; \
+    done && \
+    \
+    # Fallback to manual setup with direct URL download
+    if [ "$FEXROOTFS_SUCCESS" = "false" ]; then \
+        echo "🔄 FEXRootFSFetcher failed - falling back to manual setup with direct URL download..." && \
+        \
+        mkdir -p /home/fex/.fex-emu/RootFS && \
+        mkdir -p /tmp/fex-rootfs && \
+        \
+        if [ -z "$ROOTFS_URL" ]; then \
+            echo "❌ ROOTFS_URL is not provided for manual download" && \
+            exit 1; \
         fi && \
-        echo "✅ EROFS extraction completed"; \
+        \
+        echo "📥 Downloading RootFS from URL: $ROOTFS_URL" && \
+        ROOTFS_FILE=$(basename "$ROOTFS_URL") && \
+        ROOTFS_LOCAL_PATH="/tmp/fex-rootfs/$ROOTFS_FILE" && \
+        \
+        # Download RootFS using curl with retry logic
+        DOWNLOAD_SUCCESS=false && \
+        for download_attempt in 1 2 3; do \
+            echo "⏳ Download attempt $download_attempt/3..." && \
+            if curl -H 'Cache-Control: no-cache' -L --connect-timeout 30 --max-time 600 \
+                    --retry 3 --retry-delay 5 \
+                    "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH"; then \
+                echo "✅ RootFS downloaded successfully (attempt $download_attempt)" && \
+                DOWNLOAD_SUCCESS=true && \
+                break; \
+            else \
+                echo "❌ Download failed (attempt $download_attempt)" && \
+                if [ $download_attempt -lt 3 ]; then \
+                    echo "⏳ Waiting 10 seconds before retry..." && \
+                    sleep 10; \
+                fi; \
+            fi; \
+        done && \
+        \
+        if [ "$DOWNLOAD_SUCCESS" = "false" ]; then \
+            echo "❌ Failed to download RootFS after 3 attempts" && \
+            exit 1; \
+        fi && \
+        \
+        echo "✅ Found RootFS file: $ROOTFS_FILE" && \
+        echo "📊 File size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)" && \
+        \
+        ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
+        EXTRACT_DIR="/home/fex/.fex-emu/RootFS/${ROOTFS_DIRNAME}" && \
+        echo "📋 RootFS directory name: $ROOTFS_DIRNAME" && \
+        \
+        if [ -d "$EXTRACT_DIR" ]; then \
+            echo "🗑️ Removing existing RootFS directory..." && \
+            rm -rf "$EXTRACT_DIR"; \
+        fi && \
+        mkdir -p "$EXTRACT_DIR" && \
+        \
+        if echo "$ROOTFS_FILE" | grep -q '\.sqsh$\|\.squashfs$'; then \
+            echo "🔧 Extracting SquashFS file using unsquashfs..." && \
+            if command -v unsquashfs >/dev/null 2>&1; then \
+                unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+                echo "✅ SquashFS extraction completed"; \
+            else \
+                echo "📦 unsquashfs not found. Installing squashfs-tools..." && \
+                apt-get update && apt-get install -y squashfs-tools && \
+                unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+                echo "✅ SquashFS extraction completed"; \
+            fi; \
+        elif echo "$ROOTFS_FILE" | grep -q '\.ero$\|\.erofs$'; then \
+            echo "🔧 Extracting EROFS file..." && \
+            if ! command -v dump.erofs >/dev/null 2>&1; then \
+                echo "📦 Installing erofs-utils..." && \
+                apt-get update && apt-get install -y erofs-utils; \
+            fi && \
+            dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+            echo "✅ EROFS extraction completed"; \
+        else \
+            echo "❌ Unknown RootFS file format: $ROOTFS_FILE" && \
+            exit 1; \
+        fi && \
+        \
+        echo "⚙️ Writing FEX configuration..." && \
+        CONFIG_PATH="/home/fex/.fex-emu/Config.json" && \
+        printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > "$CONFIG_PATH" && \
+        echo "✅ FEX configuration written to $CONFIG_PATH" && \
+        \
+        chown -R fex:fex /home/fex/.fex-emu && \
+        \
+        echo "🔍 Verifying manual RootFS installation..." && \
+        if [ -d "$EXTRACT_DIR" ]; then \
+            ROOTFS_CONTENT_COUNT=$(find "$EXTRACT_DIR" -type f | wc -l) && \
+            echo "📊 Manual RootFS verification results:" && \
+            echo "  - Directory: $EXTRACT_DIR" && \
+            echo "  - Files: $ROOTFS_CONTENT_COUNT" && \
+            if [ "$ROOTFS_CONTENT_COUNT" -gt 100 ]; then \
+                echo "✅ Manual RootFS appears to be properly extracted"; \
+            else \
+                echo "⚠️ Manual RootFS may be incomplete (too few files)"; \
+            fi; \
+        else \
+            echo "❌ Manual RootFS directory not found after extraction" && \
+            exit 1; \
+        fi && \
+        \
+        echo "🎉 Manual RootFS setup completed successfully as fallback!"; \
     else \
-        echo "❌ Unknown RootFS file format: $ROOTFS_FILE" && \
-        exit 1; \
+        echo "🎉 FEXRootFSFetcher setup completed successfully!" && \
+        chown -R fex:fex /home/fex/.fex-emu; \
     fi && \
     \
-    # Create config for this RootFS
-    mkdir -p /fex-config && \
-    printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > /fex-config/Config.json && \
-    echo "✅ RootFS prepared for inclusion: $ROOTFS_DIRNAME" && \
-    echo "📊 Extracted RootFS size: $(du -sh /fex-rootfs)" &&\
+    # Final verification
+    echo "🔧 Final RootFS verification..." && \
+    if [ -d "/home/fex/.fex-emu/RootFS" ]; then \
+        ROOTFS_COUNT=$(find /home/fex/.fex-emu/RootFS -maxdepth 1 -type d | wc -l) && \
+        ROOTFS_FILES=$(find /home/fex/.fex-emu/RootFS -type f | wc -l) && \
+        echo "📊 Final RootFS verification:" && \
+        echo "  - RootFS directories: $ROOTFS_COUNT" && \
+        echo "  - RootFS files: $ROOTFS_FILES" && \
+        echo "  - Method used: $( [ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (primary)" || echo "Manual setup (fallback)" )" && \
+        if [ "$ROOTFS_FILES" -gt 0 ]; then \
+            echo "✅ Final RootFS verification passed"; \
+        else \
+            echo "❌ Final RootFS verification failed - no files found" && \
+            exit 1; \
+        fi; \
+    else \
+        echo "❌ RootFS directory not found" && \
+        exit 1; \
+    fi && \
     \
     # Cleanup
-    rm -rf /tmp/fex-rootfs
+    echo "🧹 Cleaning up temporary RootFS artifacts..." && \
+    rm -rf /tmp/fex-rootfs && \
+    find /home/fex/.fex-emu/RootFS -name "*.sqsh" -delete 2>/dev/null || true && \
+    find /home/fex/.fex-emu/RootFS -name "*.ero" -delete 2>/dev/null || true && \
+    echo "💾 Final RootFS size: $(du -sh /home/fex/.fex-emu/ 2>/dev/null || echo 'unknown')" && \
+    echo "🎉 RootFS setup completed successfully!"
+
+USER fex
+WORKDIR /home/fex 
+RUN chown -R fex:fex /home/fex/.fex-emu && \
+    echo "🎉 RootFS pre-installed in image!" && \
+    echo "📊 Pre-installed RootFS verification:" && \
+    echo "  - RootFS directory: $(ls -d /home/fex/.fex-emu/RootFS/*/ | head -1)" && \
+    echo "  - RootFS files: $(find /home/fex/.fex-emu/RootFS -type f | wc -l)" && \
+    echo "  - RootFS size: $(du -sh /home/fex/.fex-emu/RootFS)" && \
+    echo "  - Config file: $(ls -la /home/fex/.fex-emu/Config.json)" && \
+    echo "✅ Ready for immediate x86 application execution!"
 
 #==============================================
 # Runtime Stage with Pre-installed RootFS
@@ -395,10 +519,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "✅ Runtime packages installed" && \
         \
         # Cleanup for size optimization
-        echo "🧹 Performing cleanup for size optimization..." && \
-        apt-get autoremove -y && \
-        apt-get autoclean && \
-        rm -rf /var/lib/apt/lists/* /var/tmp/* && \
+        echo "🧹 Performing cleanup for size optimization..." && \ 
+        rm -rf /var/tmp/* && \
         echo "✅ Debian/Ubuntu runtime setup completed successfully"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         echo "🔧 Setting up Fedora runtime environment..." && \
@@ -407,16 +529,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
             sudo curl wget jq \
             util-linux-core libstdc++ glibc file && \
         echo "✅ Fedora runtime packages installed" && \
-        echo "🧹 Cleaning up Fedora package cache..." && \
-        dnf clean all -q && \
+        echo "🧹 Cleaning up Fedora package cache..." && \ 
         rm -rf /var/tmp/* && \
         echo "✅ Fedora runtime setup completed successfully"; \
     else \
         echo "❌ Unsupported distribution type for runtime" && exit 1; \
     fi && \
     echo "🎉 Runtime dependencies installation completed!"
-
-
 
 # Copy FEX binaries from build stage and optimize
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
@@ -443,8 +562,7 @@ RUN echo "👤 Starting user creation and configuration..." && \
     echo "✅ User configuration completed"
 
 # Copy pre-extracted RootFS
-COPY --from=rootfs-preparer /fex-rootfs /home/fex/.fex-emu/RootFS
-COPY --from=rootfs-preparer /fex-config/Config.json /home/fex/.fex-emu/Config.json
+COPY --from=rootfs-preparer /home/fex/.fex-emu/ /home/fex/.fex-emu/ 
 
 # Set proper ownership and verify
 RUN chown -R fex:fex /home/fex/.fex-emu && \
@@ -459,4 +577,4 @@ RUN chown -R fex:fex /home/fex/.fex-emu && \
 # Switch to fex user
 USER fex
 WORKDIR /home/fex 
-CMD ["/bin/bash", "-c", "echo '🚀 FEX-Emu ready!' && echo '🔧 Built with Alpine Linux for maximum efficiency!' && echo '💡 Try: FEXBash' && /bin/bash"]
+CMD ["/bin/bash", "-c", "echo '🚀 FEX-Emu ready!' && echo '🔧 Built with Ubuntu Linux for maximum compatibility!' && echo '💡 Try: FEXBash' && /bin/bash"]
