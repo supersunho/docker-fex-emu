@@ -419,36 +419,31 @@ jobs:
               run: |
                   echo "🎯 Building: ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
                   echo "✅ Passed EOL filtering"
-            - name: Check existing images using GitHub Action
-              id: check-images-action
-              uses: cloudposse/github-action-docker-image-exists@main
-              continue-on-error: true
-              with:
-                  registry: ghcr.io
-                  organization: "${{ github.repository_owner }}"
-                  repository: "${{ github.event.repository.name }}"
-                  login: "${{ github.actor }}"
-                  password: "${{ secrets.GITHUB_TOKEN }}"
-                  tag: "${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
 
-            - name: Determine build necessity
+            - name: Check if image exists using GHCR tags API
               id: check-images
               run: |
-                  IMAGE_EXISTS=false
-                  if [ "${{ steps.check-images-action.conclusion }}" = "success" ]; then
-                  echo "✅ Image found: ${{ steps.check-images-action.outputs.image }}"
-                  IMAGE_EXISTS=true
-                  else
-                  echo "❌ Image not found or inaccessible"
-                  IMAGE_EXISTS=false
-                  fi
+                  RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
+                  IMAGE_NAME="${{ github.repository }}"
 
-                  if [ "$IMAGE_EXISTS" = "true" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
-                      echo "⏭️ Skipping build - image already exists"
-                      echo "build_fexbash=false" >> $GITHUB_OUTPUT
+                  echo "🔍 Checking image existence via GHCR tags API..."
+
+                  # Get authentication token for GHCR
+                  TOKEN=$(echo -n "${{ secrets.GITHUB_TOKEN }}" | base64)
+
+                  # Get all tags from GHCR
+                  TAGS_RESPONSE=$(curl -s -H "Authorization: Bearer ${TOKEN}" \
+                  "https://ghcr.io/v2/${IMAGE_NAME}/tags/list" 2>/dev/null)
+
+                  echo "📋 API Response: $TAGS_RESPONSE"
+
+                  # Check if our specific tag exists
+                  if echo "$TAGS_RESPONSE" | jq -e --arg TAG "$RELEASE_TAG" '.tags | index($TAG)' >/dev/null 2>&1; then
+                  echo "✅ Image with tag $RELEASE_TAG already exists"
+                  echo "build_fexbash=false" >> $GITHUB_OUTPUT
                   else
-                      echo "🔨 Proceeding with build"
-                      echo "build_fexbash=true" >> $GITHUB_OUTPUT
+                  echo "❌ Image with tag $RELEASE_TAG not found"
+                  echo "build_fexbash=true" >> $GITHUB_OUTPUT
                   fi
 
             - name: Checkout repository
