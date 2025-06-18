@@ -533,11 +533,17 @@ jobs:
                       ${{ env.CACHE_VERSION }}-ccache-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
                       ${{ env.CACHE_VERSION }}-ccache-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-
 
-            - name: Build and push with enhanced caching
+            - name: Build and push with optimized caching
               if: steps.check-images.outputs.build_fexbash == 'true'
               id: build
               uses: docker/build-push-action@v5
               with:
+                  driver-opts: |
+                      network=host
+                      image=moby/buildkit:buildx-stable-1
+                  config-inline: |
+                      [worker.oci]
+                          max-parallelism = 4
                   context: .
                   file: ./Dockerfile
                   platforms: linux/arm64
@@ -548,10 +554,8 @@ jobs:
                   no-cache: ${{ github.event.inputs.clear_cache == 'true' }}
                   cache-from: |
                       type=gha,scope=${{ env.CACHE_VERSION }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
-                      type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.ROOTFS_OS }}
                   cache-to: |
-                      type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
-                      type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache-${{ matrix.ROOTFS_OS }},mode=max
+                      type=gha,mode=min,scope=${{ env.CACHE_VERSION }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
                   build-contexts: |
                       fex-sources=/tmp/fex-source
                       fex-rootfs=/tmp/fex-rootfs
