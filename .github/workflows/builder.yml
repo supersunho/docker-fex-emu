@@ -497,19 +497,8 @@ jobs:
                   rm -rf /tmp/fex-source
                   git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
 
-            - name: Cache RootFS with optimized keys
-              if: steps.check-images.outputs.build_fexbash == 'true'
-              id: cache-fex-rootfs
-              uses: actions/cache@v4
-              with:
-                  path: /tmp/fex-rootfs
-                  key: ${{ env.CACHE_VERSION }}-rootfs-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ matrix.ROOTFS_HASH }}
-                  restore-keys: |
-                      ${{ env.CACHE_VERSION }}-rootfs-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
-                      ${{ env.CACHE_VERSION }}-rootfs-${{ runner.os }}-${{ matrix.ROOTFS_OS }}-
-
             - name: Download RootFS if not cached
-              if: steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-rootfs.outputs.cache-hit != 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   mkdir -p /tmp/fex-rootfs
                   ROOTFS_FILENAME=$(basename "${{ matrix.ROOTFS_URL }}")
