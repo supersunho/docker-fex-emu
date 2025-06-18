@@ -8,6 +8,18 @@ on:
     # Manual trigger (Selective builds)
     workflow_dispatch:
         inputs:
+            runner:
+                description: "Choose runner type"
+                type: choice
+                default: "self-hosted-arm64"
+                options:
+                    - "ubuntu-24.04"
+                    - "ubuntu-22.04"
+                    - "ubuntu-24.04-arm"
+                    - "ubuntu-22.04-arm"
+                    - "ubuntu-latest"
+                    - "self-hosted-arm64"
+
             build_scope:
                 description: "Build scope selection"
                 required: true
@@ -65,7 +77,7 @@ permissions:
 jobs:
     # Combined job for better efficiency
     prepare-and-generate:
-        runs-on: [self-hosted, linux, arm64]
+        runs-on: ${{ github.event.inputs.runner == 'self-hosted-arm64' && fromJSON('["self-hosted", "linux", "arm64"]') || github.event.inputs.runner }}
         outputs:
             # EOL outputs
             ubuntu-eol-versions: ${{ steps.get-eol.outputs.ubuntu-eol-versions }}
@@ -406,7 +418,7 @@ jobs:
     build-arm:
         needs: prepare-and-generate
         if: needs.prepare-and-generate.outputs.has-builds == 'true'
-        runs-on: [self-hosted, linux, arm64]
+        runs-on: ${{ github.event.inputs.runner == 'self-hosted-arm64' && fromJSON('["self-hosted", "linux", "arm64"]') || github.event.inputs.runner }}
         permissions:
             contents: read
             packages: write
@@ -620,7 +632,7 @@ jobs:
     merge-manifests:
         needs: [prepare-and-generate, build-arm]
         if: always() && needs.build-arm.result == 'success'
-        runs-on: [self-hosted, linux, arm64]
+        runs-on: ${{ github.event.inputs.runner == 'self-hosted-arm64' && fromJSON('["self-hosted", "linux", "arm64"]') || github.event.inputs.runner }}
         permissions:
             contents: read
             packages: write
@@ -665,7 +677,7 @@ jobs:
     create-release:
         needs: [prepare-and-generate, merge-manifests]
         if: always() && needs.merge-manifests.result == 'success'
-        runs-on: [self-hosted, linux, arm64]
+        runs-on: ${{ github.event.inputs.runner == 'self-hosted-arm64' && fromJSON('["self-hosted", "linux", "arm64"]') || github.event.inputs.runner }}
         permissions:
             contents: write
         steps:
@@ -773,7 +785,7 @@ jobs:
     build-summary:
         needs: [prepare-and-generate, build-arm, merge-manifests, create-release]
         if: always()
-        runs-on: [self-hosted, linux, arm64]
+        runs-on: ${{ github.event.inputs.runner == 'self-hosted-arm64' && fromJSON('["self-hosted", "linux", "arm64"]') || github.event.inputs.runner }}
         steps:
             - name: Generate comprehensive build summary
               run: |
