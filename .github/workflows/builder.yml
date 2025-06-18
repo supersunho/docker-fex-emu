@@ -595,17 +595,6 @@ jobs:
                   docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "ls /usr/bin" >/dev/null && echo "✅ X86 binary execution working" || echo "❌ X86 binary execution failed"
 
                   echo "🎉 All FEXBash verification tests completed!"
-            - name: Extract and report system cache stats
-              if: steps.check-images.outputs.build_fexbash == 'true'
-              uses: reproducible-containers/buildkit-cache-dance@v3.1.2
-              with:
-                  cache-map: |
-                      {
-                        "apt-cache": "/var/cache/apt",
-                        "apt-lib": "/var/lib/apt",
-                        "dnf-cache": "/var/cache/dnf",
-                        "fex-ccache": "/tmp/.ccache"
-                      }
             - name: Display cache statistics
               run: |
                   echo "📊 System Package Cache Statistics:"
