@@ -450,12 +450,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     find /home/fex/.fex-emu/RootFS -name "*.sqsh" -delete 2>/dev/null || true && \
     find /home/fex/.fex-emu/RootFS -name "*.ero" -delete 2>/dev/null || true && \
     echo "💾 Final RootFS size: $(du -sh /home/fex/.fex-emu/ 2>/dev/null || echo 'unknown')" && \
-    echo "🎉 RootFS setup completed successfully!"
-
-USER fex
-WORKDIR /home/fex 
-RUN chown -R fex:fex /home/fex/.fex-emu && \
-    echo "🎉 RootFS pre-installed in image!" && \
+    echo "🎉 RootFS setup completed successfully!" && \
     echo "📊 Pre-installed RootFS verification:" && \
     echo "  - RootFS directory: $(ls -d /home/fex/.fex-emu/RootFS/*/ | head -1)" && \
     echo "  - RootFS files: $(find /home/fex/.fex-emu/RootFS -type f | wc -l)" && \
