@@ -2,12 +2,11 @@
 
 # 🚀 FEXBash Base Images for ARM64
 
-<p align="center">
-  <img src="https://img.shields.io/github/stars/supersunho/docker-fex-emu?style=for-the-badge&logo=github&color=gold" alt="GitHub Stars"/>
-  <img src="https://img.shields.io/github/forks/supersunho/docker-fex-emu?style=for-the-badge&logo=github&color=blue" alt="GitHub Forks"/>
-  <img src="https://github.com/supersunho/docker-fex-emu/actions/workflows/builderV3.yml/badge.svg" alt="Build Status"/>  
-  
-</p>
+[![Build Status](https://github.com/supersunho/docker-fex-emu/actions/workflows/builder.yml/badge.svg)](https://github.com/supersunho/docker-fex-emu/actions)
+[![GitHub Release](https://img.shields.io/github/v/release/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/releases/latest)
+[![License](https://img.shields.io/github/license/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/blob/main/LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/supersunho/docker-fex-emu)](https://github.com/supersunho/docker-fex-emu/stargazers)
+
 **Production-ready ARM64 containers with pre-configured FEX-Emu runtime for seamless x86 application execution across multiple Linux distributions**
 
 ---
