@@ -450,11 +450,11 @@ jobs:
               if: steps.check-images.outputs.build_fexbash == 'true'
               uses: actions/checkout@v4
 
-            - name: Set up QEMU
-              if: steps.check-images.outputs.build_fexbash == 'true'
-              uses: docker/setup-qemu-action@v3
-              with:
-                  platforms: linux/arm64
+            # - name: Set up QEMU
+            #   if: steps.check-images.outputs.build_fexbash == 'true'
+            #   uses: docker/setup-qemu-action@v3
+            #   with:
+            #       platforms: linux/arm64
 
             - name: Set up Docker Buildx with optimization
               if: steps.check-images.outputs.build_fexbash == 'true'
@@ -538,12 +538,6 @@ jobs:
               id: build
               uses: docker/build-push-action@v5
               with:
-                  driver-opts: |
-                      network=host
-                      image=moby/buildkit:buildx-stable-1
-                  config-inline: |
-                      [worker.oci]
-                          max-parallelism = 4
                   context: .
                   file: ./Dockerfile
                   platforms: linux/arm64
