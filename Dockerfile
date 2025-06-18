@@ -291,10 +291,13 @@ RUN echo "🚀 Preparing RootFS for inclusion in image..." && \
     echo "✅ Found RootFS file: $ROOTFS_FILE" && \
     echo "📊 File size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)" && \
     \
-    # Extract to standard FEX location (기존 로직 동일)
+    # Extract to standard FEX location
     echo "📦 Extracting RootFS for permanent inclusion..." && \
-    ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
+    ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^\(.\)/\U\1/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
     mkdir -p "/fex-rootfs/$ROOTFS_DIRNAME" && \
+    \
+    # Verify the directory name is correct
+    echo "🔍 Created directory name: $ROOTFS_DIRNAME" && \
     \
     if echo "$ROOTFS_FILE" | grep -q '\.sqsh$\|\.squashfs$'; then \
         echo "🔧 Extracting SquashFS file..." && \
@@ -302,7 +305,6 @@ RUN echo "🚀 Preparing RootFS for inclusion in image..." && \
         echo "✅ SquashFS extraction completed"; \
     elif echo "$ROOTFS_FILE" | grep -q '\.ero$\|\.erofs$'; then \
         echo "🔧 Extracting EROFS file..." && \
-        # Alpine의 erofs-utils 사용
         (apk add --no-cache erofs-utils >/dev/null 2>&1 || true) && \
         if command -v dump.erofs >/dev/null 2>&1; then \
             dump.erofs --extract="/fex-rootfs/$ROOTFS_DIRNAME" "$ROOTFS_LOCAL_PATH"; \
@@ -315,11 +317,11 @@ RUN echo "🚀 Preparing RootFS for inclusion in image..." && \
         exit 1; \
     fi && \
     \
-    # Create config for this RootFS (기존 로직 동일)
+    # Create config for this RootFS
     mkdir -p /fex-config && \
     printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > /fex-config/Config.json && \
     echo "✅ RootFS prepared for inclusion: $ROOTFS_DIRNAME" && \
-    echo "📊 Extracted RootFS size: $(du -sh /fex-rootfs)" && \
+    echo "📊 Extracted RootFS size: $(du -sh /fex-rootfs)" &&\
     \
     # Cleanup
     rm -rf /tmp/fex-rootfs
@@ -417,7 +419,7 @@ RUN echo "👤 Starting user creation and configuration..." && \
     echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
     echo "✅ User configuration completed"
 
-# Copy pre-extracted RootFS (PHASE 1 - 즉시 실행 가능)
+# Copy pre-extracted RootFS
 COPY --from=rootfs-preparer /fex-rootfs /home/fex/.fex-emu/RootFS
 COPY --from=rootfs-preparer /fex-config/Config.json /home/fex/.fex-emu/Config.json
 
@@ -435,6 +437,4 @@ RUN chown -R fex:fex /home/fex/.fex-emu && \
 USER fex
 WORKDIR /home/fex
 
-# Enhanced entrypoint for Phase 1 (즉시 실행)
-ENTRYPOINT ["/bin/bash", "-c"]
-CMD ["echo '🚀 FEX-Emu ready for x86 application execution!' && echo 'Try: FEXBash' && /bin/bash"]
+CMD ["/bin/bash", "-c", "echo '🚀 FEX-Emu ready!' && echo '🔧 Built with Alpine Linux for maximum efficiency!' && echo '💡 Try: FEXBash' && /bin/bash"]

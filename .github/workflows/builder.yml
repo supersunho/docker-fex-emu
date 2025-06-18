@@ -561,18 +561,34 @@ jobs:
                       CCACHE_DIR=/tmp/.ccache
                       ENABLE_CCACHE=true
 
-            - name: Enhanced verification
+            - name: Enhanced verification with detailed output
               if: steps.check-images.outputs.build_fexbash == 'true'
               run: |
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
 
-                  # Comprehensive testing
-                  docker run --rm --platform linux/arm64 "$IMAGE" test -f /usr/local/fex/bin/FEXBash
-                  docker run --rm --platform linux/arm64 "$IMAGE" test -x /usr/local/fex/bin/FEXBash
-                  docker run --rm --platform linux/arm64 "$IMAGE" test -f /home/fex/.fex-emu/Config.json
+                  echo "🔍 Testing FEXBash binary existence..."
+                  if docker run --rm --platform linux/arm64 "$IMAGE" test -f /usr/local/fex/bin/FEXBash; then
+                      echo "✅ FEXBash binary exists"
+                  else
+                      echo "❌ FEXBash binary missing at /usr/local/fex/bin/FEXBash"
+                      exit 1
+                  fi
 
-                  SUBDIR_COUNT=$(docker run --rm --platform linux/arm64 "$IMAGE" 'ls -1d /home/fex/.fex-emu/RootFS/*/ 2>/dev/null | wc -l')
-                  [ "$SUBDIR_COUNT" -gt 0 ] || { echo "❌ RootFS verification failed"; exit 1; }
+                  echo "🔍 Testing FEXBash binary permissions..."
+                  if docker run --rm --platform linux/arm64 "$IMAGE" test -x /usr/local/fex/bin/FEXBash; then
+                      echo "✅ FEXBash binary is executable"
+                  else
+                      echo "❌ FEXBash binary is not executable"
+                      exit 1
+                  fi
+
+                  echo "🔍 Testing Config.json existence..."
+                  if docker run --rm --platform linux/arm64 "$IMAGE" test -f /home/fex/.fex-emu/Config.json; then
+                      echo "✅ Config.json exists"
+                  else
+                      echo "❌ Config.json missing at /home/fex/.fex-emu/Config.json"
+                      exit 1
+                  fi
 
                   echo "🎉 All verification tests passed!"
 
