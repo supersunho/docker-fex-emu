@@ -273,6 +273,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         util-linux >/dev/null 2>&1 && \   
     echo "✅ All RootFS tools and dependencies installed"
 
+RUN apt-get update -qq >/dev/null 2>&1 && \
+    apt-get install --reinstall -qq -y ca-certificates >/dev/null 2>&1 && \
+    mkdir -p /etc/ssl/certs && \
+    update-ca-certificates --fresh
+
+ENV CURL_CA_BUNDLE=""
+
 # Create fex user for FEXRootFSFetcher
 RUN echo "👤 Creating fex user..." && \
     useradd -m -s /bin/bash fex && \
