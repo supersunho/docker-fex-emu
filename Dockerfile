@@ -50,7 +50,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "🔍 Distribution type: $(cat /etc/distro-info)" && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         echo "🔧 Setting up Debian/Ubuntu environment..." && \
-        apt-get update -qq && \
+        apt-get update -qq >/dev/null 2>&1 && \
         echo "📦 Installing development packages..." && \
         apt-get install -qq -y --no-install-recommends \
             git cmake ninja-build pkg-config ccache \
@@ -60,7 +60,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
             software-properties-common openssl libssl-dev \
             binutils binutils-aarch64-linux-gnu \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            qtbase5-dev qtdeclarative5-dev && \
+            qtbase5-dev qtdeclarative5-dev >/dev/null 2>&1 && \
         echo "✅ Base packages installed successfully" && \
         \
         # Smart LLVM installation with apt-cache check + script fallback
@@ -85,7 +85,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
                 llvm-${LLVM_VERSION} \
                 llvm-${LLVM_VERSION}-dev \
                 llvm-${LLVM_VERSION}-tools \
-                libedit-dev libffi-dev && \
+                libedit-dev libffi-dev >/dev/null 2>&1 && \
             echo "✅ LLVM ${LLVM_VERSION} installed from system repository"; \
         else \
             echo "🔄 Using official LLVM installation script..." && \
@@ -114,7 +114,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "✅ Debian/Ubuntu setup completed successfully"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         echo "🔧 Setting up Fedora environment..." && \
-        dnf update -q -y && \
+        dnf update -q -y >/dev/null 2>&1 && \
         # Universal Fedora dnf optimization  
         echo "📦 Optimizing dnf configuration for all Fedora versions..." && \
         echo "max_parallel_downloads=10" >> /etc/dnf/dnf.conf && \
@@ -129,7 +129,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
             nasm python3-clang python3-setuptools openssl-devel \
             libcap-devel glfw-devel libepoxy-devel SDL2-devel \
             qt5-qtdeclarative-devel qt5-qtquickcontrols qt5-qtquickcontrols2 \
-            curl wget which && \ 
+            curl wget which >/dev/null 2>&1 && \ 
         \
         echo "✅ Fedora setup completed successfully"; \
     else \
@@ -262,15 +262,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
     echo "📦 Installing RootFS extraction tools and dependencies..." && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get update -qq >/dev/null 2>&1 && \
+    apt-get install -qq -y --no-install-recommends \
         curl \
         sudo \
         coreutils \
         squashfs-tools \
         erofs-utils \
         e2fsprogs \
-        util-linux && \   
+        util-linux >/dev/null 2>&1 && \   
     echo "✅ All RootFS tools and dependencies installed"
 
 # Create fex user for FEXRootFSFetcher
@@ -502,11 +502,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
     if [ "$DISTRO_TYPE" = "debian" ]; then \
         echo "🔧 Setting up Debian/Ubuntu runtime environment..." && \
-        apt-get update -qq && \
+        apt-get update -qq >/dev/null 2>&1 && \
         echo "📦 Installing minimal runtime packages..." && \
         apt-get install -qq -y --no-install-recommends \
             sudo curl wget jq \
-            libstdc++6 libc6 file && \
+            libstdc++6 libc6 file >/dev/null 2>&1 && \
         echo "✅ Runtime packages installed" && \
         \
         # Cleanup for size optimization
@@ -518,7 +518,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "📦 Installing minimal Fedora runtime packages..." && \
         dnf install -q -y --setopt=install_weak_deps=False \
             sudo curl wget jq \
-            util-linux-core libstdc++ glibc file && \
+            util-linux-core libstdc++ glibc file >/dev/null 2>&1 && \
         echo "✅ Fedora runtime packages installed" && \
         echo "🧹 Cleaning up Fedora package cache..." && \ 
         rm -rf /var/tmp/* && \
