@@ -373,7 +373,7 @@ RUN echo "🔍 Starting OS detection..." && \
         echo "DISTRO_TYPE=unknown" > /etc/distro-info; \
     fi && \
     echo "✅ OS detection completed"
-    
+
 # Install runtime dependencies 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
     --mount=type=cache,target=/var/cache/dnf,sharing=locked \
@@ -396,7 +396,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "🧹 Performing cleanup for size optimization..." && \
         apt-get autoremove -y && \
         apt-get autoclean && \
-        rm -rf /var/lib/apt/lists/* /var/tmp/* /var/cache/* && \
+        rm -rf /var/lib/apt/lists/* /var/tmp/* && \
         echo "✅ Debian/Ubuntu runtime setup completed successfully"; \
     elif [ "$DISTRO_TYPE" = "fedora" ]; then \
         echo "🔧 Setting up Fedora runtime environment..." && \
@@ -407,7 +407,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "✅ Fedora runtime packages installed" && \
         echo "🧹 Cleaning up Fedora package cache..." && \
         dnf clean all -q && \
-        rm -rf /var/cache/dnf /var/tmp/* && \
+        rm -rf /var/tmp/* && \
         echo "✅ Fedora runtime setup completed successfully"; \
     else \
         echo "❌ Unsupported distribution type for runtime" && exit 1; \
