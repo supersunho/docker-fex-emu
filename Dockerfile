@@ -310,6 +310,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     \
     # Try FEXRootFSFetcher first
     FEXROOTFS_SUCCESS=false && \
+    mkdir -p /home/fex/.fex-emu/RootFS && \
     for attempt in 1 2 3; do \
         echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
         if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
@@ -328,8 +329,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     # Fallback to manual setup with direct URL download
     if [ "$FEXROOTFS_SUCCESS" = "false" ]; then \
         echo "🔄 FEXRootFSFetcher failed - falling back to manual setup with direct URL download..." && \
-        \
-        mkdir -p /home/fex/.fex-emu/RootFS && \
+        \ 
         mkdir -p /tmp/fex-rootfs && \
         \
         if [ -z "$ROOTFS_URL" ]; then \
