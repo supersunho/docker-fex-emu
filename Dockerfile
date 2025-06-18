@@ -441,6 +441,5 @@ RUN chown -R fex:fex /home/fex/.fex-emu && \
 
 # Switch to fex user
 USER fex
-WORKDIR /home/fex
-ENV PATH="/usr/local/fex/bin:$PATH"
+WORKDIR /home/fex 
 CMD ["/bin/bash", "-c", "echo '🚀 FEX-Emu ready!' && echo '🔧 Built with Alpine Linux for maximum efficiency!' && echo '💡 Try: FEXBash' && /bin/bash"]
