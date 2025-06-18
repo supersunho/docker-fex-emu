@@ -446,6 +446,27 @@ jobs:
                       echo "build_fexbash=true" >> $GITHUB_OUTPUT
                       echo "🔨 Proceeding with build"
                   fi
+            - name: Check image via GitHub API
+              id: check-images-api
+              run: |
+                  RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
+                  REPO_NAME="${{ github.repository }}"
+                  PACKAGE_NAME="${REPO_NAME##*/}"
+
+                  echo "🔍 Checking via GitHub Packages API..."
+                  HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                      -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/users/${{ github.repository_owner }}/packages/container/$PACKAGE_NAME/versions")
+
+                  if [ "$HTTP_STATUS" = "200" ]; then
+                      echo "✅ Package exists"
+                      echo "build_fexbash=false" >> $GITHUB_OUTPUT
+                  else
+                      echo "❌ Package not found or private"
+                      echo "build_fexbash=true" >> $GITHUB_OUTPUT
+                  fi
+
             - name: Debug image existence check
               run: |
                   RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
