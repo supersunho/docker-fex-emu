@@ -313,7 +313,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     mkdir -p /home/fex/.fex-emu/RootFS && \
     for attempt in 1 2 3; do \
         echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
-        if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+        if timeout 300 sudo -u fex FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
             echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
             FEXROOTFS_SUCCESS=true && \
             break; \
