@@ -374,7 +374,7 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
         echo "📦 Installing minimal runtime packages..." && \
         apt-get install -qq -y --no-install-recommends \
             sudo curl wget jq \
-            libstdc++6 libc6 file which && \
+            libstdc++6 libc6 file && \
         echo "✅ Runtime packages installed" && \
         \
         # Cleanup for size optimization
@@ -388,7 +388,7 @@ RUN echo "📦 Starting runtime dependencies installation..." && \
         echo "📦 Installing minimal Fedora runtime packages..." && \
         dnf install -q -y --setopt=install_weak_deps=False \
             sudo curl wget jq \
-            util-linux-core libstdc++ glibc file which && \
+            util-linux-core libstdc++ glibc file && \
         echo "✅ Fedora runtime packages installed" && \
         echo "🧹 Cleaning up Fedora package cache..." && \
         dnf clean all -q && \
