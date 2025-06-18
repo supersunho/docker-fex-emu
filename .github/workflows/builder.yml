@@ -420,26 +420,74 @@ jobs:
                   echo "🎯 Building: ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
                   echo "✅ Passed EOL filtering"
 
-            - name: Check existing images
+            - name: Check existing images using buildx imagetools
               id: check-images
               run: |
                   RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
                   IMAGE_FULL="ghcr.io/${{ github.repository }}:$RELEASE_TAG"
 
-                  if docker manifest inspect "$IMAGE_FULL" >/dev/null 2>&1; then
+                  echo "🔍 Checking image existence with buildx imagetools..."
+                  if docker buildx imagetools inspect "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Image exists: $IMAGE_FULL"
                       IMAGE_EXISTS=true
                   elif docker pull "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Image exists (verified by pull): $IMAGE_FULL"
                       IMAGE_EXISTS=true
                       docker rmi "$IMAGE_FULL" >/dev/null 2>&1 || true
                   else
+                      echo "❌ Image does not exist: $IMAGE_FULL"
                       IMAGE_EXISTS=false
                   fi
 
                   if [ "$IMAGE_EXISTS" = "true" ] && [ "${{ github.event.inputs.force_rebuild }}" != "true" ]; then
                       echo "build_fexbash=false" >> $GITHUB_OUTPUT
+                      echo "⏭️ Skipping build - image already exists"
                   else
                       echo "build_fexbash=true" >> $GITHUB_OUTPUT
+                      echo "🔨 Proceeding with build"
                   fi
+            - name: Debug image existence check
+              run: |
+                  RELEASE_TAG="${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
+                  IMAGE_FULL="ghcr.io/${{ github.repository }}:$RELEASE_TAG"
+
+                  echo "🔍 Testing multiple image existence methods..."
+                  echo "📋 Target image: $IMAGE_FULL"
+
+                  echo "🔍 Method 1: docker manifest inspect"
+                  if docker manifest inspect "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Manifest inspect: SUCCESS"
+                      MANIFEST_SUCCESS=true
+                  else
+                      echo "❌ Manifest inspect: FAILED"
+                      docker manifest inspect "$IMAGE_FULL" 2>&1 | head -3
+                      MANIFEST_SUCCESS=false
+                  fi
+
+                  echo "🔍 Method 2: docker buildx imagetools inspect"
+                  if docker buildx imagetools inspect "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Buildx imagetools: SUCCESS"
+                      BUILDX_SUCCESS=true
+                  else
+                      echo "❌ Buildx imagetools: FAILED"
+                      docker buildx imagetools inspect "$IMAGE_FULL" 2>&1 | head -3
+                      BUILDX_SUCCESS=false
+                  fi
+
+                  echo "🔍 Method 3: docker pull test"
+                  if docker pull "$IMAGE_FULL" >/dev/null 2>&1; then
+                      echo "✅ Docker pull: SUCCESS"
+                      docker rmi "$IMAGE_FULL" >/dev/null 2>&1 || true
+                      PULL_SUCCESS=true
+                  else
+                      echo "❌ Docker pull: FAILED"
+                      PULL_SUCCESS=false
+                  fi
+
+                  echo "📊 Results summary:"
+                  echo "  - Manifest inspect: $MANIFEST_SUCCESS"
+                  echo "  - Buildx imagetools: $BUILDX_SUCCESS"  
+                  echo "  - Docker pull: $PULL_SUCCESS"
 
             - name: Checkout repository
               if: steps.check-images.outputs.build_fexbash == 'true'
