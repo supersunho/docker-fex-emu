@@ -47,7 +47,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         nasm python3-dev python3-clang python3-setuptools \
         curl wget \
         software-properties-common openssl libssl-dev \
-        squashfs-tools squashfuse erofs-utils >/dev/null 2>&1 && \
+        squashfs-tools squashfuse erofs-utils \
+        qtbase5-dev qttools5-dev qtdeclarative5-dev \
+        >/dev/null 2>&1 && \
     echo "✅ Base packages installed successfully" && \
     \
     # Smart LLVM installation with apt-cache check + script fallback
