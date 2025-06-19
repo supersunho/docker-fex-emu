@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "🔍 Using Ubuntu 24.04 LTS packages for maximum stability..." && \
     apt-get update -qq >/dev/null 2>&1 && \
     echo "📦 Installing development packages..." && \
-    apt-get install -qq -y --no-install-recommends --no-install-suggests \
+    apt-get install -qq -y --no-install-recommends  \
         git cmake ninja-build pkg-config ccache \
         nasm python3-dev python3-clang python3-setuptools \
         curl wget \
@@ -524,7 +524,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
     apt-get update -qq >/dev/null 2>&1 && \
     echo "📦 Installing minimal runtime packages..." && \
-    apt-get install -qq -y --no-install-recommends --no-install-suggests \
+    apt-get install -qq -y --no-install-recommends  \
         sudo curl wget jq \
         libstdc++6 libc6 file >/dev/null 2>&1 && \
     echo "✅ Ubuntu runtime packages installed successfully" && \
