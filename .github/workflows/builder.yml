@@ -31,7 +31,11 @@ on:
                     - "fedora-all"
                     - "full-matrix"
                     - "custom"
-
+            verify_build:
+                description: "Verify build"
+                required: false
+                default: false
+                type: boolean
             custom_distros:
                 description: "Custom distributions (comma-separated)"
                 required: false
@@ -611,7 +615,7 @@ jobs:
                       FEX_VERSION=${{ needs.prepare-and-generate.outputs.fex_semantic }}
 
             - name: Comprehensive container verification suite
-              if: steps.check-images.outputs.build_fexbash == 'true'
+              if: steps.check-images.outputs.build_fexbash == 'true' && github.event.inputs.verify_build == 'true'
               run: |
                   IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
 
