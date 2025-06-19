@@ -268,7 +268,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Update CA certificates for secure downloads
 RUN echo "🔒 Updating CA certificates for secure downloads..." && \
     apt-get update -qq >/dev/null 2>&1 && \
-    apt-get install --reinstall -qq -y ca-certificates >/dev/null 2>&1 && \
+    apt-get install -qq -y ca-certificates >/dev/null 2>&1 && \
     mkdir -p /etc/ssl/certs && \
     update-ca-certificates --fresh && \
     echo "✅ CA certificates updated successfully"
