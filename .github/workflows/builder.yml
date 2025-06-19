@@ -436,6 +436,9 @@ jobs:
             matrix: ${{ fromJson(needs.prepare-and-generate.outputs.filtered-matrix) }}
             fail-fast: false # Continue parallel builds even if individual builds fail
         steps:
+            - name: Disable AppArmor on the GitHub runner
+              uses: cisagov/action-disable-apparmor@437d94f26a2e4bf8c03acfb500a6afc688b497db
+
             - name: Display build target information
               run: |
                   echo "🎯 Building container for: ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}"
@@ -602,7 +605,6 @@ jobs:
                   file: ./Dockerfile
                   platforms: linux/arm64
                   push: ${{ github.event_name != 'pull_request' }}
-                  allow: security.insecure
                   tags: |
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
