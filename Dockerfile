@@ -1,3 +1,4 @@
+ARG FEX_VERSION
 ARG BASE_IMAGE=ubuntu:24.04
 
 #==============================================
@@ -17,6 +18,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Seoul
 ENV CCACHE_DIR=${CCACHE_DIR}
 ENV ENABLE_CCACHE=${ENABLE_CCACHE}
+
+LABEL org.opencontainers.image.version="${FEX_VERSION}"
+LABEL fex.emulator.version="${FEX_VERSION}"
+LABEL build.platform="${TARGETPLATFORM}"
+LABEL build.date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
 # Detect OS type
 RUN echo "🔍 Starting OS detection..." && \
@@ -160,7 +166,9 @@ ENV PATH="/usr/local/bin/:$PATH"
 # Copy FEX source from build context  
 COPY --from=fex-sources / /tmp/fex-source  
 RUN --mount=type=cache,target=/tmp/.ccache \
-    echo "🏗️ Starting FEX build process (V4 Optimized)..." && \
+    echo "🏗️ Starting FEX build process..." && \
+    echo "🏷️ Building FEX version: ${FEX_VERSION}" && \
+    echo "🎯 Target platform: ${TARGETPLATFORM}" && \
     cd /tmp/fex-source && \
     \
     # Check ccache setup
@@ -253,11 +261,16 @@ RUN --mount=type=cache,target=/tmp/.ccache \
 # RootFS Preparation Stage (Ubuntu-based)
 #==============================================
 FROM ubuntu:24.04 AS rootfs-preparer
+ARG FEX_VERSION
 
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 ARG ROOTFS_URL=""
+
+LABEL fex.version="${FEX_VERSION}"
+LABEL fex.rootfs.os="${ROOTFS_OS}"
+LABEL fex.rootfs.version="${ROOTFS_VERSION}"
 
 # Install RootFS extraction tools and dependencies for Ubuntu
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
@@ -473,14 +486,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 #==============================================
 FROM ${BASE_IMAGE} AS runtime
 
+ARG FEX_VERSION
 ARG TARGETPLATFORM 
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 
+LABEL org.opencontainers.image.title="FEXBash ARM64 Container"
+LABEL org.opencontainers.image.description="High-performance x86/x86_64 emulation on ARM64"
+LABEL org.opencontainers.image.version="${FEX_VERSION}"
+LABEL fex.version="${FEX_VERSION}"
+LABEL fex.rootfs.distribution="${ROOTFS_OS}-${ROOTFS_VERSION}"
+
 # Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive 
 ENV TZ=Asia/Seoul
+ENV FEX_VERSION=${FEX_VERSION}
+ENV ROOTFS_INFO="${ROOTFS_OS}-${ROOTFS_VERSION}"
 
 RUN echo "🔍 Starting OS detection..." && \
     if [ -f /etc/redhat-release ] || [ -f /etc/fedora-release ]; then \
@@ -582,4 +604,4 @@ RUN chown -R fex:fex /home/fex/.fex-emu && \
 # Switch to fex user
 USER fex
 WORKDIR /home/fex 
-CMD ["/bin/bash", "-c", "echo '🚀 FEX-Emu ready!' && echo '🔧 Built with Ubuntu Linux for maximum compatibility!' && echo '💡 Try: FEXBash' && /bin/bash"]
+CMD ["/bin/bash", "-c", "echo '🚀 FEX-Emu ready!' && echo '🏷️ FEX Version: ${FEX_VERSION}' && echo '🐧 RootFS: ${ROOTFS_INFO}' && echo '🔧 Built with Ubuntu Linux for maximum compatibility!' && echo '💡 Try: FEXBash' && /bin/bash"]
