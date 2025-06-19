@@ -6,8 +6,8 @@
   <img src="https://img.shields.io/github/actions/workflow/status/supersunho/docker-fex-emu/builder.yml?style=for-the-badge&logo=github&color=green" alt="Build Status"/>  
   
 </p>
-**Production-ready ARM64 containers with pre-configured FEX-Emu runtime for seamless x86 application execution across multiple Linux distributions**
 
+Production-ready ARM64 containers with pre-configured FEX-Emu runtime for seamless x86 application execution across multiple Linux distributions
 ---
 
 ## 📋 Table of Contents
