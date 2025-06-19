@@ -52,7 +52,7 @@ RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
         python3 py3-clang py3-setuptools \
         squashfs-tools \
         build-base linux-headers \
-        gcompat libstdc++ \
+        gcompat libstdc++ musl-dev \
         qt5-qtbase-dev qt5-qtdeclarative-dev qt5-qtquickcontrols2-dev && \
     echo "✅ Alpine build packages with Qt5 installed successfully" && \
     echo "📊 Qt5 package summary:" && \
@@ -140,8 +140,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CCACHE_DIR=/tmp/.ccache && \
         export CCACHE_MAXSIZE=2G && \
         export CCACHE_SLOPPINESS=pch_defines,time_macros && \
-        export CC="ccache $CC_COMPILER" && \
-        export CXX="ccache $CXX_COMPILER" && \
+        export CC="$CC_COMPILER" && \
+        export CXX="$CXX_COMPILER" && \
         ccache --zero-stats && \        
         CCACHE_CMAKE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache" && \
         echo "✅ ccache enabled with Alpine optimizations"; \
@@ -159,9 +159,9 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "  - _GNU_SOURCE: Enable GNU extensions for compatibility" && \
     echo "✅ Alpine musl compatibility configured" && \
     \
-    CFLAGS="-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" && \
-    CXXFLAGS="-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" && \  
-    CPPFLAGS="-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" && \
+    export CFLAGS="-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_GNU_SOURCE -D_XOPEN_SOURCE=700" && \
+    export CXXFLAGS="-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_GNU_SOURCE -D_XOPEN_SOURCE=700" && \
+    export CPPFLAGS="-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_GNU_SOURCE -D_XOPEN_SOURCE=700" && \
     \
     # Alpine-optimized CMake configuration 
     echo "⚙️ Running CMake configuration for Alpine with musl compatibility..." && \
