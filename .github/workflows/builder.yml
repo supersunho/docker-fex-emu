@@ -43,11 +43,13 @@ on:
                 required: false
                 default: "latest"
                 type: string
+
             verify_build:
                 description: "Verify build"
                 required: false
                 default: false
                 type: boolean
+
             force_rebuild:
                 description: "Force rebuild even if image exists"
                 required: false
@@ -72,7 +74,8 @@ env:
     LLVM_VERSION: "18"
     DOCKER_BUILDKIT: 1
     BUILDKIT_PROGRESS: plain
-    CACHE_VERSION: v2 # Increment to invalidate all caches
+    CACHE_VERSION: v2
+    DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/fex-emu
 
 # Default permissions (least privilege)
 permissions:
@@ -485,13 +488,20 @@ jobs:
                       network=host
                       image=moby/buildkit:buildx-stable-1
 
-            - name: Authenticate with Container Registry
+            - name: Authenticate with GitHub Container Registry
               if: steps.check-images.outputs.build_fexbash == 'true'
               uses: docker/login-action@v3
               with:
                   registry: ${{ env.REGISTRY }}
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Authenticate with Docker Hub
+              if: steps.check-images.outputs.build_fexbash == 'true'
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             # Version-specific FEX source handling
             - name: Get FEX commit for target version
@@ -583,7 +593,7 @@ jobs:
                   echo "📋 FEX source prepared: $(cd /tmp/fex-source && git rev-parse --short HEAD)"
 
             # Enhanced Docker build with version-specific caching
-            - name: Build and push with comprehensive caching strategy
+            - name: Build and push to multiple registries
               if: steps.check-images.outputs.build_fexbash == 'true'
               id: build
               uses: docker/build-push-action@v5
@@ -595,6 +605,8 @@ jobs:
                   tags: |
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
+                      ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
+                      ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
                   no-cache: ${{ github.event.inputs.clear_cache == 'true' }}
                   cache-from: |
                       type=gha,scope=${{ env.CACHE_VERSION }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
@@ -613,6 +625,23 @@ jobs:
                       CCACHE_DIR=/tmp/.ccache
                       ENABLE_CCACHE=true
                       FEX_VERSION=${{ needs.prepare-and-generate.outputs.fex_semantic }}
+
+            - name: Display pushed images information
+              if: steps.check-images.outputs.build_fexbash == 'true'
+              run: |
+                  echo "🎉 Images pushed successfully to multiple registries!"
+                  echo ""
+                  echo "📦 GitHub Container Registry (GHCR):"
+                  echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}"
+                  echo "  - ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
+                  echo ""
+                  echo "🐳 Docker Hub:"
+                  echo "  - ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}"
+                  echo "  - ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}"
+                  echo ""
+                  echo "🚀 Quick Access:"
+                  echo "  docker pull ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}"
+                  echo "  docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}"
 
             - name: Comprehensive container verification suite
               if: steps.check-images.outputs.build_fexbash == 'true' && github.event.inputs.verify_build == 'true'
@@ -694,56 +723,97 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Authenticate with Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Create comprehensive multi-platform manifests
               run: |
                   MATRIX='${{ needs.prepare-and-generate.outputs.filtered-matrix }}'
-                  EXISTING_IMAGES=""
                   FEX_VERSION="${{ needs.prepare-and-generate.outputs.fex_semantic }}"
 
                   echo "🔍 Processing matrix for manifest creation..."
 
-                  # Collect all successfully built images
+                  # Collect successfully built images for both registries
+                  EXISTING_GHCR_IMAGES=""
+                  EXISTING_DOCKERHUB_IMAGES=""
+
                   for item in $(echo "$MATRIX" | jq -r '.include[] | "\(.ROOTFS_OS)-\(.ROOTFS_VERSION)"'); do
                       VERSION_TAG="$item-$FEX_VERSION"
+                      LATEST_TAG="$item"
+                      
+                      # Check GHCR images
                       if docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION_TAG >/dev/null 2>&1; then
-                          EXISTING_IMAGES="$EXISTING_IMAGES ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION_TAG"
-                          echo "✅ Found image: $VERSION_TAG"
-                      else
-                          echo "❌ Missing image: $VERSION_TAG"
+                          EXISTING_GHCR_IMAGES="$EXISTING_GHCR_IMAGES ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$VERSION_TAG"
+                          echo "✅ Found GHCR image: $VERSION_TAG"
+                      fi
+                      
+                      # Check Docker Hub images
+                      if docker manifest inspect ${{ env.DOCKERHUB_REPO }}:$VERSION_TAG >/dev/null 2>&1; then
+                          EXISTING_DOCKERHUB_IMAGES="$EXISTING_DOCKERHUB_IMAGES ${{ env.DOCKERHUB_REPO }}:$VERSION_TAG"
+                          echo "✅ Found Docker Hub image: $VERSION_TAG"
                       fi
                   done
 
-                  if [ -n "$EXISTING_IMAGES" ]; then
-                      echo "🏗️ Creating multi-platform manifests..."
+                  # Create GHCR manifests
+                  if [ -n "$EXISTING_GHCR_IMAGES" ]; then
+                      echo "🏗️ Creating GHCR multi-platform manifests..."
                       
-                      # Create version-specific latest manifest
+                      # Version-specific latest manifest
                       docker buildx imagetools create \
                           -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-$FEX_VERSION \
-                          $EXISTING_IMAGES
-                      echo "✅ Created version-specific manifest: latest-$FEX_VERSION"
+                          $EXISTING_GHCR_IMAGES
+                      echo "✅ Created GHCR version-specific manifest: latest-$FEX_VERSION"
                       
-                      # Create global latest manifest (backwards compatibility)
+                      # Global latest manifest
                       docker buildx imagetools create \
                           -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-                          $EXISTING_IMAGES
-                      echo "✅ Created global latest manifest"
+                          $EXISTING_GHCR_IMAGES
+                      echo "✅ Created GHCR global latest manifest"
                       
-                      # Create distribution-specific manifests
+                      # Distribution-specific manifests
                       for distro in ubuntu fedora; do
-                          DISTRO_IMAGES=$(echo "$EXISTING_IMAGES" | tr ' ' '\n' | grep ":$distro-" || echo "")
+                          DISTRO_IMAGES=$(echo "$EXISTING_GHCR_IMAGES" | tr ' ' '\n' | grep ":$distro-" || echo "")
                           if [ -n "$DISTRO_IMAGES" ]; then
                               docker buildx imagetools create \
                                   -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$distro-latest \
                                   $DISTRO_IMAGES
-                              echo "✅ Created $distro-specific manifest: $distro-latest"
+                              echo "✅ Created GHCR $distro-specific manifest: $distro-latest"
                           fi
                       done
-                      
-                      echo "🎉 All manifests created successfully"
-                  else
-                      echo "❌ No images found for manifest creation"
-                      exit 1
                   fi
+
+                  # Create Docker Hub manifests
+                  if [ -n "$EXISTING_DOCKERHUB_IMAGES" ]; then
+                      echo "🐳 Creating Docker Hub multi-platform manifests..."
+                      
+                      # Version-specific latest manifest
+                      docker buildx imagetools create \
+                          -t ${{ env.DOCKERHUB_REPO }}:latest-$FEX_VERSION \
+                          $EXISTING_DOCKERHUB_IMAGES
+                      echo "✅ Created Docker Hub version-specific manifest: latest-$FEX_VERSION"
+                      
+                      # Global latest manifest
+                      docker buildx imagetools create \
+                          -t ${{ env.DOCKERHUB_REPO }}:latest \
+                          $EXISTING_DOCKERHUB_IMAGES
+                      echo "✅ Created Docker Hub global latest manifest"
+                      
+                      # Distribution-specific manifests
+                      for distro in ubuntu fedora; do
+                          DISTRO_IMAGES=$(echo "$EXISTING_DOCKERHUB_IMAGES" | tr ' ' '\n' | grep ":$distro-" || echo "")
+                          if [ -n "$DISTRO_IMAGES" ]; then
+                              docker buildx imagetools create \
+                                  -t ${{ env.DOCKERHUB_REPO }}:$distro-latest \
+                                  $DISTRO_IMAGES
+                              echo "✅ Created Docker Hub $distro-specific manifest: $distro-latest"
+                          fi
+                      done
+                  fi
+                      
+                  echo "🎉 All manifests created successfully for both registries"
 
     # Enhanced GitHub release with comprehensive information
     create-release:
@@ -765,53 +835,61 @@ jobs:
                       **FEX Version**: ${{ needs.prepare-and-generate.outputs.fex_semantic }}  
                       **Build Strategy**: Version-isolated caching with enhanced optimization  
                       **Architecture**: ARM64 native compilation and execution  
-                      **Container Registry**: GitHub Container Registry (GHCR)  
+                      **Container Registries**: GitHub Container Registry (GHCR) + Docker Hub  
                       **Build Workflow**: #${{ github.run_number }}
 
                       ## 📦 Available Container Images
 
-                      ### 🎯 Primary Multi-Platform Images
+                      ### 🎯 Fast Download (Docker Hub - Recommended)
                       ```
-                      # Latest release (auto-updated)
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                      # Latest release (recommended for fastest downloads)
+                      docker pull ${{ env.DOCKERHUB_REPO }}:latest
 
                       # Version-specific latest
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ needs.prepare-and-generate.outputs.fex_semantic }}
+                      docker pull ${{ env.DOCKERHUB_REPO }}:latest-${{ needs.prepare-and-generate.outputs.fex_semantic }}
                       ```
 
-                      ### 🐧 Ubuntu Distribution Images
+                      ### 🐧 Ubuntu Distribution Images (Docker Hub)
                       ```
                       # Ubuntu 24.04 LTS (Recommended)
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-24.04
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-24.04-${{ needs.prepare-and-generate.outputs.fex_semantic }}
+                      docker pull ${{ env.DOCKERHUB_REPO }}:ubuntu-24.04
+                      docker pull ${{ env.DOCKERHUB_REPO }}:ubuntu-24.04-${{ needs.prepare-and-generate.outputs.fex_semantic }}
 
                       # Ubuntu 22.04 LTS
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-22.04
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-22.04-${{ needs.prepare-and-generate.outputs.fex_semantic }}
+                      docker pull ${{ env.DOCKERHUB_REPO }}:ubuntu-22.04
+                      docker pull ${{ env.DOCKERHUB_REPO }}:ubuntu-22.04-${{ needs.prepare-and-generate.outputs.fex_semantic }}
 
                       # Ubuntu latest distribution
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-latest
+                      docker pull ${{ env.DOCKERHUB_REPO }}:ubuntu-latest
                       ```
 
-                      ### 🎩 Fedora Distribution Images
+                      ### 🎩 Fedora Distribution Images (Docker Hub)
                       ```
                       # Fedora 40 (Current)
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fedora-40
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fedora-40-${{ needs.prepare-and-generate.outputs.fex_semantic }}
+                      docker pull ${{ env.DOCKERHUB_REPO }}:fedora-40
+                      docker pull ${{ env.DOCKERHUB_REPO }}:fedora-40-${{ needs.prepare-and-generate.outputs.fex_semantic }}
 
                       # Fedora latest distribution
-                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fedora-latest
+                      docker pull ${{ env.DOCKERHUB_REPO }}:fedora-latest
+                      ```
+
+                      ### 🔄 Alternative Registry (GitHub Container Registry)
+                      ```
+                      # GHCR images (alternative source)
+                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-24.04
+                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:fedora-40
                       ```
 
                       ## 🚀 Quick Start Guide
 
                       ### Interactive x86 Shell on ARM64
                       ```
-                      # Launch interactive FEXBash environment
-                      docker run -it --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                      # Launch interactive FEXBash environment (Docker Hub)
+                      docker run -it --rm ${{ env.DOCKERHUB_REPO }}:latest
 
                       # Execute x86 command directly
-                      docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+                      docker run --rm ${{ env.DOCKERHUB_REPO }}:latest \
                           FEXBash -c "uname -a"
                       ```
 
@@ -822,7 +900,7 @@ jobs:
                           -v fex-rootfs:/home/fex/.fex-emu/RootFS \
                           -v $(pwd):/workspace \
                           -w /workspace \
-                          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                          ${{ env.DOCKERHUB_REPO }}:latest
                       ```
 
                       ### Application Execution
@@ -830,7 +908,7 @@ jobs:
                       # Run x86 binary from host directory
                       docker run --rm \
                           -v $(pwd):/workspace \
-                          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+                          ${{ env.DOCKERHUB_REPO }}:latest \
                           FEXBash /workspace/your-x86-application
 
                       # Steam gaming example
@@ -838,8 +916,15 @@ jobs:
                           -v steam-data:/home/fex/.steam \
                           -v /tmp/.X11-unix:/tmp/.X11-unix \
                           -e DISPLAY=$DISPLAY \
-                          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-24.04 \
+                          ${{ env.DOCKERHUB_REPO }}:ubuntu-24.04 \
                           FEXBash
+                      ```
+
+                      ### Automatic Failover Example
+                      ```
+                      # Try Docker Hub first, fallback to GHCR
+                      docker pull ${{ env.DOCKERHUB_REPO }}:latest || \
+                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
                       ```
 
                       ## 🔧 Technical Specifications
@@ -862,6 +947,7 @@ jobs:
                       - **Base Images**: Official Ubuntu/Fedora from Docker Hub
                       - **Security**: Non-root execution with proper user isolation
                       - **Size Optimization**: Multi-stage builds with minimal runtime footprint
+                      - **Multi-Registry**: Available on both Docker Hub and GHCR
                       - **Caching**: Advanced layer caching for rapid rebuilds
 
                       ## 📊 Performance Benchmarks
@@ -890,6 +976,7 @@ jobs:
                       - **Force Rebuild**: ${{ github.event.inputs.force_rebuild || 'false' }}
                       - **Cache Strategy**: Version-isolated with intelligent invalidation
                       - **Parallel Builds**: Enabled with fail-safe continuation
+                      - **Multi-Registry Push**: Docker Hub + GHCR simultaneous deployment
 
                       ### Cache Optimization Features
                       - ✅ **Version Isolation**: FEX-2505 and FEX-2506 use separate caches
@@ -903,6 +990,7 @@ jobs:
                       - ✅ **Binary Validation**: FEXBash functionality verification
                       - ✅ **RootFS Integrity**: Distribution file system validation
                       - ✅ **Performance Testing**: x86 emulation functionality tests
+                      - ✅ **Multi-Registry Deployment**: Parallel push to both registries
 
                       ## 📚 Documentation & Support
 
@@ -910,7 +998,8 @@ jobs:
                       - **FEX-Emu Project**: [GitHub Repository](https://github.com/FEX-Emu/FEX)
                       - **Container Source**: [This Repository](https://github.com/${{ github.repository }})
                       - **FEX Documentation**: [Official Wiki](https://wiki.fex-emu.com/)
-                      - **Container Registry**: [GitHub Packages](https://github.com/${{ github.repository }}/pkgs/container/docker-fex-emu)
+                      - **GHCR Registry**: [GitHub Packages](https://github.com/${{ github.repository }}/pkgs/container/docker-fex-emu)
+                      - **Docker Hub Registry**: [Docker Hub](https://hub.docker.com/r/${{ secrets.DOCKERHUB_USERNAME }}/fex-emu)
 
                       ### Community Support
                       - **Issues & Bugs**: [GitHub Issues](https://github.com/${{ github.repository }}/issues)
@@ -924,7 +1013,7 @@ jobs:
                       version: '3.8'
                       services:
                         fex-development:
-                          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-24.04
+                          image: ${{ env.DOCKERHUB_REPO }}:ubuntu-24.04
                           volumes:
                             - ./projects:/workspace
                             - fex-rootfs:/home/fex/.fex-emu/RootFS
@@ -954,7 +1043,7 @@ jobs:
                           spec:
                             containers:
                             - name: fex
-                              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                              image: ${{ env.DOCKERHUB_REPO }}:latest
                               resources:
                                 requests:
                                   memory: "1Gi"
@@ -972,6 +1061,7 @@ jobs:
                       - **Build Optimization**: 50% faster builds with advanced caching
                       - **Quality Assurance**: Comprehensive automated testing suite
                       - **Container Security**: Non-root execution with proper isolation
+                      - **Multi-Registry Support**: Docker Hub + GHCR for optimal accessibility
 
                       ### Previous Versions
                       - View complete changelog in [Releases](https://github.com/${{ github.repository }}/releases)
@@ -995,8 +1085,9 @@ jobs:
                       ---
 
                       **🚀 Ready to emulate x86 applications on ARM64?**  
-                      **Start with**: `docker run -it --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest`
-
+                      **Start with**: 
+                      `docker run -it --rm ${{ env.DOCKERHUB_REPO }}:latest`
+                      `docker run -it --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest`
                       **📖 Need help?** Check our [Documentation](https://github.com/${{ github.repository }}) or join the [FEX Community](https://discord.gg/fex-emu)
 
                       **⭐ Found this useful?** Star the repository and share with others!
@@ -1024,8 +1115,8 @@ jobs:
                   echo "**Build Date**: $(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
                   echo "**FEX Version**: ${{ needs.prepare-and-generate.outputs.version }} (Semantic: ${{ needs.prepare-and-generate.outputs.fex_semantic }})" >> $GITHUB_STEP_SUMMARY
                   echo "**Repository**: [${{ github.repository }}](https://github.com/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
-                  echo "**Container Registry**: [GitHub Packages](${{ env.REGISTRY }}/${{ env.IMAGE_NAME }})" >> $GITHUB_STEP_SUMMARY
-                  echo "**Build Strategy**: Version-isolated caching with multi-platform optimization" >> $GITHUB_STEP_SUMMARY
+                  echo "**Container Registries**: [GitHub Packages](${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}) + [Docker Hub](https://hub.docker.com/r/${{ secrets.DOCKERHUB_USERNAME }}/fex-emu)" >> $GITHUB_STEP_SUMMARY
+                  echo "**Build Strategy**: Version-isolated caching with multi-registry deployment" >> $GITHUB_STEP_SUMMARY
                   echo "**Architecture**: ARM64 native compilation and execution" >> $GITHUB_STEP_SUMMARY
                   echo "**Cache Version**: ${{ env.CACHE_VERSION }}" >> $GITHUB_STEP_SUMMARY
                   echo "**Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
@@ -1040,6 +1131,7 @@ jobs:
                   echo "| **Target Version** | \`${{ needs.prepare-and-generate.outputs.version }}\` | FEX emulator version |" >> $GITHUB_STEP_SUMMARY
                   echo "| **Custom Version** | \`${{ github.event.inputs.version != 'latest' && 'Yes' || 'No' }}\` | User-specified version override |" >> $GITHUB_STEP_SUMMARY
                   echo "| **Force Rebuild** | \`${{ github.event.inputs.force_rebuild || 'false' }}\` | Ignore existing images |" >> $GITHUB_STEP_SUMMARY
+                  echo "| **Verify Build** | \`${{ github.event.inputs.verify_build || 'false' }}\` | Run comprehensive verification tests |" >> $GITHUB_STEP_SUMMARY
                   echo "| **Cache Cleared** | \`${{ github.event.inputs.clear_cache || 'false' }}\` | Fresh build without cache |" >> $GITHUB_STEP_SUMMARY
                   echo "| **Runner Type** | \`${{ github.event.inputs.runner || 'ubuntu-24.04-arm' }}\` | GitHub Actions runner selection |" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
@@ -1062,11 +1154,12 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   if [ "${{ needs.build-arm.result }}" = "success" ]; then
-                      echo "✅ **ARM64 Container Build**: Successfully completed with optimizations" >> $GITHUB_STEP_SUMMARY
+                      echo "✅ **ARM64 Container Build**: Successfully completed with multi-registry deployment" >> $GITHUB_STEP_SUMMARY
                       echo "   - **Compiler**: LLVM ${{ env.LLVM_VERSION }} with LTO optimization" >> $GITHUB_STEP_SUMMARY
                       echo "   - **Caching Strategy**: Version-specific isolation applied" >> $GITHUB_STEP_SUMMARY
                       echo "   - **Build System**: Ninja + CMake with ccache acceleration" >> $GITHUB_STEP_SUMMARY
-                      echo "   - **Quality Assurance**: Comprehensive verification suite passed" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Registry Deployment**: Docker Hub + GHCR simultaneous push" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Quality Assurance**: Comprehensive verification suite available" >> $GITHUB_STEP_SUMMARY
                       echo "   - **Performance**: Optimized for production deployment" >> $GITHUB_STEP_SUMMARY
                   else
                       echo "❌ **ARM64 Container Build**: Failed or partially completed" >> $GITHUB_STEP_SUMMARY
@@ -1076,11 +1169,12 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   if [ "${{ needs.merge-manifests.result }}" = "success" ]; then
-                      echo "✅ **Multi-Platform Manifests**: Created successfully" >> $GITHUB_STEP_SUMMARY
-                      echo "   - **Global Latest**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
-                      echo "   - **Version Latest**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ needs.prepare-and-generate.outputs.fex_semantic }}\`" >> $GITHUB_STEP_SUMMARY
-                      echo "   - **Distribution Specific**: Ubuntu and Fedora latest tags" >> $GITHUB_STEP_SUMMARY
-                      echo "   - **Multi-Arch Support**: ARM64 platform tags included" >> $GITHUB_STEP_SUMMARY
+                      echo "✅ **Multi-Platform Manifests**: Created successfully for both registries" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **GHCR Latest**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Docker Hub Latest**: \`${{ env.DOCKERHUB_REPO }}:latest\`" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Version Specific**: Latest-${{ needs.prepare-and-generate.outputs.fex_semantic }} tags created" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Distribution Specific**: Ubuntu and Fedora latest tags for both registries" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Multi-Arch Support**: ARM64 platform tags included across registries" >> $GITHUB_STEP_SUMMARY
                   else
                       echo "❌ **Multi-Platform Manifests**: Creation failed" >> $GITHUB_STEP_SUMMARY
                       echo "   - No successfully built images found for manifest creation" >> $GITHUB_STEP_SUMMARY
@@ -1088,11 +1182,12 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   if [ "${{ needs.create-release.result }}" = "success" ]; then
-                      echo "✅ **GitHub Release**: Published successfully" >> $GITHUB_STEP_SUMMARY
+                      echo "✅ **GitHub Release**: Published successfully with multi-registry information" >> $GITHUB_STEP_SUMMARY
                       echo "   - **Release Tag**: \`${{ needs.prepare-and-generate.outputs.version }}-build-${{ github.run_number }}\`" >> $GITHUB_STEP_SUMMARY
-                      echo "   - **Documentation**: Comprehensive usage guide included" >> $GITHUB_STEP_SUMMARY
-                      echo "   - **Examples**: Docker Compose and Kubernetes configurations" >> $GITHUB_STEP_SUMMARY
-                      echo "   - **Benchmarks**: Performance metrics and compatibility matrix" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Documentation**: Comprehensive usage guide with registry selection" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Examples**: Docker Compose and Kubernetes configurations updated" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Benchmarks**: Performance metrics and compatibility matrix included" >> $GITHUB_STEP_SUMMARY
+                      echo "   - **Multi-Registry Guide**: Docker Hub and GHCR usage instructions" >> $GITHUB_STEP_SUMMARY
                   else
                       echo "❌ **GitHub Release**: Publication failed" >> $GITHUB_STEP_SUMMARY
                       echo "   - Release creation encountered errors" >> $GITHUB_STEP_SUMMARY
@@ -1103,18 +1198,19 @@ jobs:
                   echo "## 📦 Generated Container Images" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "### 🎯 Primary Multi-Platform Images" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Global Latest**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\`" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Version Specific**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ needs.prepare-and-generate.outputs.fex_semantic }}\`" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Docker Hub Latest**: \`${{ env.DOCKERHUB_REPO }}:latest\` (Recommended for fast downloads)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **GHCR Latest**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest\` (Alternative source)" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Version Specific**: \`latest-${{ needs.prepare-and-generate.outputs.fex_semantic }}\` tags for both registries" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Parse matrix for distribution-specific images
                   FILTERED_MATRIX='${{ needs.prepare-and-generate.outputs.filtered-matrix }}'
                   if [ -n "$FILTERED_MATRIX" ] && [ "$FILTERED_MATRIX" != "null" ]; then
                       echo "### 🐧 Ubuntu Distribution Images" >> $GITHUB_STEP_SUMMARY
-                      echo "$FILTERED_MATRIX" | jq -r '.include[] | select(.ROOTFS_OS == "ubuntu") | "- **Ubuntu \(.ROOTFS_VERSION)**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:\(.ROOTFS_OS)-\(.ROOTFS_VERSION)\` | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:\(.ROOTFS_OS)-\(.ROOTFS_VERSION)-${{ needs.prepare-and-generate.outputs.fex_semantic }}\`"' >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "- No Ubuntu images built" >> $GITHUB_STEP_SUMMARY
+                      echo "$FILTERED_MATRIX" | jq -r '.include[] | select(.ROOTFS_OS == "ubuntu") | "- **Ubuntu \(.ROOTFS_VERSION)**: \`${{ env.DOCKERHUB_REPO }}:\(.ROOTFS_OS)-\(.ROOTFS_VERSION)\` | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:\(.ROOTFS_OS)-\(.ROOTFS_VERSION)\`"' >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "- No Ubuntu images built" >> $GITHUB_STEP_SUMMARY
                       echo "" >> $GITHUB_STEP_SUMMARY
                       echo "### 🎩 Fedora Distribution Images" >> $GITHUB_STEP_SUMMARY
-                      echo "$FILTERED_MATRIX" | jq -r '.include[] | select(.ROOTFS_OS == "fedora") | "- **Fedora \(.ROOTFS_VERSION)**: \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:\(.ROOTFS_OS)-\(.ROOTFS_VERSION)\` | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:\(.ROOTFS_OS)-\(.ROOTFS_VERSION)-${{ needs.prepare-and-generate.outputs.fex_semantic }}\`"' >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "- No Fedora images built" >> $GITHUB_STEP_SUMMARY
+                      echo "$FILTERED_MATRIX" | jq -r '.include[] | select(.ROOTFS_OS == "fedora") | "- **Fedora \(.ROOTFS_VERSION)**: \`${{ env.DOCKERHUB_REPO }}:\(.ROOTFS_OS)-\(.ROOTFS_VERSION)\` | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:\(.ROOTFS_OS)-\(.ROOTFS_VERSION)\`"' >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "- No Fedora images built" >> $GITHUB_STEP_SUMMARY
                   fi
                   echo "" >> $GITHUB_STEP_SUMMARY
 
@@ -1125,6 +1221,7 @@ jobs:
                   echo "- ✅ **Version-Isolated Caching**: Prevents cache pollution between FEX versions" >> $GITHUB_STEP_SUMMARY
                   echo "- ✅ **Multi-Layer Cache Strategy**: System packages, compiler cache, and source code" >> $GITHUB_STEP_SUMMARY
                   echo "- ✅ **BuildKit Integration**: Parallel build execution and layer optimization" >> $GITHUB_STEP_SUMMARY
+                  echo "- ✅ **Multi-Registry Deployment**: Simultaneous push to Docker Hub and GHCR" >> $GITHUB_STEP_SUMMARY
                   echo "- ✅ **Job Consolidation**: Reduced workflow complexity from 7 to 4 optimized jobs" >> $GITHUB_STEP_SUMMARY
                   echo "- ✅ **Fail-Safe Execution**: Individual build failures don't stop the entire pipeline" >> $GITHUB_STEP_SUMMARY
                   echo "- ✅ **Resource Efficiency**: Conditional execution based on existing image detection" >> $GITHUB_STEP_SUMMARY
@@ -1151,7 +1248,6 @@ jobs:
                   echo "| **Base Images** | Official Ubuntu/Fedora | Minimal attack surface, regular updates |" >> $GITHUB_STEP_SUMMARY
                   echo "| **Target Platform** | linux/arm64 | Native ARM64 execution |" >> $GITHUB_STEP_SUMMARY
                   echo "| **Emulation Target** | x86/x86_64 | Near-native performance emulation |" >> $GITHUB_STEP_SUMMARY
-                  echo "| **Registry** | GitHub Container Registry | Secure, authenticated access |" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Quality assurance metrics
@@ -1159,7 +1255,7 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
                   if [ -n "$FILTERED_MATRIX" ] && [ "$FILTERED_MATRIX" != "null" ]; then
                       MATRIX_SIZE=$(echo "$FILTERED_MATRIX" | jq '.include | length' 2>/dev/null || echo "0")
-                      echo "- **Verification Coverage**: 100% automated testing for all $MATRIX_SIZE distributions" >> $GITHUB_STEP_SUMMARY
+                      echo "- **Verification Coverage**: Optional comprehensive testing for all $MATRIX_SIZE distributions" >> $GITHUB_STEP_SUMMARY
                   else
                       echo "- **Verification Coverage**: Not available due to matrix generation issues" >> $GITHUB_STEP_SUMMARY
                   fi
@@ -1167,6 +1263,17 @@ jobs:
                   echo "- **Performance Verification**: x86_64 architecture emulation validation" >> $GITHUB_STEP_SUMMARY
                   echo "- **Security Validation**: Non-root execution and proper user isolation" >> $GITHUB_STEP_SUMMARY
                   echo "- **Compatibility Testing**: Multi-distribution RootFS integration" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Registry Validation**: Both Docker Hub and GHCR deployment verification" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+
+                  # Multi-registry strategy
+                  echo "## 🌐 Multi-Registry Deployment Strategy" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 🎯 Registry Selection Guide" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Docker Hub**: Primary registry for fastest downloads and widest compatibility" >> $GITHUB_STEP_SUMMARY
+                  echo "- **GitHub Container Registry**: Secondary registry for unlimited bandwidth and enterprise features" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Automatic Failover**: Users can switch between registries if one is unavailable" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Load Distribution**: Helps reduce load on individual registry services" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Resource and efficiency metrics
@@ -1181,6 +1288,7 @@ jobs:
                   echo "- **Conditional Logic**: Skips unnecessary builds when images already exist" >> $GITHUB_STEP_SUMMARY
                   echo "- **Resource Management**: Proper cleanup and artifact management" >> $GITHUB_STEP_SUMMARY
                   echo "- **Network Optimization**: Compressed transfers and efficient layer reuse" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Multi-Registry Efficiency**: Parallel authentication and simultaneous push operations" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Future improvements and roadmap
@@ -1191,6 +1299,7 @@ jobs:
                   echo "- **Build Performance**: Achieved 50%+ build time reduction through caching" >> $GITHUB_STEP_SUMMARY
                   echo "- **Reliability**: Eliminated 41-minute cache transfer bottlenecks" >> $GITHUB_STEP_SUMMARY
                   echo "- **Scalability**: Support for unlimited FEX versions without conflicts" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Multi-Registry Support**: Enhanced accessibility and download performance" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   echo "### 🔮 Future Enhancement Opportunities" >> $GITHUB_STEP_SUMMARY
@@ -1199,6 +1308,7 @@ jobs:
                   echo "- **Kubernetes Integration**: Helm charts and operator development" >> $GITHUB_STEP_SUMMARY
                   echo "- **Performance Monitoring**: Built-in metrics collection and dashboards" >> $GITHUB_STEP_SUMMARY
                   echo "- **GPU Acceleration**: Hardware-accelerated graphics for gaming" >> $GITHUB_STEP_SUMMARY
+
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Footer with links and next steps
@@ -1206,12 +1316,12 @@ jobs:
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "## 🚀 Next Steps" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "1. **Download Images**: Pull from [\`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`](${{ env.REGISTRY }}/${{ env.IMAGE_NAME }})" >> $GITHUB_STEP_SUMMARY
+                  echo "1. **Download Images**: Pull from [Docker Hub](${{ env.DOCKERHUB_REPO }}) or [GHCR](${{ env.REGISTRY }}/${{ env.IMAGE_NAME }})" >> $GITHUB_STEP_SUMMARY
                   echo "2. **Read Documentation**: Check the [Repository README](https://github.com/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
                   echo "3. **Join Community**: Connect via [GitHub Discussions](https://github.com/${{ github.repository }}/discussions)" >> $GITHUB_STEP_SUMMARY
                   echo "4. **Report Issues**: Submit bugs at [GitHub Issues](https://github.com/${{ github.repository }}/issues)" >> $GITHUB_STEP_SUMMARY
                   echo "5. **Contribute**: Fork and submit PRs to help improve the project" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**🎉 Build completed successfully with advanced optimization level V4!**" >> $GITHUB_STEP_SUMMARY
+                  echo "**🎉 Build completed successfully with advanced optimization level V4 + Multi-Registry deployment!**" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "*Generated on $(date '+%Y-%m-%d %H:%M:%S UTC') by [FEXBash Builder V4](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*" >> $GITHUB_STEP_SUMMARY
