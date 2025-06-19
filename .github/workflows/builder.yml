@@ -437,7 +437,7 @@ jobs:
             fail-fast: false # Continue parallel builds even if individual builds fail
         steps:
             - name: Disable AppArmor on the GitHub runner
-              uses: cisagov/action-disable-apparmor@437d94f26a2e4bf8c03acfb500a6afc688b497db
+              uses: cisagov/action-disable-apparmor@v3
 
             - name: Display build target information
               run: |
@@ -609,6 +609,8 @@ jobs:
                   tags: |
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
+                      ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
+                      ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
                   no-cache: ${{ github.event.inputs.clear_cache == 'true' }}
                   cache-from: |
                       type=gha,scope=${{ env.CACHE_VERSION }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
@@ -627,20 +629,6 @@ jobs:
                       CCACHE_DIR=/tmp/.ccache
                       ENABLE_CCACHE=true
                       FEX_VERSION=${{ needs.prepare-and-generate.outputs.fex_semantic }}
-
-            - name: Push to Docker Hub with retry
-              uses: nick-invision/retry@v2
-              with:
-                  timeout_minutes: 15
-                  max_attempts: 3
-                  command: |
-                      docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }} \
-                                  ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
-                      docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }} \
-                                  ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
-
-                      docker push ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
-                      docker push ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
 
             - name: Display pushed images information
               if: steps.check-images.outputs.build_fexbash == 'true'

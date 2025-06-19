@@ -593,6 +593,7 @@ COPY --from=rootfs-preparer /home/fex/.fex-emu/ /home/fex/.fex-emu/
 
 # Set proper ownership and verify
 RUN chown -R fex:fex /home/fex/.fex-emu && \
+    chmod 0640 /etc/shadow && \
     echo "🎉 RootFS pre-installed in image!" && \
     echo "📊 Pre-installed RootFS verification:" && \
     echo "  - RootFS directory: $(ls -d /home/fex/.fex-emu/RootFS/*/ | head -1)" && \
