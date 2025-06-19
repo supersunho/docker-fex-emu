@@ -437,7 +437,7 @@ jobs:
             fail-fast: false # Continue parallel builds even if individual builds fail
         steps:
             - name: Disable AppArmor on the GitHub runner
-              uses: cisagov/action-disable-apparmor@v3
+              uses: cisagov/action-disable-apparmor@v1
 
             - name: Display build target information
               run: |
