@@ -634,6 +634,10 @@ jobs:
                   docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "echo 'FEX Emulation Test Passed'" >/dev/null && echo " - ✅ Basic shell execution working" || echo " - ❌ Basic execution failed"
                   docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "ls /usr/bin | head -5" >/dev/null && echo " - ✅ x86 binary execution working" || echo " - ❌ x86 binary execution failed"
 
+                  # Test 4: Performance and resource verification
+                  echo "📋 Test 4: Performance Verification"
+                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "time ls /usr/bin >/dev/null" 2>&1 | grep -q "real\|user\|sys" && echo " - ✅ Performance timing working" || echo " - ❌ Performance timing failed"
+
                   echo "🎉 All verification tests completed for ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}!"
 
             - name: Display cache utilization statistics
