@@ -527,10 +527,9 @@ jobs:
                       /tmp/dnf-cache
                       /tmp/.ccache
                       /tmp/apt-lib
-                  key: ${{ env.CACHE_VERSION }}-system-cache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}-${{ steps.fex-commit.outputs.commit }}
+                  key: ${{ env.CACHE_VERSION }}-system-cache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}-${{ steps.fex-commit.outputs.commit }}
                   restore-keys: |
-                      ${{ env.CACHE_VERSION }}-system-cache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}-
-                      ${{ env.CACHE_VERSION }}-system-cache-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-
+                      ${{ env.CACHE_VERSION }}-system-cache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}-
 
             - name: Inject system caches into Docker build context
               if: steps.check-images.outputs.build_fexbash == 'true'
@@ -552,10 +551,9 @@ jobs:
               uses: actions/cache@v4
               with:
                   path: /tmp/fex-source
-                  key: ${{ env.CACHE_VERSION }}-fex-source-${{ runner.os }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}-${{ steps.fex-commit.outputs.commit }}
+                  key: ${{ env.CACHE_VERSION }}-fex-source-${{ needs.prepare-and-generate.outputs.fex_semantic }}-${{ steps.fex-commit.outputs.commit }}
                   restore-keys: |
-                      ${{ env.CACHE_VERSION }}-fex-source-${{ runner.os }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}-
-                      ${{ env.CACHE_VERSION }}-fex-source-${{ runner.os }}-
+                      ${{ env.CACHE_VERSION }}-fex-source-${{ needs.prepare-and-generate.outputs.fex_semantic }}-
 
             # Version-aware FEX source cloning
             - name: Clone FEX source for target version
