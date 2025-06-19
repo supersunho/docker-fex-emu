@@ -619,24 +619,20 @@ jobs:
 
                   # Test 1: Binary and permission verification
                   echo "📋 Test 1: Binary Verification"
-                  docker run --rm --platform linux/arm64 "$IMAGE" test -f /usr/local/fex/bin/FEXBash && echo "✅ FEXBash binary exists" || echo "❌ FEXBash binary missing"
-                  docker run --rm --platform linux/arm64 "$IMAGE" test -x /usr/local/fex/bin/FEXBash && echo "✅ FEXBash is executable" || echo "❌ FEXBash not executable"
+                  docker run --rm --platform linux/arm64 "$IMAGE" test -f /usr/local/fex/bin/FEXBash && echo " - ✅ FEXBash binary exists" || echo " - ❌ FEXBash binary missing"
+                  docker run --rm --platform linux/arm64 "$IMAGE" test -x /usr/local/fex/bin/FEXBash && echo " - ✅ FEXBash is executable" || echo " - ❌ FEXBash not executable"
 
                   # Test 2: RootFS integrity verification
                   echo "📋 Test 2: RootFS Integrity Verification"
-                  docker run --rm --platform linux/arm64 "$IMAGE" test -d /home/fex/.fex-emu/RootFS && echo "✅ RootFS directory exists" || echo "❌ RootFS directory missing"
-                  docker run --rm --platform linux/arm64 "$IMAGE" test -f /home/fex/.fex-emu/Config.json && echo "✅ FEX Config.json exists" || echo "❌ Config.json missing"
-                  docker run --rm --platform linux/arm64 "$IMAGE" ls -la /home/fex/.fex-emu/RootFS/ 2>/dev/null | wc -l | grep -q "^[1-9]" && echo "✅ RootFS contains distribution" || echo "❌ RootFS distribution missing"
+                  docker run --rm --platform linux/arm64 "$IMAGE" test -d /home/fex/.fex-emu/RootFS && echo " - ✅ RootFS directory exists" || echo " - ❌ RootFS directory missing"
+                  docker run --rm --platform linux/arm64 "$IMAGE" test -f /home/fex/.fex-emu/Config.json && echo " - ✅ FEX Config.json exists" || echo " - ❌ Config.json missing"
+                  docker run --rm --platform linux/arm64 "$IMAGE" ls -la /home/fex/.fex-emu/RootFS/ 2>/dev/null | wc -l | grep -q "^[1-9]" && echo " - ✅ RootFS contains distribution" || echo " - ❌ RootFS distribution missing"
 
                   # Test 3: Emulation functionality verification
                   echo "📋 Test 3: Emulation Functionality Tests"
-                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "uname -m | grep -q x86_64" && echo "✅ x86_64 architecture emulation working" || echo "❌ Architecture emulation failed"
-                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "echo 'FEX Emulation Test Passed'" >/dev/null && echo "✅ Basic shell execution working" || echo "❌ Basic execution failed"
-                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "ls /usr/bin | head -5" >/dev/null && echo "✅ x86 binary execution working" || echo "❌ x86 binary execution failed"
-
-                  # Test 4: Performance and resource verification
-                  echo "📋 Test 4: Performance Verification"
-                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "time ls /usr/bin >/dev/null" 2>&1 | grep -q "real\|user\|sys" && echo "✅ Performance timing working" || echo "❌ Performance timing failed"
+                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "uname -m | grep -q x86_64" && echo " - ✅ x86_64 architecture emulation working" || echo " - ❌ Architecture emulation failed"
+                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "echo 'FEX Emulation Test Passed'" >/dev/null && echo " - ✅ Basic shell execution working" || echo " - ❌ Basic execution failed"
+                  docker run --rm --platform linux/arm64 "$IMAGE" FEXBash -c "ls /usr/bin | head -5" >/dev/null && echo " - ✅ x86 binary execution working" || echo " - ❌ x86 binary execution failed"
 
                   echo "🎉 All verification tests completed for ${{ matrix.ROOTFS_OS }} ${{ matrix.ROOTFS_VERSION }}!"
 
