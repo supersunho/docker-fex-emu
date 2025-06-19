@@ -41,26 +41,26 @@ RUN echo "🏔️ Setting up Alpine with glibc compatibility..." && \
     echo "✅ glibc compatibility installed successfully" && \
     echo "🎯 Alpine + glibc ready for x86 emulation!"
 
-# Install build dependencies with Alpine packages
+# Install build dependencies with Alpine packages 
 RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
-    echo "📦 Installing Alpine build packages..." && \
-    echo "🔍 Alpine package manager: APK (Alpine Package Keeper)" && \
-    echo "🚀 Starting optimized package installation..." && \
-    apk add --no-cache  \
+    echo "📦 Installing Alpine build packages with Qt5 support..." && \
+    echo "🔍 Adding Qt5 development packages for FEX Tools..." && \
+    apk add --no-cache \
         git cmake ninja pkgconfig ccache \
         clang lld llvm llvm-dev \
         openssl-dev nasm \
         python3 py3-clang py3-setuptools \
         squashfs-tools \
         build-base linux-headers \
-        gcompat libstdc++ && \
-    echo "✅ Alpine build packages installed successfully" && \
-    echo "📊 Package installation summary:" && \
-    echo "  - Compiler: Clang/LLVM ${LLVM_VERSION}" && \
-    echo "  - Build System: CMake + Ninja" && \
-    echo "  - Languages: C/C++ + Python3" && \
-    echo "  - Tools: Git, ccache, nasm" && \
-    echo "🎉 Alpine build environment ready!"
+        gcompat libstdc++ \
+        qt5-qtbase-dev qt5-qtdeclarative-dev qt5-qtquickcontrols2-dev && \
+    echo "✅ Alpine build packages with Qt5 installed successfully" && \
+    echo "📊 Qt5 package summary:" && \
+    echo "  - Qt5 Base: qt5-qtbase-dev" && \
+    echo "  - Qt5 Declarative: qt5-qtdeclarative-dev" && \
+    echo "  - Qt5 Quick Controls: qt5-qtquickcontrols2-dev" && \
+    echo "🎉 Alpine + Qt5 build environment ready!"
+
 
 # ccache setup for Alpine
 RUN echo "🔧 Setting up ccache for Alpine..." && \
