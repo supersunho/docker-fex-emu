@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
     echo "📦 Installing Alpine build packages..." && \
     echo "🔍 Alpine package manager: APK (Alpine Package Keeper)" && \
     echo "🚀 Starting optimized package installation..." && \
-    apk add --no-cache --no-doc \
+    apk add --no-cache  \
         git cmake ninja pkgconfig ccache \
         clang lld llvm llvm-dev \
         openssl-dev nasm \
@@ -496,7 +496,7 @@ RUN echo "🏔️ Setting up Alpine runtime with glibc compatibility..." && \
 RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
     echo "📦 Installing minimal Alpine runtime packages..." && \
     echo "🔍 Selecting only essential runtime components..." && \
-    apk add --no-cache --no-doc \
+    apk add --no-cache  \
         gcompat libstdc++ \
         sudo curl wget jq \
         bash coreutils && \
