@@ -265,19 +265,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "✅ All RootFS tools and dependencies installed successfully" && \
     echo "🎯 Ubuntu RootFS preparer ready!"
 
-# Update CA certificates for secure downloads 
-RUN echo "🔒 Smart CA certificate check..." && \
-    UBUNTU_VERSION_NUM=$(lsb_release -rs 2>/dev/null | awk -F'.' '{printf "%d%02d", $1, $2}' || echo "2404") && \
-    \
-    if [ "$UBUNTU_VERSION_NUM" -lt 2404 ]; then \
-        echo "🔄 Ubuntu version $UBUNTU_VERSION_NUM < 2404 - updating CA certificates..." && \
-        apt-get update -qq && apt-get install -qq -y ca-certificates && update-ca-certificates; \
-    elif ! curl -s --connect-timeout 5 "https://archive.ubuntu.com" >/dev/null 2>&1; then \
-        echo "🔄 Connectivity issue detected - updating CA certificates..." && \
-        apt-get update -qq && apt-get install -qq -y ca-certificates && update-ca-certificates; \
-    else \
-        echo "✅ CA certificates OK - no update needed"; \
-    fi
+# Update CA certificates for secure downloads  
+RUN echo "🔒 Updating CA certificates for maximum compatibility..." && \
+    apt-get update -qq && \
+    apt-get install -qq -y ca-certificates && \
+    update-ca-certificates && \
+    echo "✅ CA certificates updated"
+
 
 ENV CURL_CA_BUNDLE=""
 
