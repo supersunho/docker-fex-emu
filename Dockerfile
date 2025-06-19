@@ -150,9 +150,22 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "ℹ️ ccache disabled for this Alpine build"; \
     fi && \
     \
-    # Alpine-optimized CMake configuration
-    echo "⚙️ Running CMake configuration for Alpine..." && \
-    echo "🎯 Optimizing for minimum size and maximum performance..." && \
+    # Alpine musl libc compatibility setup
+    echo "🏔️ Setting up Alpine musl libc compatibility..." && \
+    echo "🔧 Configuring largefile support for musl..." && \
+    echo "📊 musl compatibility settings:" && \
+    echo "  - _LARGEFILE64_SOURCE: Enable 64-bit file operations" && \
+    echo "  - _FILE_OFFSET_BITS=64: Use 64-bit file offsets" && \
+    echo "  - _GNU_SOURCE: Enable GNU extensions for compatibility" && \
+    echo "✅ Alpine musl compatibility configured" && \
+    \
+    CFLAGS="-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" && \
+    CXXFLAGS="-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" && \  
+    CPPFLAGS="-D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" && \
+    \
+    # Alpine-optimized CMake configuration 
+    echo "⚙️ Running CMake configuration for Alpine with musl compatibility..." && \
+    echo "🎯 Optimizing for minimum size and maximum musl compatibility..." && \
     cmake \
         -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
         -DCMAKE_BUILD_TYPE=Release \
@@ -170,6 +183,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
         -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
         -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+        -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
+        -DCMAKE_C_FLAGS="$CFLAGS" \
         -G Ninja .. && \
     echo "✅ CMake configuration completed successfully" && \
     \
