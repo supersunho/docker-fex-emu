@@ -247,6 +247,8 @@ LABEL fex.version="${FEX_VERSION}"
 LABEL fex.rootfs.os="${ROOTFS_OS}"
 LABEL fex.rootfs.version="${ROOTFS_VERSION}"
 
+ENV DEBIAN_FRONTEND=noninteractive 
+
 # Install RootFS extraction tools and dependencies for Ubuntu
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
