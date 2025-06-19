@@ -1,33 +1,57 @@
-name: Clear All Caches
+name: Clear All Caches (Paginated)
 
 on:
-  workflow_dispatch:
+    workflow_dispatch:
 
 permissions:
-  actions: write
+    actions: write
 
 jobs:
-  clear-cache:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clear all caches
-        uses: actions/github-script@v6
-        with:
-          script: |
-            console.log("Starting cache cleanup...")
-            const caches = await github.rest.actions.getActionsCacheList({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            })
-            
-            console.log(`Found ${caches.data.actions_caches.length} caches`)
-            
-            for (const cache of caches.data.actions_caches) {
-              console.log(`Deleting cache: ${cache.key} (ID: ${cache.id})`)
-              await github.rest.actions.deleteActionsCacheById({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                cache_id: cache.id,
-              })
-            }
-            console.log("Cache cleanup completed!")
+    clear-all-caches:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Clear all caches with pagination support
+              uses: actions/github-script@v6
+              with:
+                  script: |
+                      console.log("Starting complete cache cleanup with pagination...")
+
+                      let totalDeleted = 0
+                      let page = 1
+                      let hasMore = true
+
+                      while (hasMore) {
+                        console.log(`Processing page ${page}...`)
+                        
+                        const caches = await github.rest.actions.getActionsCacheList({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          per_page: 100,
+                          page: page
+                        })
+                        
+                        const cacheList = caches.data.actions_caches
+                        console.log(`Found ${cacheList.length} caches on page ${page}`)
+                         
+                        for (const cache of cacheList) {
+                          try {
+                            console.log(`Deleting cache: ${cache.key} (ID: ${cache.id})`)
+                            await github.rest.actions.deleteActionsCacheById({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              cache_id: cache.id,
+                            })
+                            totalDeleted++
+                          } catch (error) {
+                            console.log(`Failed to delete cache ${cache.id}: ${error.message}`)
+                          }
+                        }
+                         
+                        if (cacheList.length < 100) {
+                          hasMore = false
+                        } else {
+                          page++
+                        }
+                      }
+
+                      console.log(`Cache cleanup completed! Total deleted: ${totalDeleted}`)
