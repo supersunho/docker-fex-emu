@@ -31,11 +31,7 @@ on:
                     - "fedora-all"
                     - "full-matrix"
                     - "custom"
-            verify_build:
-                description: "Verify build"
-                required: false
-                default: false
-                type: boolean
+
             custom_distros:
                 description: "Custom distributions (comma-separated)"
                 required: false
@@ -47,7 +43,11 @@ on:
                 required: false
                 default: "latest"
                 type: string
-
+            verify_build:
+                description: "Verify build"
+                required: false
+                default: false
+                type: boolean
             force_rebuild:
                 description: "Force rebuild even if image exists"
                 required: false
