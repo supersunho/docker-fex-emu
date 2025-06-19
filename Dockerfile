@@ -270,7 +270,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Update CA certificates for secure downloads  
 RUN echo "🔒 Updating CA certificates for maximum compatibility..." && \
     apt-get update -qq && \
-    apt-get install -qq -y ca-certificates && \
+    apt-get install -qq -y apt-utils ca-certificates && \
     update-ca-certificates && \
     echo "✅ CA certificates updated"
 
