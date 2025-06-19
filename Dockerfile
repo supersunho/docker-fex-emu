@@ -198,6 +198,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
         -DBUILD_THUNKS=FALSE \
+        -DBUILD_TOOLS=FALSE \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
         -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
         $CCACHE_CMAKE_ARGS \
