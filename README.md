@@ -81,7 +81,7 @@ docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.0
 docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:fedora-40
 
 # Specific FEX version with semantic versioning
-docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.04-fex-2506
+docker run -it --rm ghcr.io/supersunho/docker-fex-emu/docker-fex-emu:ubuntu-24.04-2506
 ```
 
 ### 🎮 **Execute x86 Applications**
