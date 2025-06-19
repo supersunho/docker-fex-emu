@@ -634,8 +634,13 @@ jobs:
                   timeout_minutes: 15
                   max_attempts: 3
                   command: |
-                      docker push ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
+                      docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }} \
+                                  ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
+                      docker tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }} \
+                                  ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
+
                       docker push ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
+                      docker push ${{ env.DOCKERHUB_REPO }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
 
             - name: Display pushed images information
               if: steps.check-images.outputs.build_fexbash == 'true'
