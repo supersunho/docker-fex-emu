@@ -602,6 +602,8 @@ jobs:
                   file: ./Dockerfile
                   platforms: linux/arm64
                   push: ${{ github.event_name != 'pull_request' }}
+                  security-opt: |
+                      apparmor=unconfined
                   tags: |
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}-${{ needs.prepare-and-generate.outputs.fex_semantic }}
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.ROOTFS_OS }}-${{ matrix.ROOTFS_VERSION }}
