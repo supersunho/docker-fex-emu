@@ -41,12 +41,13 @@ jobs:
 
                   echo "✅ Current FEX release: $CURRENT_RELEASE"
 
-            - name: Try to download previous release info
-              uses: actions/download-artifact@v4
+            - name: Download previous FEX release info
+              id: download-artifact
+              uses: dawidd6/action-download-artifact@v11
               with:
                   name: fex-release-info
-                  path: .
-              continue-on-error: true
+                  workflow_conclusion: success
+                  if_no_artifact_found: warn
 
             - name: Setup release comparison data
               id: setup_data
