@@ -935,7 +935,6 @@ jobs:
                   PROJECT_DESCRIPTION="${{ env.PROJECT_DESCRIPTION || 'Automated project monitoring' }}"
                   DOCKER_REPO="${{ needs.load-configuration.outputs.docker_repo }}"
 
-                  # ✅ 수정된 템플릿 - placeholder를 테이블 행 밖으로 이동
                   cat > dashboard_content.md << EOF
                   ## 🤖 ${PROJECT_NAME} - Automation Dashboard
 
