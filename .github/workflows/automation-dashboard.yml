@@ -3,7 +3,7 @@ name: Automation Dashboard
 on:
     # Regular updates daily
     schedule:
-        - cron: "* * * * *"
+        - cron: "*/5 * * * *"
 
     # Update when automation workflows complete
     workflow_run:
@@ -472,41 +472,180 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - name: Create health alert issue
+            - name: Find existing health alert issue
+              id: find_health_issue
               uses: actions/github-script@v7
               with:
                   script: |
+                      // 검색 결과 2 패턴: 기존 이슈 찾기
+                      const issues = await github.rest.issues.listForRepo({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        labels: 'automation-health-alert',
+                        state: 'open'
+                      });
+
+                      const healthIssue = issues.data.find(issue => 
+                        issue.title.includes('🚨 System Health Monitor')
+                      );
+
+                      if (healthIssue) {
+                        console.log(`Found existing health alert issue: #${healthIssue.number}`);
+                        return healthIssue.number;
+                      } else {
+                        console.log('No existing health alert issue found');
+                        return null;
+                      }
+
+            - name: Generate health alert content
+              id: generate_health_content
+              run: |
+                  cat > health_alert_content.md << 'EOF'
+                  ## 🚨 System Health Monitor
+
+                  **Current Status**: ${{ needs.collect-metrics.outputs.system_health == 'degraded' && '🟡 Degraded' || '🔴 Unhealthy' }}
+                  **Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}
+                  **Detection Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+                  ---
+
+                  ### 🔍 Current Health Issues:
+
+                  **Status**: ${{ needs.collect-metrics.outputs.system_health == 'degraded' && '🟡 System Performance Degraded' || '🔴 System Health Critical' }}
+
+                  ### 📊 Current Metrics:
+                  - **System Health**: ${{ needs.collect-metrics.outputs.system_health }}
+                  - **Detection Time**: ${{ needs.collect-metrics.outputs.last_updated }}
+                  - **Alert Level**: ${{ needs.collect-metrics.outputs.system_health == 'degraded' && 'Warning' || 'Critical' }}
+
+                  ### 🔧 Recommended Actions:
+                  - [ ] Review recent workflow failures in [Actions tab](../../actions)
+                  - [ ] Check automation configurations
+                  - [ ] Verify external dependencies (Docker Hub, FEX API)
+                  - [ ] Monitor system recovery
+
+                  ### 📈 Health History:
+                  This issue tracks ongoing system health. It will be updated with each health check and automatically closed when all systems return to healthy status.
+
+                  ### 🔄 Auto-Resolution:
+                  ✅ This alert will automatically close when system health returns to **🟢 Healthy** status.
+
+                  ---
+
+                  ### 🤖 Automation Status:
+                  | Component | Status | Action Needed |
+                  |-----------|--------|---------------|
+                  | FEX Release Detection | Checking... | Monitor |
+                  | RootFS Update Detection | Checking... | Monitor |
+                  | Container Builds | Checking... | Review |
+                  | Docker Hub Deployment | Checking... | Verify |
+
+                  ---
+
+                  *🚨 This health monitor is automatically updated when issues are detected.*
+
+                  *📊 For detailed metrics, see the [Automation Dashboard](../../../issues?q=is%3Aissue+is%3Aopen+label%3Aautomation-dashboard)*
+
+                  *⚙️ Last health check: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
+                  EOF
+
+            - name: Create or update health alert issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const healthContent = fs.readFileSync('health_alert_content.md', 'utf8');
+                      const existingIssueNumber = ${{ steps.find_health_issue.outputs.result }};
                       const healthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
                       const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
 
-                      const alertBody = `
-                      ## 🚨 Automation System Health Alert
 
-                      **Alert Level**: ${healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy'}
-                      **Detection Time**: ${new Date().toISOString()}
-                      **Dashboard Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+                      let updatedContent = healthContent;
 
-                      ### 🔍 Detected Issues:
-                      ${dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n')}
+                      if (dashboardData.system_health.issues && dashboardData.system_health.issues.length > 0) {
+                        const issuesList = dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n');
+                        updatedContent = updatedContent.replace(
+                          '### 🔍 Current Health Issues:',
+                          `### 🔍 Current Health Issues:\n\n${issuesList}\n`
+                        );
+                      }
 
-                      ### 📊 Current Statistics:
-                      - **Success Rate**: ${dashboardData.workflow_stats.successRate}%
-                      - **Total Runs (30d)**: ${dashboardData.workflow_stats.totalRuns}
-                      - **Failed Runs**: ${dashboardData.workflow_stats.failedRuns}
+                      // 실제 메트릭으로 교체
+                      updatedContent = updatedContent
+                        .replace('- **Success Rate**: Loading...', `- **Success Rate**: ${dashboardData.workflow_stats.successRate}%`)
+                        .replace('- **Total Runs (30d)**: Loading...', `- **Total Runs (30d)**: ${dashboardData.workflow_stats.totalRuns}`)
+                        .replace('- **Failed Runs**: Loading...', `- **Failed Runs**: ${dashboardData.workflow_stats.failedRuns}`);
 
-                      ### 🔧 Recommended Actions:
-                      - [ ] Review recent workflow failures
-                      - [ ] Check automation configurations
-                      - [ ] Verify external dependencies
-                      - [ ] Monitor for resolution
+                      const title = '🚨 System Health Monitor - Live Status';
 
-                      **This alert will auto-resolve when system health returns to normal.**
-                      `;
+                      if (existingIssueNumber) {
+                        await github.rest.issues.update({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: existingIssueNumber,
+                          title: title,
+                          body: updatedContent,
+                          state: 'open'  
+                        });
+                        
+                        // 업데이트 코멘트 추가
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: existingIssueNumber,
+                          body: `🔄 **Health Status Update** - ${new Date().toISOString()}\n\nStatus changed to: **${healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy'}**\n\nSee updated details above. ⬆️`
+                        });
+                        
+                        console.log(`Updated existing health alert issue #${existingIssueNumber}`);
+                      } else {
+                        
+                        const newIssue = await github.rest.issues.create({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          title: title,
+                          body: updatedContent,
+                          labels: ['automation-health-alert', 'alert', healthStatus, 'pinned']
+                        });
+                        
+                        console.log(`Created new health alert issue #${newIssue.data.number}`);
+                      }
 
-                      await github.rest.issues.create({
+    close-health-alert-if-healthy:
+        needs: [collect-metrics, update-dashboard]
+        if: needs.collect-metrics.outputs.system_health == 'healthy'
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Close health alert issue if system is healthy
+              uses: actions/github-script@v7
+              with:
+                  script: |
+
+                      const issues = await github.rest.issues.listForRepo({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        title: `🚨 Automation Health Alert - ${healthStatus.toUpperCase()}`,
-                        body: alertBody,
-                        labels: ['automation', 'alert', 'health-check', healthStatus]
+                        labels: 'automation-health-alert',
+                        state: 'open'
                       });
+
+                      for (const issue of issues.data) {
+                        if (issue.title.includes('🚨 System Health Monitor')) {
+                          
+                          await github.rest.issues.createComment({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            issue_number: issue.number,
+                            body: `## ✅ System Health Recovered!\n\n**Recovery Time**: ${new Date().toISOString()}\n**Status**: 🟢 All systems healthy\n\n🎉 All automation components have returned to normal operation.\n\nThis health monitor will remain closed until new issues are detected.`
+                          });
+                          
+                          
+                          await github.rest.issues.update({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            issue_number: issue.number,
+                            state: 'closed'
+                          });
+                          
+                          console.log(`Closed health alert issue #${issue.number} - system recovered`);
+                        }
+                      }
