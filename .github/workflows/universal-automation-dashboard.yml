@@ -881,6 +881,53 @@ jobs:
                           console.log('No existing dashboard issue found');
                           return null;
                       }
+            - name: Get previous dashboard data for comparison
+              id: get_previous_data
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const existingIssueNumber = ${{ steps.find_issue.outputs.result }};
+                      let previousData = {
+                          success_rate: 0,
+                          total_runs: 0,
+                          failed_runs: 0,
+                          docker_pulls: 0,
+                          active_issues: 0,
+                          update_count: 0
+                      };
+
+                      if (existingIssueNumber) {
+                          try {
+                              const issue = await github.rest.issues.get({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  issue_number: existingIssueNumber
+                              });
+
+                              // Extract previous data from issue body using regex
+                              const body = issue.data.body;
+                              
+                              const successRateMatch = body.match(/Success Rate.*?(\d+(?:\.\d+)?)%/);
+                              const totalRunsMatch = body.match(/Total Runs.*?(\d+)/);
+                              const failedRunsMatch = body.match(/Failed Runs.*?(\d+)/);
+                              const dockerPullsMatch = body.match(/Total Pulls.*?(\d+(?:,\d+)*)/);
+                              const activeIssuesMatch = body.match(/Current open automation issues: (\d+)/);
+                              const updateMatch = body.match(/Update #.*?(\d+)/);
+
+                              if (successRateMatch) previousData.success_rate = parseFloat(successRateMatch[1]);
+                              if (totalRunsMatch) previousData.total_runs = parseInt(totalRunsMatch[1]);
+                              if (failedRunsMatch) previousData.failed_runs = parseInt(failedRunsMatch[1]);
+                              if (dockerPullsMatch) previousData.docker_pulls = parseInt(dockerPullsMatch[1].replace(/,/g, ''));
+                              if (activeIssuesMatch) previousData.active_issues = parseInt(activeIssuesMatch[1]);
+                              if (updateMatch) previousData.update_count = parseInt(updateMatch[1]);
+
+                              console.log('📊 Previous data extracted:', previousData);
+                          } catch (error) {
+                              console.log('⚠️ Could not extract previous data:', error.message);
+                          }
+                      }
+
+                      return previousData;
 
             - name: Generate configurable dashboard content
               run: |
@@ -888,7 +935,6 @@ jobs:
                   PROJECT_DESCRIPTION="${{ env.PROJECT_DESCRIPTION || 'Automated project monitoring' }}"
                   DOCKER_REPO="${{ needs.load-configuration.outputs.docker_repo }}"
 
-                  # Variables-based fully configurable dashboard
                   cat > dashboard_content.md << EOF
                   ## 🤖 ${PROJECT_NAME} - Automation Dashboard
 
@@ -897,6 +943,17 @@ jobs:
                   **Configuration**: Variables & Secrets based
                   **Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}
                   **System Health**: SYSTEM_HEALTH_PLACEHOLDER
+                  **Update #**: UPDATE_NUMBER_PLACEHOLDER
+
+                  ### 📊 Live Tracking Information
+
+                  | Metric | Current Value | Previous Value | Trend |
+                  |--------|---------------|----------------|-------|
+                  | Success Rate | SUCCESS_RATE_CURRENT% | PREV_SUCCESS_RATE% | TREND_SUCCESS_RATE |
+                  | Total Runs | TOTAL_RUNS_CURRENT | PREV_TOTAL_RUNS | TREND_TOTAL_RUNS |
+                  | Failed Runs | FAILED_RUNS_CURRENT | PREV_FAILED_RUNS | TREND_FAILED_RUNS |
+                  | Docker Pulls | DOCKER_PULLS_CURRENT | PREV_DOCKER_PULLS | TREND_DOCKER_PULLS |
+                  | Active Issues | ACTIVE_ISSUES_CURRENT | PREV_ACTIVE_ISSUES | TREND_ACTIVE_ISSUES |
 
                   ### ⚙️ Current Configuration
 
@@ -939,7 +996,7 @@ jobs:
                   - `ENABLE_CUSTOM_WEBHOOK_INTEGRATION`: Enable custom webhook integration (default: false)
 
                   **Secrets** (Repository Settings → Secrets and variables → Actions → Secrets):
-                  - `DOCKER_ACCESS_TOKEN`: Docker Hub access token
+                  - `DOCKERHUB_TOKEN`: Docker Hub access token
                   - `SLACK_WEBHOOK_URL`: Slack webhook for notifications (optional)
                   - `TEAMS_WEBHOOK_URL`: Microsoft Teams webhook for notifications (optional)
                   - `DISCORD_WEBHOOK_URL`: Discord webhook for notifications (optional)
@@ -954,7 +1011,7 @@ jobs:
 
                   | Service | Status | Required Variables | Required Secrets |
                   |---------|--------|-------------------|------------------|
-                  | **Docker Hub** | ${{ env.DOCKER_USERNAME && '✅ Configured' || '⚠️ Missing DOCKER_USERNAME' }} | DOCKER_USERNAME | DOCKER_ACCESS_TOKEN |
+                  | **Docker Hub** | ${{ env.DOCKER_USERNAME && '✅ Configured' || '⚠️ Missing DOCKER_USERNAME' }} | DOCKER_USERNAME | DOCKERHUB_TOKEN |
                   | **Health Alerts** | ${{ env.ENABLE_HEALTH_ALERTS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_HEALTH_ALERTS | - |
                   | **Slack Notifications** | ${{ env.ENABLE_SLACK_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_SLACK_NOTIFICATIONS | SLACK_WEBHOOK_URL |
                   | **Teams Notifications** | ${{ env.ENABLE_TEAMS_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_TEAMS_NOTIFICATIONS | TEAMS_WEBHOOK_URL |
@@ -977,7 +1034,7 @@ jobs:
 
                   | Component | Status | Category | Last Activity |
                   |-----------|--------|----------|---------------|
-                  | WORKFLOW_STATUS_TABLE |
+                  WORKFLOW_STATUS_TABLE
 
                   ### 📈 Performance Metrics (Last ${{ fromJson(needs.load-configuration.outputs.monitoring_config).history_days }} Days)
 
@@ -990,7 +1047,7 @@ jobs:
 
                   | Workflow | Category | Status | Run # | Time |
                   |----------|----------|--------|-------|------|
-                  | RECENT_BUILDS_TABLE |
+                  RECENT_BUILDS_TABLE
 
                   ### 📦 Container Registry
 
@@ -1021,14 +1078,22 @@ jobs:
 
                   ---
 
+                  ### 📊 Real-time Update Log
+
+                  REALTIME_LOG_PLACEHOLDER
+
+                  ---
+
                   *🤖 This dashboard automatically adapts to any project and updates regularly.*
 
                   *📊 Data source: GitHub Actions API + Container Registry APIs*
 
                   *⚙️ Generated by Universal Automation Dashboard v2.0.0*
+
+                  *🔄 Auto-updated every ${{ fromJson(needs.load-configuration.outputs.monitoring_config).update_frequency }}*
                   EOF
 
-            - name: Create or update universal dashboard issue
+            - name: Create or update dashboard issue with real-time tracking
               uses: actions/github-script@v7
               with:
                   script: |
@@ -1036,18 +1101,46 @@ jobs:
                       const dashboardContent = fs.readFileSync('dashboard_content.md', 'utf8');
                       const existingIssueNumber = ${{ steps.find_issue.outputs.result }};
                       const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
+                      const previousData = ${{ steps.get_previous_data.outputs.result }};
 
                       const workflowStats = dashboardData.workflow_stats;
                       const containerStats = dashboardData.container_stats;
 
-                      // System health status processing
+
                       const systemHealthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
                       const healthDisplay = systemHealthStatus === 'healthy' ? '🟢 Healthy' : 
                                           systemHealthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy';
 
                       console.log(`📊 System health status: ${systemHealthStatus} -> ${healthDisplay}`);
 
-                      // Generate workflow status table
+
+                      const currentData = {
+                          success_rate: parseFloat(workflowStats.successRate) || 0,
+                          total_runs: workflowStats.totalRuns || 0,
+                          failed_runs: workflowStats.failedRuns || 0,
+                          docker_pulls: containerStats.pull_count || 0,
+                          active_issues: dashboardData.active_issues || 0
+                      };
+
+                      const updateCount = (previousData.update_count || 0) + 1;
+
+
+                      function getTrend(current, previous) {
+                          if (previous === 0) return '🆕 New';
+                          if (current > previous) return '📈 Up';
+                          if (current < previous) return '📉 Down';
+                          return '➖ Same';
+                      }
+
+                      const trends = {
+                          success_rate: getTrend(currentData.success_rate, previousData.success_rate),
+                          total_runs: getTrend(currentData.total_runs, previousData.total_runs),
+                          failed_runs: getTrend(currentData.failed_runs, previousData.failed_runs),
+                          docker_pulls: getTrend(currentData.docker_pulls, previousData.docker_pulls),
+                          active_issues: getTrend(currentData.active_issues, previousData.active_issues)
+                      };
+
+
                       let workflowStatusTable = '';
                       Object.entries(workflowStats.workflowCategories).forEach(([category, workflows]) => {
                           if (workflows.length > 0) {
@@ -1061,7 +1154,7 @@ jobs:
                           workflowStatusTable = '| No workflows detected | ⚠️ None | - | - |';
                       }
 
-                      // Generate recent builds table
+
                       let recentBuildsTable = '';
                       if (workflowStats.recentBuilds && workflowStats.recentBuilds.length > 0) {
                           recentBuildsTable = workflowStats.recentBuilds.slice(0, 10).map(build => {
@@ -1083,25 +1176,69 @@ jobs:
                           recentBuildsTable = '| No recent activity | - | - | - | - |';
                       }
 
-                      // Replace all placeholders
+
+                      const updateLog = `
+                      #### Recent Updates
+
+                      **Update #${updateCount}** - ${new Date().toLocaleString('en-US', { 
+                          timeZone: 'Asia/Seoul',
+                          year: 'numeric',
+                          month: 'short', 
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                      })} KST
+
+                      | Metric | Change | Details |
+                      |--------|---------|---------|
+                      | Success Rate | ${trends.success_rate} | ${previousData.success_rate}% → ${currentData.success_rate}% |
+                      | Total Runs | ${trends.total_runs} | ${previousData.total_runs} → ${currentData.total_runs} |
+                      | Failed Runs | ${trends.failed_runs} | ${previousData.failed_runs} → ${currentData.failed_runs} |
+                      | Docker Pulls | ${trends.docker_pulls} | ${previousData.docker_pulls.toLocaleString()} → ${currentData.docker_pulls.toLocaleString()} |
+                      | Active Issues | ${trends.active_issues} | ${previousData.active_issues} → ${currentData.active_issues} |
+
+                      **Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+                      `;
+
+
                       let updatedContent = dashboardContent
-                          .replace('WORKFLOW_STATUS_TABLE', workflowStatusTable)
+                          .replace('WORKFLOW_STATUS_TABLE', workflowStatusTable)  
+                          .replace('RECENT_BUILDS_TABLE', recentBuildsTable)      
                           .replace('TOTAL_RUNS', workflowStats.totalRuns || 0)
                           .replace('SUCCESS_RATE', workflowStats.successRate || 0)
                           .replace('AVERAGE_DURATION', workflowStats.averageDuration || 0)
                           .replace('FAILED_RUNS', workflowStats.failedRuns || 0)
-                          .replace('RECENT_BUILDS_TABLE', recentBuildsTable)
                           .replace('CONTAINER_PULLS', containerStats.pull_count.toLocaleString())
                           .replace('CONTAINER_STARS', containerStats.star_count)
                           .replace('CONTAINER_UPDATED', containerStats.last_updated)
                           .replace('ACTIVE_ISSUES', dashboardData.active_issues)
-                          .replace('SYSTEM_HEALTH_PLACEHOLDER', healthDisplay);
+                          .replace('SYSTEM_HEALTH_PLACEHOLDER', healthDisplay)
+                          .replace('UPDATE_NUMBER_PLACEHOLDER', updateCount)
+                          
+                          .replace('SUCCESS_RATE_CURRENT', currentData.success_rate)
+                          .replace('PREV_SUCCESS_RATE', previousData.success_rate)
+                          .replace('TREND_SUCCESS_RATE', trends.success_rate)
+                          .replace('TOTAL_RUNS_CURRENT', currentData.total_runs)
+                          .replace('PREV_TOTAL_RUNS', previousData.total_runs)
+                          .replace('TREND_TOTAL_RUNS', trends.total_runs)
+                          .replace('FAILED_RUNS_CURRENT', currentData.failed_runs)
+                          .replace('PREV_FAILED_RUNS', previousData.failed_runs)
+                          .replace('TREND_FAILED_RUNS', trends.failed_runs)
+                          .replace('DOCKER_PULLS_CURRENT', currentData.docker_pulls.toLocaleString())
+                          .replace('PREV_DOCKER_PULLS', previousData.docker_pulls.toLocaleString())
+                          .replace('TREND_DOCKER_PULLS', trends.docker_pulls)
+                          .replace('ACTIVE_ISSUES_CURRENT', currentData.active_issues)
+                          .replace('PREV_ACTIVE_ISSUES', previousData.active_issues)
+                          .replace('TREND_ACTIVE_ISSUES', trends.active_issues)
+                          .replace('REALTIME_LOG_PLACEHOLDER', updateLog);
 
                       console.log('✅ All placeholders replaced successfully');
 
                       const title = `🤖 Automation Dashboard - ${{ env.PROJECT_DISPLAY_NAME || github.repository }}`;
 
                       if (existingIssueNumber) {
+                          
                           await github.rest.issues.update({
                               owner: context.repo.owner,
                               repo: context.repo.repo,
@@ -1109,16 +1246,52 @@ jobs:
                               title: title,
                               body: updatedContent
                           });
-                          console.log(`✅ Updated dashboard issue #${existingIssueNumber}`);
+
+                          
+                          const trackingComment = `## 🔄 Dashboard Update #${updateCount}
+
+                      **Update Time**: ${new Date().toLocaleString('en-US', { 
+                          timeZone: 'Asia/Seoul',
+                          year: 'numeric',
+                          month: 'short', 
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                      })} KST
+
+                      **System Health**: ${healthDisplay}
+                      **Trigger**: ${{ github.event_name }} 
+                      **Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+                      ### 📊 Key Metrics
+                      - **Success Rate**: ${currentData.success_rate}% (${trends.success_rate.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new')})
+                      - **Total Runs**: ${currentData.total_runs} (${trends.total_runs.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new')})
+                      - **Failed Runs**: ${currentData.failed_runs} (${trends.failed_runs.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new')})
+                      - **Docker Pulls**: ${currentData.docker_pulls.toLocaleString()} (${trends.docker_pulls.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new')})
+
+                      ---
+                      *Dashboard content updated automatically*`;
+
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: existingIssueNumber,
+                              body: trackingComment
+                          });
+
+                          console.log(`✅ Updated dashboard issue #${existingIssueNumber} with tracking comment`);
                       } else {
+                          
                           const newIssue = await github.rest.issues.create({
                               owner: context.repo.owner,
                               repo: context.repo.repo,
                               title: title,
                               body: updatedContent,
-                              labels: ['automation-dashboard', 'pinned', 'enhancement']
+                              labels: ['automation-dashboard', 'pinned', 'enhancement', 'real-time-tracking']
                           });
-                          console.log(`✅ Created new dashboard issue #${newIssue.data.number}`);
+
+                          console.log(`✅ Created new dashboard issue #${newIssue.data.number} with real-time tracking`);
                       }
 
     notify-health-issues:
