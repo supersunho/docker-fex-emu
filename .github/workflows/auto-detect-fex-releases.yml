@@ -21,58 +21,79 @@ jobs:
         runs-on: ubuntu-latest
         outputs:
             new_release_found: ${{ steps.compare_release.outputs.release_changed }}
-            new_version: ${{ steps.get_release.outputs.release_tag }}
+            new_version: ${{ steps.compare_release.outputs.current_release }}
             force_triggered: ${{ steps.compare_release.outputs.force_triggered }}
 
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-            - name: Download previous FEX release info
-              id: download-artifact
-              uses: dawidd6/action-download-artifact@v2
+            - name: Initialize release tracking (safe first run)
+              id: init_tracking
+              run: |
+                  echo "🔍 Initializing FEX release tracking..."
+
+                  touch fex-release-info
+
+                  echo "📡 Fetching current FEX release from API..."
+                  CURRENT_RELEASE=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/releases/latest | jq -r '.tag_name')
+                  echo "current_release=$CURRENT_RELEASE" >> $GITHUB_OUTPUT
+
+                  echo "✅ Current FEX release: $CURRENT_RELEASE"
+
+            - name: Try to download previous release info
+              uses: actions/download-artifact@v4
               with:
                   name: fex-release-info
-                  workflow_conclusion: success
-                  if_no_artifact_found: warn
+                  path: .
+              continue-on-error: true
 
-            - name: Get latest FEX release
-              id: get_release
+            - name: Setup release comparison data
+              id: setup_data
               run: |
-                  echo "🔍 Fetching latest FEX-Emu release information..."
-                  RELEASE_DATA=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/releases/latest)
-                  RELEASE_TAG=$(echo "$RELEASE_DATA" | jq -r '.tag_name')
+                  CURRENT_RELEASE="${{ steps.init_tracking.outputs.current_release }}"
 
-                  echo "📊 Latest FEX release: $RELEASE_TAG"
-                  echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+                  if [ -s "fex-release-info" ]; then
+                    PREVIOUS_RELEASE=$(cat fex-release-info)
+                    echo "📋 Found previous release: $PREVIOUS_RELEASE"
+                  else
+                    echo "📝 No previous data found - initializing tracking..."
+                    PREVIOUS_RELEASE="INIT"
+                    echo "$CURRENT_RELEASE" > fex-release-info
+                  fi
 
-            - name: Compare with previous release (with force_check logic)
+                  echo "previous_release=$PREVIOUS_RELEASE" >> $GITHUB_OUTPUT
+                  echo "current_release=$CURRENT_RELEASE" >> $GITHUB_OUTPUT
+
+            - name: Compare releases with force check logic
               id: compare_release
               run: |
-                  echo "🔍 Checking release status with force_check logic..."
-
-                  PREVIOUS_RELEASE=$(cat fex-release-info 2>/dev/null || echo "NONE")
-                  CURRENT_RELEASE="${{ steps.get_release.outputs.release_tag }}"
+                  PREVIOUS_RELEASE="${{ steps.setup_data.outputs.previous_release }}"
+                  CURRENT_RELEASE="${{ steps.setup_data.outputs.current_release }}"
                   FORCE_CHECK="${{ github.event.inputs.force_check }}"
 
                   echo "📊 Release comparison:"
                   echo "  - Previous: $PREVIOUS_RELEASE"
                   echo "  - Current: $CURRENT_RELEASE"
                   echo "  - Force check: $FORCE_CHECK"
-                  echo "  - Trigger type: ${{ github.event_name }}"
-                   
+
                   if [ "$FORCE_CHECK" = "true" ]; then
-                    echo "🔄 Force check enabled - will trigger build regardless"
+                    echo "🔄 Force check enabled - triggering build"
                     echo "release_changed=true" >> $GITHUB_OUTPUT
                     echo "force_triggered=true" >> $GITHUB_OUTPUT
                     echo "trigger_reason=force_check_manual" >> $GITHUB_OUTPUT
+                  elif [ "$PREVIOUS_RELEASE" = "INIT" ]; then
+                    echo "🎉 First run - setting up tracking (no build trigger)"
+                    echo "release_changed=false" >> $GITHUB_OUTPUT
+                    echo "force_triggered=false" >> $GITHUB_OUTPUT
+                    echo "trigger_reason=first_run_setup" >> $GITHUB_OUTPUT
                   elif [ "$CURRENT_RELEASE" != "$PREVIOUS_RELEASE" ]; then
                     echo "🎉 New FEX release detected: $CURRENT_RELEASE"
                     echo "release_changed=true" >> $GITHUB_OUTPUT
                     echo "force_triggered=false" >> $GITHUB_OUTPUT
                     echo "trigger_reason=new_release_detected" >> $GITHUB_OUTPUT
                   else
-                    echo "✅ No new release found and force check not enabled"
+                    echo "✅ No new release and no force check"
                     echo "release_changed=false" >> $GITHUB_OUTPUT
                     echo "force_triggered=false" >> $GITHUB_OUTPUT
                     echo "trigger_reason=no_change" >> $GITHUB_OUTPUT
@@ -80,8 +101,8 @@ jobs:
 
             - name: Save current release info
               run: |
-                  echo "${{ steps.get_release.outputs.release_tag }}" > fex-release-info
-                  echo "💾 Updated release info: ${{ steps.get_release.outputs.release_tag }}"
+                  echo "${{ steps.setup_data.outputs.current_release }}" > fex-release-info
+                  echo "💾 Saved release info: ${{ steps.setup_data.outputs.current_release }}"
 
             - name: Upload release info artifact
               uses: actions/upload-artifact@v4
@@ -89,6 +110,7 @@ jobs:
                   name: fex-release-info
                   path: fex-release-info
                   retention-days: 90
+
     trigger-build:
         needs: check-fex-release
         if: needs.check-fex-release.outputs.new_release_found == 'true' && github.event.inputs.skip_build != 'true'
