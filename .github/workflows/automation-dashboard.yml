@@ -361,7 +361,7 @@ jobs:
                   |--------|-------------|-------|
                   | [🔄 Force FEX Check](../../actions/workflows/auto-detect-fex-releases.yml) | Manually trigger FEX release detection | Click "Run workflow" → Enable "Force check" |
                   | [🔄 Force RootFS Check](../../actions/workflows/auto-detect-rootfs-updates.yml) | Manually trigger RootFS update detection | Click "Run workflow" → Enable "Force check" |
-                  | [🏗️ Manual Build](../../actions/workflows/build-containers.yml) | Manually trigger container builds | Select scope and version |
+                  | [🏗️ Manual Build](../../actions/workflows/build.yml) | Manually trigger container builds | Select scope and version |
                   | [📊 Refresh Dashboard](../../actions/workflows/automation-dashboard.yml) | Refresh this dashboard | Click "Run workflow" |
 
                   ### 📋 System Health Indicators
