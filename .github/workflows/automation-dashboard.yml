@@ -53,7 +53,7 @@ jobs:
                       const workflows = [
                         'Auto-detect FEX Releases',
                         'Auto-detect RootFS Updates', 
-                        'FEXBash Builder V4 (Optimized)'
+                        'FEXBash Builder'
                       ];
 
                       let totalRuns = 0;

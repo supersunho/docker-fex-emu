@@ -1,4 +1,4 @@
-name: FEXBash Builder V6
+name: FEXBash Builder
 
 on:
     # Daily automatic builds (Latest candidates only)
