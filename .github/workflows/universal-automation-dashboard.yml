@@ -24,7 +24,7 @@ permissions:
 env:
     # 📊 PROJECT CONFIGURATION
     PROJECT_DISPLAY_NAME: ${{ github.repository }}
-    PROJECT_DESCRIPTION: "---"
+    PROJECT_DESCRIPTION: ""
 
     # 🐳 DOCKER CONFIGURATION
     DOCKER_USERNAME: ${{ github.repository_owner }}
