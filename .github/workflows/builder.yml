@@ -75,7 +75,7 @@ env:
     DOCKER_BUILDKIT: 1
     BUILDKIT_PROGRESS: plain
     CACHE_VERSION: v2
-    DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_USERNAME }}/fex-emu
+    DOCKERHUB_REPO: supersunho/fex-emu
 
 # Default permissions (least privilege)
 permissions:
@@ -492,7 +492,7 @@ jobs:
               if: steps.check-images.outputs.build_fexbash == 'true'
               uses: docker/login-action@v3
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: supersunho
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             # Version-specific FEX source handling
@@ -720,7 +720,7 @@ jobs:
             - name: Authenticate with Docker Hub
               uses: docker/login-action@v3
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: supersunho
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Create comprehensive multi-platform manifests for Ubuntu-based images
@@ -990,7 +990,7 @@ jobs:
                   echo "**Build Date**: $(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
                   echo "**FEX Version**: ${{ needs.prepare-and-generate.outputs.version }} (Semantic: ${{ needs.prepare-and-generate.outputs.fex_semantic }})" >> $GITHUB_STEP_SUMMARY
                   echo "**Repository**: [${{ github.repository }}](https://github.com/${{ github.repository }})" >> $GITHUB_STEP_SUMMARY
-                  echo "**Container Registries**: [GitHub Packages](${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}) + [Docker Hub](https://hub.docker.com/r/${{ secrets.DOCKERHUB_USERNAME }}/fex-emu)" >> $GITHUB_STEP_SUMMARY
+                  echo "**Container Registries**: [GitHub Packages](${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}) + [Docker Hub](https://hub.docker.com/r/supersunho/fex-emu)" >> $GITHUB_STEP_SUMMARY
                   echo "**Base Architecture**: Ubuntu 24.04 LTS with native glibc" >> $GITHUB_STEP_SUMMARY
                   echo "**Build Strategy**: Ubuntu-optimized with version-isolated caching and multi-registry deployment" >> $GITHUB_STEP_SUMMARY
                   echo "**Compatibility**: Maximum x86 emulation compatibility with native glibc" >> $GITHUB_STEP_SUMMARY
