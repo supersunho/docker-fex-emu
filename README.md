@@ -73,7 +73,7 @@ supersunho/fex-emu:<rootfs-os>-<rootfs-version>-<fex-version>
 
 2. **RootFS Version** (`<rootfs-version>`): The specific version of the root filesystem
    - For Ubuntu: `22.04`, `24.04` (LTS versions)
-   - For Fedora: `40`, `41` (recent releases)
+   - For Fedora: `38`, `40` (recent releases)
 
 3. **FEX Version** (`<fex-version>`): The FEX-Emu project version used for the build
    - Format: `YYMM` (e.g., `2506` for June 2025 release)
@@ -84,6 +84,7 @@ supersunho/fex-emu:<rootfs-os>-<rootfs-version>-<fex-version>
 supersunho/fex-emu:ubuntu-24.04-2506   # Ubuntu 24.04 + FEX version 2506
 supersunho/fex-emu:fedora-40-2506      # Fedora 40 + FEX version 2506
 supersunho/fex-emu:ubuntu-22.04-2505   # Ubuntu 22.04 + FEX version 2505
+supersunho/fex-emu:fedora-38-2505      # Fedora 38 + FEX version 2505
 ```
 
 
@@ -164,6 +165,4 @@ FEXBash -c "ls /usr/bin | head -10"
 
 This project builds container images from the upstream FEX-Emu project. For FEX-related issues or contributions, please visit the [official FEX repository](https://github.com/FEX-Emu/FEX).
 
----
-
-**Built with ❤️ for the ARM64 community**
+--- 
