@@ -570,20 +570,22 @@ jobs:
                   cat > health_alert_content.md << 'EOF'
                   ## 🚨 System Health Monitor
 
-                  **Current Status**: ${{ needs.collect-metrics.outputs.system_health == 'degraded' && '🟡 Degraded' || '🔴 Unhealthy' }}
-                  **Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}
+                  **Current Status**: PLACEHOLDER_HEALTH_STATUS
+                  **Last Updated**: PLACEHOLDER_LAST_UPDATED
                   **Detection Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
                   ---
 
                   ### 🔍 Current Health Issues:
 
-                  **Status**: ${{ needs.collect-metrics.outputs.system_health == 'degraded' && '🟡 System Performance Degraded' || '🔴 System Health Critical' }}
+                  PLACEHOLDER_HEALTH_ISSUES
 
                   ### 📊 Current Metrics:
-                  - **System Health**: ${{ needs.collect-metrics.outputs.system_health }}
-                  - **Detection Time**: ${{ needs.collect-metrics.outputs.last_updated }}
-                  - **Alert Level**: ${{ needs.collect-metrics.outputs.system_health == 'degraded' && 'Warning' || 'Critical' }}
+                  - **System Health**: PLACEHOLDER_SYSTEM_HEALTH
+                  - **Success Rate**: PLACEHOLDER_SUCCESS_RATE
+                  - **Total Runs (30d)**: PLACEHOLDER_TOTAL_RUNS
+                  - **Failed Runs**: PLACEHOLDER_FAILED_RUNS
+                  - **Alert Level**: PLACEHOLDER_ALERT_LEVEL
 
                   ### 🔧 Recommended Actions:
                   - [ ] Review recent workflow failures in [Actions tab](../../actions)
@@ -600,12 +602,7 @@ jobs:
                   ---
 
                   ### 🤖 Automation Status:
-                  | Component | Status | Action Needed |
-                  |-----------|--------|---------------|
-                  | FEX Release Detection | Checking... | Monitor |
-                  | RootFS Update Detection | Checking... | Monitor |
-                  | Container Builds | Checking... | Review |
-                  | Docker Hub Deployment | Checking... | Verify |
+                  PLACEHOLDER_AUTOMATION_STATUS_TABLE
 
                   ---
 
@@ -627,42 +624,77 @@ jobs:
                       const healthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
                       const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
 
-                      let updatedContent = healthContent;
+                      console.log('🔧 Processing health alert with clean template replacement...');
 
+
+                      let healthIssuesList = 'No specific issues detected.';
                       if (dashboardData.system_health.issues && dashboardData.system_health.issues.length > 0) {
-                        const issuesList = dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n');
-                        updatedContent = updatedContent.replace(
-                          '### 🔍 Current Health Issues:',
-                          `### 🔍 Current Health Issues:\n\n${issuesList}\n`
-                        );
+                        healthIssuesList = dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n');
                       }
 
-                      updatedContent = updatedContent
-                        .replace('- **Success Rate**: Loading...', `- **Success Rate**: ${dashboardData.workflow_stats.successRate}%`)
-                        .replace('- **Total Runs (30d)**: Loading...', `- **Total Runs (30d)**: ${dashboardData.workflow_stats.totalRuns}`)
-                        .replace('- **Failed Runs**: Loading...', `- **Failed Runs**: ${dashboardData.workflow_stats.failedRuns}`);
+
+                      const healthStatusDisplay = healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy';
+                      const alertLevel = healthStatus === 'degraded' ? 'Warning' : 'Critical';
+
+
+                      function getComponentStatus(healthStatus) {
+                        if (healthStatus === 'healthy') return '✅ Operational';
+                        if (healthStatus === 'degraded') return '🟡 Degraded';
+                        return '🔴 Critical';
+                      }
+
+                      function getActionNeeded(healthStatus) {
+                        if (healthStatus === 'healthy') return 'Monitor';
+                        if (healthStatus === 'degraded') return 'Review';
+                        return 'Urgent Fix';
+                      }
+
+                      const automationStatusTable = `
+                      | Component | Status | Action Needed |
+                      |-----------|--------|---------------|
+                      | FEX Release Detection | ${getComponentStatus(healthStatus)} | ${getActionNeeded(healthStatus)} |
+                      | RootFS Update Detection | ${getComponentStatus(healthStatus)} | ${getActionNeeded(healthStatus)} |
+                      | Container Builds | ${getComponentStatus(healthStatus)} | ${getActionNeeded(healthStatus)} |
+                      | Docker Hub Deployment | ${getComponentStatus(healthStatus)} | ${getActionNeeded(healthStatus)} |`.trim();
+
+
+                      let updatedContent = healthContent
+                        .replace('PLACEHOLDER_HEALTH_STATUS', healthStatusDisplay)
+                        .replace('PLACEHOLDER_LAST_UPDATED', new Date().toISOString())
+                        .replace('PLACEHOLDER_HEALTH_ISSUES', healthIssuesList)
+                        .replace('PLACEHOLDER_SYSTEM_HEALTH', healthStatus)
+                        .replace('PLACEHOLDER_SUCCESS_RATE', `${dashboardData.workflow_stats.successRate}%`)
+                        .replace('PLACEHOLDER_TOTAL_RUNS', `${dashboardData.workflow_stats.totalRuns}`)
+                        .replace('PLACEHOLDER_FAILED_RUNS', `${dashboardData.workflow_stats.failedRuns}`)
+                        .replace('PLACEHOLDER_ALERT_LEVEL', alertLevel)
+                        .replace('PLACEHOLDER_AUTOMATION_STATUS_TABLE', automationStatusTable);
+
+                      console.log('✅ All placeholders replaced successfully');
 
                       const title = '🚨 System Health Monitor - Live Status';
 
                       if (existingIssueNumber) {
+                        
                         await github.rest.issues.update({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
                           issue_number: existingIssueNumber,
                           title: title,
                           body: updatedContent,
-                          state: 'open'  
+                          state: 'open'
                         });
-                         
+                        
+                        
                         await github.rest.issues.createComment({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
                           issue_number: existingIssueNumber,
-                          body: `🔄 **Health Status Update** - ${new Date().toISOString()}\n\nStatus changed to: **${healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy'}**\n\nSee updated details above. ⬆️`
+                          body: `🔄 **Health Status Update** - ${new Date().toISOString()}\n\nStatus changed to: **${healthStatusDisplay}**\n\nSee updated details above. ⬆️`
                         });
                         
-                        console.log(`Updated existing health alert issue #${existingIssueNumber}`);
+                        console.log(`✅ Updated existing health alert issue #${existingIssueNumber}`);
                       } else {
+                        
                         const newIssue = await github.rest.issues.create({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
@@ -671,7 +703,7 @@ jobs:
                           labels: ['automation-health-alert', 'alert', healthStatus, 'pinned']
                         });
                         
-                        console.log(`Created new health alert issue #${newIssue.data.number}`);
+                        console.log(`✅ Created new health alert issue #${newIssue.data.number}`);
                       }
 
     # Close health alert issue if system is healthy
