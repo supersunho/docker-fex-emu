@@ -3,7 +3,7 @@ name: Universal Automation Dashboard
 on:
     schedule:
         # Allow cron schedule to be set via Variables (default provided)
-        - cron: ${{ vars.DASHBOARD_SCHEDULE || '*/30 * * * *' }}
+        - cron: "*/30 * * * *"
 
     workflow_run:
         workflows: ["*"]
@@ -26,6 +26,35 @@ permissions:
     contents: read
     issues: write
     actions: read
+env:
+    # 📊 PROJECT CONFIGURATION
+    PROJECT_DISPLAY_NAME: ${{ github.repository }}
+    PROJECT_DESCRIPTION: "---"
+
+    # 🐳 DOCKER CONFIGURATION
+    DOCKER_USERNAME: ${{ github.repository_owner }}
+    DOCKER_REPOSITORY: ${{ github.event.repository.name }}
+
+    # ⚡ HEALTH MONITORING
+    HEALTH_WARNING_THRESHOLD: "90"
+    HEALTH_CRITICAL_THRESHOLD: "95"
+    HISTORY_DAYS: "30"
+
+    # 🔔 NOTIFICATIONS
+    ENABLE_HEALTH_ALERTS: "true"
+    ENABLE_SLACK_NOTIFICATIONS: "false"
+    ENABLE_TEAMS_NOTIFICATIONS: "false"
+    ENABLE_DISCORD_NOTIFICATIONS: "false"
+
+    # 📈 EXTERNAL MONITORING
+    ENABLE_EXTERNAL_MONITORING: "false"
+    ENABLE_PROMETHEUS_INTEGRATION: "false"
+    ENABLE_GRAFANA_INTEGRATION: "false"
+    ENABLE_CUSTOM_WEBHOOK_INTEGRATION: "false"
+
+    # ⚙️ SYSTEM CONFIGURATION
+    MONITORING_LABELS: "automation,ci,build,deploy"
+    DASHBOARD_SCHEDULE: "*/30 * * * *"
 
 jobs:
     load-configuration:
@@ -48,36 +77,35 @@ jobs:
                       // Load configuration from GitHub Variables
                       const config = {
                           // Docker configuration (Variables)
-                          docker_username: '${{ vars.DOCKER_USERNAME }}' || '${{ github.repository_owner }}',
+                          docker_username: '${{ env.DOCKER_USERNAME }}' || '${{ github.repository_owner }}',
                           docker_repo: '${{ github.event.inputs.override_docker_repo }}' || 
-                                      '${{ vars.DOCKER_REPOSITORY }}' || 
-                                      '${{ vars.DOCKER_USERNAME }}/${{ github.event.repository.name }}' ||
+                                      '${{ env.DOCKER_USERNAME }}/'${{ env.DOCKER_REPOSITORY }}' ||
                                       '${{ github.repository_owner }}/${{ github.event.repository.name }}',
                           
                           // Health status thresholds (Variables)
-                          health_warning_threshold: '${{ vars.HEALTH_WARNING_THRESHOLD }}' || '90',
-                          health_critical_threshold: '${{ vars.HEALTH_CRITICAL_THRESHOLD }}' || '95',
+                          health_warning_threshold: '${{ env.HEALTH_WARNING_THRESHOLD }}' || '90',
+                          health_critical_threshold: '${{ env.HEALTH_CRITICAL_THRESHOLD }}' || '95',
                           
                           // Monitoring configuration (Variables)
-                          monitoring_labels: '${{ vars.MONITORING_LABELS }}' || 'automation,ci,build,deploy',
-                          dashboard_update_frequency: '${{ vars.DASHBOARD_SCHEDULE }}' || '*/30 * * * *',
-                          history_days: '${{ vars.HISTORY_DAYS }}' || '30',
+                          monitoring_labels: '${{ env.MONITORING_LABELS }}' || 'automation,ci,build,deploy',
+                          dashboard_update_frequency: '*/30 * * * *',
+                          history_days: '${{ env.HISTORY_DAYS }}' || '30',
                           
                           // Notification settings (Variables)
-                          enable_health_alerts: '${{ vars.ENABLE_HEALTH_ALERTS }}' || 'true',
-                          enable_slack_notifications: '${{ vars.ENABLE_SLACK_NOTIFICATIONS }}' || 'false',
-                          enable_teams_notifications: '${{ vars.ENABLE_TEAMS_NOTIFICATIONS }}' || 'false',
-                          enable_discord_notifications: '${{ vars.ENABLE_DISCORD_NOTIFICATIONS }}' || 'false',
+                          enable_health_alerts: '${{ env.ENABLE_HEALTH_ALERTS }}' || 'true',
+                          enable_slack_notifications: '${{ env.ENABLE_SLACK_NOTIFICATIONS }}' || 'false',
+                          enable_teams_notifications: '${{ env.ENABLE_TEAMS_NOTIFICATIONS }}' || 'false',
+                          enable_discord_notifications: '${{ env.ENABLE_DISCORD_NOTIFICATIONS }}' || 'false',
                           
                           // External monitoring service-specific settings (Variables) - Datadog removed
-                          enable_external_monitoring: '${{ vars.ENABLE_EXTERNAL_MONITORING }}' || 'false',
-                          enable_prometheus_integration: '${{ vars.ENABLE_PROMETHEUS_INTEGRATION }}' || 'false',
-                          enable_grafana_integration: '${{ vars.ENABLE_GRAFANA_INTEGRATION }}' || 'false',
-                          enable_custom_webhook_integration: '${{ vars.ENABLE_CUSTOM_WEBHOOK_INTEGRATION }}' || 'false',
+                          enable_external_monitoring: '${{ env.ENABLE_EXTERNAL_MONITORING }}' || 'false',
+                          enable_prometheus_integration: '${{ env.ENABLE_PROMETHEUS_INTEGRATION }}' || 'false',
+                          enable_grafana_integration: '${{ env.ENABLE_GRAFANA_INTEGRATION }}' || 'false',
+                          enable_custom_webhook_integration: '${{ env.ENABLE_CUSTOM_WEBHOOK_INTEGRATION }}' || 'false',
                           
                           // Project metadata (Variables)
-                          project_display_name: '${{ vars.PROJECT_DISPLAY_NAME }}' || '${{ github.repository }}',
-                          project_description: '${{ vars.PROJECT_DESCRIPTION }}' || 'Automated project monitoring'
+                          project_display_name: '${{ env.PROJECT_DISPLAY_NAME }}' || '${{ github.repository }}',
+                          project_description: '${{ env.PROJECT_DESCRIPTION }}' || 'Automated project monitoring'
                       };
 
                       console.log('📋 Loaded configuration:');
@@ -115,7 +143,7 @@ jobs:
                           health_alerts: config.enable_health_alerts === 'true',
                           slack_notifications: config.enable_slack_notifications === 'true',
                           teams_notifications: config.enable_teams_notifications === 'true',
-                          discord_notifications: config.enable_discord_notifications === 'true',
+                          discord_notifications: config.enable_discord_notifications === 'true',fa
                           external_monitoring: config.enable_external_monitoring === 'true'
                       };
 
@@ -283,8 +311,8 @@ jobs:
               id: container_stats
               env:
                   # Access Token authentication
-                  DOCKER_USERNAME: ${{ vars.DOCKER_USERNAME }}
-                  DOCKER_ACCESS_TOKEN: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+                  DOCKER_USERNAME: ${{ env.DOCKER_USERNAME }}
+                  DOCKER_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
                   DOCKER_REPO: ${{ needs.load-configuration.outputs.docker_repo }}
               run: |
                   echo "🔍 Checking container registry with Docker Hub Access Token..."
@@ -770,8 +798,8 @@ jobs:
 
             - name: Generate configurable dashboard content
               run: |
-                  PROJECT_NAME="${{ vars.PROJECT_DISPLAY_NAME || github.repository }}"
-                  PROJECT_DESCRIPTION="${{ vars.PROJECT_DESCRIPTION || 'Automated project monitoring' }}"
+                  PROJECT_NAME="${{ env.PROJECT_DISPLAY_NAME || github.repository }}"
+                  PROJECT_DESCRIPTION="${{ env.PROJECT_DESCRIPTION || 'Automated project monitoring' }}"
                   DOCKER_REPO="${{ needs.load-configuration.outputs.docker_repo }}"
 
                   # Variables-based fully configurable dashboard
@@ -779,7 +807,7 @@ jobs:
                   ## 🤖 ${PROJECT_NAME} - Automation Dashboard
 
                   **Description**: ${PROJECT_DESCRIPTION}
-                  **Docker Repository**: [\`${DOCKER_REPO}\`](https://hub.docker.com/r/${DOCKER_REPO})
+                  **Docker Repository**: [`${DOCKER_REPO}`](https://hub.docker.com/r/${DOCKER_REPO})
                   **Configuration**: Variables & Secrets based
                   **Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}
                   **System Health**: SYSTEM_HEALTH_PLACEHOLDER
@@ -806,33 +834,33 @@ jobs:
                   To customize this dashboard, update the following in your repository settings:
 
                   **Variables** (Repository Settings → Secrets and variables → Actions → Variables):
-                  - \`DOCKER_USERNAME\`: Your Docker Hub username
-                  - \`DOCKER_REPOSITORY\`: Docker repository name (optional)
-                  - \`HEALTH_WARNING_THRESHOLD\`: Warning threshold percentage (default: 90)
-                  - \`HEALTH_CRITICAL_THRESHOLD\`: Critical threshold percentage (default: 95)
-                  - \`MONITORING_LABELS\`: Comma-separated labels to monitor (default: automation,ci,build,deploy)
-                  - \`PROJECT_DISPLAY_NAME\`: Custom project display name
-                  - \`PROJECT_DESCRIPTION\`: Project description
-                  - \`DASHBOARD_SCHEDULE\`: Cron schedule for updates (default: every 30 minutes)
-                  - \`HISTORY_DAYS\`: Historical data period in days (default: 30)
-                  - \`ENABLE_HEALTH_ALERTS\`: Enable health alerts (default: true)
-                  - \`ENABLE_SLACK_NOTIFICATIONS\`: Enable Slack notifications (default: false)
-                  - \`ENABLE_TEAMS_NOTIFICATIONS\`: Enable Teams notifications (default: false)
-                  - \`ENABLE_DISCORD_NOTIFICATIONS\`: Enable Discord notifications (default: false)
-                  - \`ENABLE_EXTERNAL_MONITORING\`: Enable external monitoring integration (default: false)
-                  - \`ENABLE_PROMETHEUS_INTEGRATION\`: Enable Prometheus integration (default: false)
-                  - \`ENABLE_GRAFANA_INTEGRATION\`: Enable Grafana integration (default: false)
-                  - \`ENABLE_CUSTOM_WEBHOOK_INTEGRATION\`: Enable custom webhook integration (default: false)
+                  - `DOCKER_USERNAME`: Your Docker Hub username
+                  - `DOCKER_REPOSITORY`: Docker repository name (optional)
+                  - `HEALTH_WARNING_THRESHOLD`: Warning threshold percentage (default: 90)
+                  - `HEALTH_CRITICAL_THRESHOLD`: Critical threshold percentage (default: 95)
+                  - `MONITORING_LABELS`: Comma-separated labels to monitor (default: automation,ci,build,deploy)
+                  - `PROJECT_DISPLAY_NAME`: Custom project display name
+                  - `PROJECT_DESCRIPTION`: Project description
+                  - `DASHBOARD_SCHEDULE`: Cron schedule for updates (default: every 30 minutes)
+                  - `HISTORY_DAYS`: Historical data period in days (default: 30)
+                  - `ENABLE_HEALTH_ALERTS`: Enable health alerts (default: true)
+                  - `ENABLE_SLACK_NOTIFICATIONS`: Enable Slack notifications (default: false)
+                  - `ENABLE_TEAMS_NOTIFICATIONS`: Enable Teams notifications (default: false)
+                  - `ENABLE_DISCORD_NOTIFICATIONS`: Enable Discord notifications (default: false)
+                  - `ENABLE_EXTERNAL_MONITORING`: Enable external monitoring integration (default: false)
+                  - `ENABLE_PROMETHEUS_INTEGRATION`: Enable Prometheus integration (default: false)
+                  - `ENABLE_GRAFANA_INTEGRATION`: Enable Grafana integration (default: false)
+                  - `ENABLE_CUSTOM_WEBHOOK_INTEGRATION`: Enable custom webhook integration (default: false)
 
                   **Secrets** (Repository Settings → Secrets and variables → Actions → Secrets):
-                  - \`DOCKER_ACCESS_TOKEN\`: Docker Hub access token
-                  - \`SLACK_WEBHOOK_URL\`: Slack webhook for notifications (optional)
-                  - \`TEAMS_WEBHOOK_URL\`: Microsoft Teams webhook for notifications (optional)
-                  - \`DISCORD_WEBHOOK_URL\`: Discord webhook for notifications (optional)
-                  - \`PROMETHEUS_URL\`: Prometheus Pushgateway URL (optional)
-                  - \`GRAFANA_API_KEY\`: Grafana API key (optional)
-                  - \`GRAFANA_URL\`: Grafana instance URL (optional)
-                  - \`CUSTOM_MONITORING_WEBHOOK\`: Custom monitoring webhook URL (optional)
+                  - `DOCKER_ACCESS_TOKEN`: Docker Hub access token
+                  - `SLACK_WEBHOOK_URL`: Slack webhook for notifications (optional)
+                  - `TEAMS_WEBHOOK_URL`: Microsoft Teams webhook for notifications (optional)
+                  - `DISCORD_WEBHOOK_URL`: Discord webhook for notifications (optional)
+                  - `PROMETHEUS_URL`: Prometheus Pushgateway URL (optional)
+                  - `GRAFANA_API_KEY`: Grafana API key (optional)
+                  - `GRAFANA_URL`: Grafana instance URL (optional)
+                  - `CUSTOM_MONITORING_WEBHOOK`: Custom monitoring webhook URL (optional)
 
                   ### 🎯 Service Integration Status
 
@@ -840,14 +868,14 @@ jobs:
 
                   | Service | Status | Required Variables | Required Secrets |
                   |---------|--------|-------------------|------------------|
-                  | **Docker Hub** | ${{ vars.DOCKER_USERNAME && '✅ Configured' || '⚠️ Missing DOCKER_USERNAME' }} | DOCKER_USERNAME | DOCKER_ACCESS_TOKEN |
-                  | **Health Alerts** | ${{ vars.ENABLE_HEALTH_ALERTS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_HEALTH_ALERTS | - |
-                  | **Slack Notifications** | ${{ vars.ENABLE_SLACK_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_SLACK_NOTIFICATIONS | SLACK_WEBHOOK_URL |
-                  | **Teams Notifications** | ${{ vars.ENABLE_TEAMS_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_TEAMS_NOTIFICATIONS | TEAMS_WEBHOOK_URL |
-                  | **Discord Notifications** | ${{ vars.ENABLE_DISCORD_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_DISCORD_NOTIFICATIONS | DISCORD_WEBHOOK_URL |
-                  | **Prometheus Integration** | ${{ vars.ENABLE_PROMETHEUS_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_PROMETHEUS_INTEGRATION | PROMETHEUS_URL |
-                  | **Grafana Integration** | ${{ vars.ENABLE_GRAFANA_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_GRAFANA_INTEGRATION | GRAFANA_API_KEY, GRAFANA_URL |
-                  | **Custom Webhook** | ${{ vars.ENABLE_CUSTOM_WEBHOOK_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_CUSTOM_WEBHOOK_INTEGRATION | CUSTOM_MONITORING_WEBHOOK |
+                  | **Docker Hub** | ${{ env.DOCKER_USERNAME && '✅ Configured' || '⚠️ Missing DOCKER_USERNAME' }} | DOCKER_USERNAME | DOCKER_ACCESS_TOKEN |
+                  | **Health Alerts** | ${{ env.ENABLE_HEALTH_ALERTS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_HEALTH_ALERTS | - |
+                  | **Slack Notifications** | ${{ env.ENABLE_SLACK_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_SLACK_NOTIFICATIONS | SLACK_WEBHOOK_URL |
+                  | **Teams Notifications** | ${{ env.ENABLE_TEAMS_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_TEAMS_NOTIFICATIONS | TEAMS_WEBHOOK_URL |
+                  | **Discord Notifications** | ${{ env.ENABLE_DISCORD_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_DISCORD_NOTIFICATIONS | DISCORD_WEBHOOK_URL |
+                  | **Prometheus Integration** | ${{ env.ENABLE_PROMETHEUS_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_PROMETHEUS_INTEGRATION | PROMETHEUS_URL |
+                  | **Grafana Integration** | ${{ env.ENABLE_GRAFANA_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_GRAFANA_INTEGRATION | GRAFANA_API_KEY, GRAFANA_URL |
+                  | **Custom Webhook** | ${{ env.ENABLE_CUSTOM_WEBHOOK_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_CUSTOM_WEBHOOK_INTEGRATION | CUSTOM_MONITORING_WEBHOOK |
 
                   ### 🔗 Setup Links
 
@@ -880,7 +908,7 @@ jobs:
 
                   ### 📦 Container Registry
 
-                  - **Repository**: [\`${DOCKER_REPO}\`](https://hub.docker.com/r/${DOCKER_REPO})
+                  - **Repository**: [`${DOCKER_REPO}`](https://hub.docker.com/r/${DOCKER_REPO})
                   - **Total Pulls**: CONTAINER_PULLS
                   - **Stars**: CONTAINER_STARS
                   - **Last Updated**: CONTAINER_UPDATED
@@ -985,7 +1013,7 @@ jobs:
 
                       console.log('✅ All placeholders replaced successfully');
 
-                      const title = `🤖 Automation Dashboard - ${{ vars.PROJECT_DISPLAY_NAME || github.repository }}`;
+                      const title = `🤖 Automation Dashboard - ${{ env.PROJECT_DISPLAY_NAME || github.repository }}`;
 
                       if (existingIssueNumber) {
                           await github.rest.issues.update({
@@ -1020,7 +1048,7 @@ jobs:
                   TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
                   DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
               run: |
-                  PROJECT_NAME="${{ vars.PROJECT_DISPLAY_NAME || github.repository }}"
+                  PROJECT_NAME="${{ env.PROJECT_DISPLAY_NAME || github.repository }}"
                   HEALTH_STATUS="${{ needs.collect-metrics.outputs.system_health }}"
 
                   # Webhook URL masking for security
