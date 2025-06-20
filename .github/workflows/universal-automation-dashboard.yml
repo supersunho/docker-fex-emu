@@ -1203,35 +1203,39 @@ jobs:
 
 
                       let updatedContent = dashboardContent
-                          .replace('WORKFLOW_STATUS_TABLE', workflowStatusTable)  
-                          .replace('RECENT_BUILDS_TABLE', recentBuildsTable)      
-                          .replace('TOTAL_RUNS', workflowStats.totalRuns || 0)
-                          .replace('SUCCESS_RATE', workflowStats.successRate || 0)
-                          .replace('AVERAGE_DURATION', workflowStats.averageDuration || 0)
-                          .replace('FAILED_RUNS', workflowStats.failedRuns || 0)
-                          .replace('CONTAINER_PULLS', containerStats.pull_count.toLocaleString())
-                          .replace('CONTAINER_STARS', containerStats.star_count)
-                          .replace('CONTAINER_UPDATED', containerStats.last_updated)
-                          .replace('ACTIVE_ISSUES', dashboardData.active_issues)
-                          .replace('SYSTEM_HEALTH_PLACEHOLDER', healthDisplay)
-                          .replace('UPDATE_NUMBER_PLACEHOLDER', updateCount)
-                          
-                          .replace('SUCCESS_RATE_CURRENT', currentData.success_rate)
-                          .replace('PREV_SUCCESS_RATE', previousData.success_rate)
-                          .replace('TREND_SUCCESS_RATE', trends.success_rate)
-                          .replace('TOTAL_RUNS_CURRENT', currentData.total_runs)
-                          .replace('PREV_TOTAL_RUNS', previousData.total_runs)
-                          .replace('TREND_TOTAL_RUNS', trends.total_runs)
-                          .replace('FAILED_RUNS_CURRENT', currentData.failed_runs)
-                          .replace('PREV_FAILED_RUNS', previousData.failed_runs)
-                          .replace('TREND_FAILED_RUNS', trends.failed_runs)
-                          .replace('DOCKER_PULLS_CURRENT', currentData.docker_pulls.toLocaleString())
-                          .replace('PREV_DOCKER_PULLS', previousData.docker_pulls.toLocaleString())
-                          .replace('TREND_DOCKER_PULLS', trends.docker_pulls)
-                          .replace('ACTIVE_ISSUES_CURRENT', currentData.active_issues)
-                          .replace('PREV_ACTIVE_ISSUES', previousData.active_issues)
-                          .replace('TREND_ACTIVE_ISSUES', trends.active_issues)
-                          .replace('REALTIME_LOG_PLACEHOLDER', updateLog);
+                        .replace('SYSTEM_HEALTH_PLACEHOLDER', healthDisplay)
+                        .replace('UPDATE_NUMBER_PLACEHOLDER', updateCount)
+                        .replace('REALTIME_LOG_PLACEHOLDER', updateLog)
+                        .replace('WORKFLOW_STATUS_TABLE', workflowStatusTable)
+                        .replace('RECENT_BUILDS_TABLE', recentBuildsTable)
+
+                        .replace('SUCCESS_RATE_CURRENT', currentData.success_rate)
+                        .replace('TOTAL_RUNS_CURRENT', currentData.total_runs)
+                        .replace('FAILED_RUNS_CURRENT', currentData.failed_runs)
+                        .replace('DOCKER_PULLS_CURRENT', currentData.docker_pulls.toLocaleString())
+                        .replace('ACTIVE_ISSUES_CURRENT', currentData.active_issues)
+                        
+                        .replace('PREV_SUCCESS_RATE', previousData.success_rate)
+                        .replace('PREV_TOTAL_RUNS', previousData.total_runs)
+                        .replace('PREV_FAILED_RUNS', previousData.failed_runs)
+                        .replace('PREV_DOCKER_PULLS', previousData.docker_pulls.toLocaleString())
+                        .replace('PREV_ACTIVE_ISSUES', previousData.active_issues)
+                        
+                        .replace('TREND_SUCCESS_RATE', trends.success_rate)
+                        .replace('TREND_TOTAL_RUNS', trends.total_runs)
+                        .replace('TREND_FAILED_RUNS', trends.failed_runs)
+                        .replace('TREND_DOCKER_PULLS', trends.docker_pulls)
+                        .replace('TREND_ACTIVE_ISSUES', trends.active_issues)
+                        
+                        .replace('SUCCESS_RATE', workflowStats.successRate || 0)
+                        .replace('TOTAL_RUNS', workflowStats.totalRuns || 0)
+                        .replace('FAILED_RUNS', workflowStats.failedRuns || 0)
+                        .replace('ACTIVE_ISSUES', dashboardData.active_issues)
+                        .replace('AVERAGE_DURATION', workflowStats.averageDuration || 0)
+                        .replace('CONTAINER_PULLS', containerStats.pull_count.toLocaleString())
+                        .replace('CONTAINER_STARS', containerStats.star_count)
+                        .replace('CONTAINER_UPDATED', containerStats.last_updated);
+
 
                       console.log('✅ All placeholders replaced successfully');
 
