@@ -73,7 +73,7 @@ jobs:
                       const config = {
                           // Docker configuration (Variables)
                           docker_username: '${{ env.DOCKER_USERNAME }}' || '${{ github.repository_owner }}',
-                          docker_repo: '${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_REPOSITORY }} ||
+                          docker_repo: '${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_REPOSITORY }}' ||
                                       '${{ github.repository_owner }}/${{ github.event.repository.name }}',
                           
                           // Health status thresholds (Variables)
