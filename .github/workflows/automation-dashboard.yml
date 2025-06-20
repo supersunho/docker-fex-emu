@@ -477,7 +477,6 @@ jobs:
               uses: actions/github-script@v7
               with:
                   script: |
-                      // 검색 결과 2 패턴: 기존 이슈 찾기
                       const issues = await github.rest.issues.listForRepo({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -570,7 +569,6 @@ jobs:
                         );
                       }
 
-                      // 실제 메트릭으로 교체
                       updatedContent = updatedContent
                         .replace('- **Success Rate**: Loading...', `- **Success Rate**: ${dashboardData.workflow_stats.successRate}%`)
                         .replace('- **Total Runs (30d)**: Loading...', `- **Total Runs (30d)**: ${dashboardData.workflow_stats.totalRuns}`)
@@ -587,8 +585,7 @@ jobs:
                           body: updatedContent,
                           state: 'open'  
                         });
-                        
-                        // 업데이트 코멘트 추가
+                         
                         await github.rest.issues.createComment({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
