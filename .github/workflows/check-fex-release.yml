@@ -1,0 +1,160 @@
+name: Auto-detect FEX Releases
+
+on:
+    schedule:
+        # Daily check at 00:00 UTC (09:00 KST)
+        - cron: "0 0 * * *"
+    workflow_dispatch:
+        inputs:
+            force_check:
+                description: "Force check for new releases"
+                required: false
+                default: false
+                type: boolean
+
+jobs:
+    check-fex-release:
+        runs-on: ubuntu-latest
+        outputs:
+            new_release_found: ${{ steps.compare_release.outputs.release_changed }}
+            new_version: ${{ steps.get_release.outputs.release_tag }}
+            current_version: ${{ steps.get_release.outputs.current_version }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Download previous FEX release info
+              id: download-artifact
+              uses: dawidd6/action-download-artifact@v2
+              with:
+                  name: fex-release-info
+                  workflow_conclusion: success
+                  workflow: auto-detect-releases.yml
+                  if_no_artifact_found: warn
+
+            - name: Get latest FEX release from official repository
+              id: get_release
+              run: |
+                  echo "🔍 Fetching latest FEX-Emu release information..."
+
+                  # Get latest release from FEX-Emu repository
+                  RELEASE_DATA=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/releases/latest)
+                  RELEASE_TAG=$(echo "$RELEASE_DATA" | jq -r '.tag_name')
+                  RELEASE_NAME=$(echo "$RELEASE_DATA" | jq -r '.name')
+                  RELEASE_DATE=$(echo "$RELEASE_DATA" | jq -r '.published_at')
+
+                  echo "📊 Latest FEX release information:"
+                  echo "  - Tag: $RELEASE_TAG"
+                  echo "  - Name: $RELEASE_NAME" 
+                  echo "  - Published: $RELEASE_DATE"
+
+                  # Convert to semantic version (FEX-2506 -> 2506)
+                  if [[ $RELEASE_TAG =~ ^FEX-([0-9]{4})$ ]]; then
+                    SEMANTIC_VERSION="${BASH_REMATCH[1]}"
+                  else
+                    SEMANTIC_VERSION="${RELEASE_TAG#v}"
+                  fi
+
+                  echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+                  echo "semantic_version=$SEMANTIC_VERSION" >> $GITHUB_OUTPUT
+                  echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+                  echo "release_date=$RELEASE_DATE" >> $GITHUB_OUTPUT
+
+            - name: Compare with previous release
+              id: compare_release
+              run: |
+                  echo "🔍 Comparing with previous release..."
+
+                  # Read previous release info
+                  PREVIOUS_RELEASE=$(cat fex-release-info 2>/dev/null || echo "NONE")
+                  CURRENT_RELEASE="${{ steps.get_release.outputs.release_tag }}"
+
+                  echo "📊 Release comparison:"
+                  echo "  - Previous: $PREVIOUS_RELEASE"
+                  echo "  - Current: $CURRENT_RELEASE"
+
+                  if [ "$CURRENT_RELEASE" != "$PREVIOUS_RELEASE" ] || [ "${{ github.event.inputs.force_check }}" = "true" ]; then
+                    echo "🎉 New FEX release detected: $CURRENT_RELEASE"
+                    echo "release_changed=true" >> $GITHUB_OUTPUT
+                    echo "trigger_reason=new_release" >> $GITHUB_OUTPUT
+                  else
+                    echo "✅ No new release found"
+                    echo "release_changed=false" >> $GITHUB_OUTPUT
+                    echo "trigger_reason=no_change" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Save current release info
+              if: steps.compare_release.outputs.release_changed == 'true'
+              run: |
+                  echo "${{ steps.get_release.outputs.release_tag }}" > fex-release-info
+                  echo "💾 Saved new release info: ${{ steps.get_release.outputs.release_tag }}"
+
+            - name: Upload release info artifact
+              if: steps.compare_release.outputs.release_changed == 'true'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: fex-release-info
+                  path: fex-release-info
+                  retention-days: 90
+
+    trigger-build:
+        needs: check-fex-release
+        if: needs.check-fex-release.outputs.new_release_found == 'true'
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Trigger FEX container build workflow
+              uses: benc-uk/workflow-dispatch@v1
+              with:
+                  workflow: build-containers.yml
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  inputs: |
+                      {
+                        "build_scope": "latest-only",
+                        "version": "${{ needs.check-fex-release.outputs.new_version }}",
+                        "force_rebuild": "true",
+                        "trigger_reason": "auto_fex_release"
+                      }
+
+            - name: Create GitHub issue for new release
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const newVersion = '${{ needs.check-fex-release.outputs.new_version }}';
+                      const releaseDate = '${{ needs.check-fex-release.outputs.release_date }}';
+
+                      await github.rest.issues.create({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        title: `🚀 New FEX Release Detected: ${newVersion}`,
+                        body: `
+                        ## 🎉 FEX-Emu New Release Auto-Detection
+                        
+                        **New Release**: ${newVersion}
+                        **Release Date**: ${releaseDate}
+                        **Auto-Build Status**: ✅ Triggered
+                        
+                        ### Actions Taken:
+                        - ✅ Container build workflow triggered
+                        - ✅ All supported RootFS combinations will be built
+                        - ✅ Docker Hub deployment will proceed automatically
+                        
+                        ### Next Steps:
+                        - [ ] Monitor build progress
+                        - [ ] Verify new images on Docker Hub
+                        - [ ] Update documentation if needed
+                        
+                        **Automation powered by GitHub Actions** 🤖
+                        `,
+                        labels: ['automation', 'fex-release', 'build-trigger']
+                      });
+
+            - name: Send notification summary
+              run: |
+                  echo "🎉 FEX Release Auto-Detection Summary"
+                  echo "======================================="
+                  echo "✅ New FEX release detected: ${{ needs.check-fex-release.outputs.new_version }}"
+                  echo "🚀 Container build workflow triggered"
+                  echo "📝 GitHub issue created for tracking"
+                  echo "⏰ Next check: $(date -d '+1 day' '+%Y-%m-%d %H:%M UTC')"
