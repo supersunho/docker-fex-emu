@@ -269,14 +269,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "✅ All RootFS tools and dependencies installed successfully" && \
     echo "🎯 Ubuntu RootFS preparer ready!"
 
-# Update CA certificates for secure downloads  
-RUN echo "🔒 Updating CA certificates for maximum compatibility..." && \
-    apt-get update -qq && \
-    apt-get install -qq -y apt-utils ca-certificates && \
-    update-ca-certificates && \
-    echo "✅ CA certificates updated"
-
-
 ENV CURL_CA_BUNDLE=""
 
 # Create fex user for FEXRootFSFetcher
