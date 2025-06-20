@@ -935,11 +935,12 @@ jobs:
                   PROJECT_DESCRIPTION="${{ env.PROJECT_DESCRIPTION || 'Automated project monitoring' }}"
                   DOCKER_REPO="${{ needs.load-configuration.outputs.docker_repo }}"
 
+                  # ✅ 수정된 템플릿 - placeholder를 테이블 행 밖으로 이동
                   cat > dashboard_content.md << EOF
                   ## 🤖 ${PROJECT_NAME} - Automation Dashboard
 
                   **Description**: ${PROJECT_DESCRIPTION}
-                  **Docker Repository**: [`${DOCKER_REPO}`](https://hub.docker.com/r/${DOCKER_REPO})
+                  **Docker Repository**: [\`${DOCKER_REPO}\`](https://hub.docker.com/r/${DOCKER_REPO})
                   **Configuration**: Variables & Secrets based
                   **Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}
                   **System Health**: SYSTEM_HEALTH_PLACEHOLDER
@@ -977,33 +978,33 @@ jobs:
                   To customize this dashboard, update the following in your repository settings:
 
                   **Variables** (Repository Settings → Secrets and variables → Actions → Variables):
-                  - `DOCKER_USERNAME`: Your Docker Hub username
-                  - `DOCKER_REPOSITORY`: Docker repository name (optional)
-                  - `HEALTH_WARNING_THRESHOLD`: Warning threshold percentage (default: 90)
-                  - `HEALTH_CRITICAL_THRESHOLD`: Critical threshold percentage (default: 95)
-                  - `MONITORING_LABELS`: Comma-separated labels to monitor (default: automation,ci,build,deploy)
-                  - `PROJECT_DISPLAY_NAME`: Custom project display name
-                  - `PROJECT_DESCRIPTION`: Project description
-                  - `DASHBOARD_SCHEDULE`: Cron schedule for updates (default: every 30 minutes)
-                  - `HISTORY_DAYS`: Historical data period in days (default: 30)
-                  - `ENABLE_HEALTH_ALERTS`: Enable health alerts (default: true)
-                  - `ENABLE_SLACK_NOTIFICATIONS`: Enable Slack notifications (default: false)
-                  - `ENABLE_TEAMS_NOTIFICATIONS`: Enable Teams notifications (default: false)
-                  - `ENABLE_DISCORD_NOTIFICATIONS`: Enable Discord notifications (default: false)
-                  - `ENABLE_EXTERNAL_MONITORING`: Enable external monitoring integration (default: false)
-                  - `ENABLE_PROMETHEUS_INTEGRATION`: Enable Prometheus integration (default: false)
-                  - `ENABLE_GRAFANA_INTEGRATION`: Enable Grafana integration (default: false)
-                  - `ENABLE_CUSTOM_WEBHOOK_INTEGRATION`: Enable custom webhook integration (default: false)
+                  - \`DOCKER_USERNAME\`: Your Docker Hub username
+                  - \`DOCKER_REPOSITORY\`: Docker repository name (optional)
+                  - \`HEALTH_WARNING_THRESHOLD\`: Warning threshold percentage (default: 90)
+                  - \`HEALTH_CRITICAL_THRESHOLD\`: Critical threshold percentage (default: 95)
+                  - \`MONITORING_LABELS\`: Comma-separated labels to monitor (default: automation,ci,build,deploy)
+                  - \`PROJECT_DISPLAY_NAME\`: Custom project display name
+                  - \`PROJECT_DESCRIPTION\`: Project description
+                  - \`DASHBOARD_SCHEDULE\`: Cron schedule for updates (default: every 30 minutes)
+                  - \`HISTORY_DAYS\`: Historical data period in days (default: 30)
+                  - \`ENABLE_HEALTH_ALERTS\`: Enable health alerts (default: true)
+                  - \`ENABLE_SLACK_NOTIFICATIONS\`: Enable Slack notifications (default: false)
+                  - \`ENABLE_TEAMS_NOTIFICATIONS\`: Enable Teams notifications (default: false)
+                  - \`ENABLE_DISCORD_NOTIFICATIONS\`: Enable Discord notifications (default: false)
+                  - \`ENABLE_EXTERNAL_MONITORING\`: Enable external monitoring integration (default: false)
+                  - \`ENABLE_PROMETHEUS_INTEGRATION\`: Enable Prometheus integration (default: false)
+                  - \`ENABLE_GRAFANA_INTEGRATION\`: Enable Grafana integration (default: false)
+                  - \`ENABLE_CUSTOM_WEBHOOK_INTEGRATION\`: Enable custom webhook integration (default: false)
 
                   **Secrets** (Repository Settings → Secrets and variables → Actions → Secrets):
-                  - `DOCKERHUB_TOKEN`: Docker Hub access token
-                  - `SLACK_WEBHOOK_URL`: Slack webhook for notifications (optional)
-                  - `TEAMS_WEBHOOK_URL`: Microsoft Teams webhook for notifications (optional)
-                  - `DISCORD_WEBHOOK_URL`: Discord webhook for notifications (optional)
-                  - `PROMETHEUS_URL`: Prometheus Pushgateway URL (optional)
-                  - `GRAFANA_API_KEY`: Grafana API key (optional)
-                  - `GRAFANA_URL`: Grafana instance URL (optional)
-                  - `CUSTOM_MONITORING_WEBHOOK`: Custom monitoring webhook URL (optional)
+                  - \`DOCKERHUB_TOKEN\`: Docker Hub access token
+                  - \`SLACK_WEBHOOK_URL\`: Slack webhook for notifications (optional)
+                  - \`TEAMS_WEBHOOK_URL\`: Microsoft Teams webhook for notifications (optional)
+                  - \`DISCORD_WEBHOOK_URL\`: Discord webhook for notifications (optional)
+                  - \`PROMETHEUS_URL\`: Prometheus Pushgateway URL (optional)
+                  - \`GRAFANA_API_KEY\`: Grafana API key (optional)
+                  - \`GRAFANA_URL\`: Grafana instance URL (optional)
+                  - \`CUSTOM_MONITORING_WEBHOOK\`: Custom monitoring webhook URL (optional)
 
                   ### 🎯 Service Integration Status
 
@@ -1051,7 +1052,7 @@ jobs:
 
                   ### 📦 Container Registry
 
-                  - **Repository**: [`${DOCKER_REPO}`](https://hub.docker.com/r/${DOCKER_REPO})
+                  - **Repository**: [\`${DOCKER_REPO}\`](https://hub.docker.com/r/${DOCKER_REPO})
                   - **Total Pulls**: CONTAINER_PULLS
                   - **Stars**: CONTAINER_STARS
                   - **Last Updated**: CONTAINER_UPDATED
