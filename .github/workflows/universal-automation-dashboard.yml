@@ -137,7 +137,7 @@ jobs:
                           health_alerts: config.enable_health_alerts === 'true',
                           slack_notifications: config.enable_slack_notifications === 'true',
                           teams_notifications: config.enable_teams_notifications === 'true',
-                          discord_notifications: config.enable_discord_notifications === 'true',fa
+                          discord_notifications: config.enable_discord_notifications === 'true',
                           external_monitoring: config.enable_external_monitoring === 'true'
                       };
 
