@@ -50,7 +50,7 @@ jobs:
                       const thirtyDaysAgo = new Date();
                       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-                      // ✅ Fixed workflow names for accurate matching
+
                       const workflows = [
                         'Auto-detect FEX Releases',
                         'Auto-detect RootFS Updates', 
@@ -624,7 +624,137 @@ jobs:
                       const healthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
                       const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
 
-                      console.log('🔧 Processing health alert with clean template replacement...');
+                      console.log('🔧 Processing health alert with individual component analysis...');
+
+
+                      function analyzeComponentHealth(componentName, workflowStats, overallHealth) {
+                        const recentBuilds = workflowStats.recentBuilds || [];
+                        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                        
+                        
+                        let componentBuilds = [];
+                        switch(componentName) {
+                          case 'fex-detection':
+                            componentBuilds = recentBuilds.filter(build => 
+                              build.name.includes('FEX Releases') || 
+                              build.name.includes('FEX Detection') ||
+                              build.name.includes('Auto-detect FEX')
+                            );
+                            break;
+                          case 'rootfs-detection':
+                            componentBuilds = recentBuilds.filter(build => 
+                              build.name.includes('RootFS') || 
+                              build.name.includes('Auto-detect RootFS')
+                            );
+                            break;
+                          case 'container-builds':
+                            componentBuilds = recentBuilds.filter(build => 
+                              build.name.includes('Builder') || 
+                              build.name.includes('FEXBash') ||
+                              build.name.includes('build')
+                            );
+                            break;
+                          case 'docker-deployment':
+                            
+                            componentBuilds = recentBuilds.filter(build => 
+                              (build.name.includes('Builder') || build.name.includes('FEXBash')) && 
+                              build.status === 'success'
+                            );
+                            break;
+                          default:
+                            componentBuilds = [];
+                        }
+
+                        console.log(`🔍 Analyzing ${componentName}: Found ${componentBuilds.length} related builds`);
+
+                        
+                        const recentFailures = componentBuilds.filter(build => 
+                          build.status === 'failure' && new Date(build.created_at) > twentyFourHoursAgo
+                        );
+                        
+                        const recentSuccesses = componentBuilds.filter(build => 
+                          build.status === 'success' && new Date(build.created_at) > twentyFourHoursAgo
+                        );
+                        
+                        const inProgress = componentBuilds.filter(build => 
+                          build.status === 'in_progress' || build.status === 'queued'
+                        );
+
+                        
+                        if (recentFailures.length > 1) {
+                          return {
+                            status: '🔴 Failed',
+                            action: 'Fix Required',
+                            reason: `${recentFailures.length} failures in 24h`
+                          };
+                        } else if (recentFailures.length === 1 && recentSuccesses.length === 0) {
+                          return {
+                            status: '🟡 Degraded', 
+                            action: 'Review',
+                            reason: 'Recent failure detected'
+                          };
+                        } else if (inProgress.length > 0) {
+                          return {
+                            status: '🔄 Running',
+                            action: 'Monitor',
+                            reason: `${inProgress.length} builds in progress`
+                          };
+                        } else if (recentSuccesses.length > 0) {
+                          return {
+                            status: '✅ Operational',
+                            action: 'Monitor',
+                            reason: 'Recent successful runs'
+                          };
+                        } else if (componentBuilds.length === 0) {
+                          return {
+                            status: '⚪ No Data',
+                            action: 'Check',
+                            reason: 'No recent activity'
+                          };
+                        } else {
+                          
+                          if (overallHealth === 'healthy') {
+                            return {
+                              status: '✅ Operational',
+                              action: 'Monitor',
+                              reason: 'System healthy'
+                            };
+                          } else if (overallHealth === 'degraded') {
+                            return {
+                              status: '🟡 Degraded',
+                              action: 'Review', 
+                              reason: 'System degraded'
+                            };
+                          } else {
+                            return {
+                              status: '🔴 Critical',
+                              action: 'Urgent Fix',
+                              reason: 'System unhealthy'
+                            };
+                          }
+                        }
+                      }
+
+
+                      const fexStatus = analyzeComponentHealth('fex-detection', dashboardData.workflow_stats, healthStatus);
+                      const rootfsStatus = analyzeComponentHealth('rootfs-detection', dashboardData.workflow_stats, healthStatus);
+                      const buildsStatus = analyzeComponentHealth('container-builds', dashboardData.workflow_stats, healthStatus);
+                      const dockerStatus = analyzeComponentHealth('docker-deployment', dashboardData.workflow_stats, healthStatus);
+
+                      console.log('📊 Component analysis results:');
+                      console.log(`  - FEX Detection: ${fexStatus.status} (${fexStatus.reason})`);
+                      console.log(`  - RootFS Detection: ${rootfsStatus.status} (${rootfsStatus.reason})`);
+                      console.log(`  - Container Builds: ${buildsStatus.status} (${buildsStatus.reason})`);
+                      console.log(`  - Docker Deployment: ${dockerStatus.status} (${dockerStatus.reason})`);
+
+
+                      const automationStatusTable = `
+                      | Component | Status | Action Needed |
+                      |-----------|--------|---------------|
+                      | FEX Release Detection | ${fexStatus.status} | ${fexStatus.action} |
+                      | RootFS Update Detection | ${rootfsStatus.status} | ${rootfsStatus.action} |
+                      | Container Builds | ${buildsStatus.status} | ${buildsStatus.action} |
+                      | Docker Hub Deployment | ${dockerStatus.status} | ${dockerStatus.action} |`.trim();
 
 
                       let healthIssuesList = 'No specific issues detected.';
@@ -632,30 +762,8 @@ jobs:
                         healthIssuesList = dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n');
                       }
 
-
                       const healthStatusDisplay = healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy';
                       const alertLevel = healthStatus === 'degraded' ? 'Warning' : 'Critical';
-
-
-                      function getComponentStatus(healthStatus) {
-                        if (healthStatus === 'healthy') return '✅ Operational';
-                        if (healthStatus === 'degraded') return '🟡 Degraded';
-                        return '🔴 Critical';
-                      }
-
-                      function getActionNeeded(healthStatus) {
-                        if (healthStatus === 'healthy') return 'Monitor';
-                        if (healthStatus === 'degraded') return 'Review';
-                        return 'Urgent Fix';
-                      }
-
-                      const automationStatusTable = `
-                      | Component | Status | Action Needed |
-                      |-----------|--------|---------------|
-                      | FEX Release Detection | ${getComponentStatus(healthStatus)} | ${getActionNeeded(healthStatus)} |
-                      | RootFS Update Detection | ${getComponentStatus(healthStatus)} | ${getActionNeeded(healthStatus)} |
-                      | Container Builds | ${getComponentStatus(healthStatus)} | ${getActionNeeded(healthStatus)} |
-                      | Docker Hub Deployment | ${getComponentStatus(healthStatus)} | ${getActionNeeded(healthStatus)} |`.trim();
 
 
                       let updatedContent = healthContent
@@ -669,12 +777,11 @@ jobs:
                         .replace('PLACEHOLDER_ALERT_LEVEL', alertLevel)
                         .replace('PLACEHOLDER_AUTOMATION_STATUS_TABLE', automationStatusTable);
 
-                      console.log('✅ All placeholders replaced successfully');
+                      console.log('✅ All placeholders replaced with individual component statuses');
 
                       const title = '🚨 System Health Monitor - Live Status';
 
                       if (existingIssueNumber) {
-                        
                         await github.rest.issues.update({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
@@ -684,17 +791,15 @@ jobs:
                           state: 'open'
                         });
                         
-                        
                         await github.rest.issues.createComment({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
                           issue_number: existingIssueNumber,
-                          body: `🔄 **Health Status Update** - ${new Date().toISOString()}\n\nStatus changed to: **${healthStatusDisplay}**\n\nSee updated details above. ⬆️`
+                          body: `🔄 **Health Status Update** - ${new Date().toISOString()}\n\nSystem Status: **${healthStatusDisplay}**\n\n📊 Component Status Summary:\n- FEX Detection: ${fexStatus.status}\n- RootFS Detection: ${rootfsStatus.status}\n- Container Builds: ${buildsStatus.status}\n- Docker Deployment: ${dockerStatus.status}\n\nSee updated details above. ⬆️`
                         });
                         
                         console.log(`✅ Updated existing health alert issue #${existingIssueNumber}`);
                       } else {
-                        
                         const newIssue = await github.rest.issues.create({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
