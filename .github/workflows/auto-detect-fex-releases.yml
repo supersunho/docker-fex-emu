@@ -134,6 +134,7 @@ jobs:
                   fi
 
             - name: Create GitHub issue for new release
+              id: create-issue
               uses: actions/github-script@v7
               with:
                   script: |
@@ -191,6 +192,10 @@ jobs:
                       });
 
                       console.log(`Created tracking issue: #${issue.data.number}`);
+                      core.setOutput('issue_number', issue.data.number);
+                      core.setOutput('issue_url', issue.data.html_url);
+
+                      return issue.data.number;
 
             - name: Trigger FEX container build
               uses: benc-uk/workflow-dispatch@v1
