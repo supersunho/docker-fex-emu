@@ -1,16 +1,14 @@
 name: Universal Automation Dashboard
 
 on:
-    # Regular updates every 30 minutes (adjustable)
     schedule:
-        - cron: "*/30 * * * *"
+        # Allow cron schedule to be set via Variables (default provided)
+        - cron: ${{ vars.DASHBOARD_SCHEDULE || '*/30 * * * *' }}
 
-    # Auto-trigger when any workflow completes
     workflow_run:
-        workflows: ["*"] # All workflows
+        workflows: ["*"]
         types: [completed, requested]
 
-    # Manual trigger with full customization
     workflow_dispatch:
         inputs:
             force_refresh:
@@ -18,25 +16,10 @@ on:
                 required: false
                 default: false
                 type: boolean
-            include_historical:
-                description: "Include historical data (last 30 days)"
-                required: false
-                default: true
-                type: boolean
-            docker_repo:
-                description: "Docker Hub repository (format: username/repo)"
+            override_docker_repo:
+                description: "Override Docker repository"
                 required: false
                 default: ""
-                type: string
-            monitoring_labels:
-                description: "Custom labels for monitoring (comma-separated)"
-                required: false
-                default: "automation,ci,build,deploy"
-                type: string
-            health_thresholds:
-                description: "Health thresholds (success_rate_warning,success_rate_critical)"
-                required: false
-                default: "90,95"
                 type: string
 
 permissions:
@@ -45,117 +28,116 @@ permissions:
     actions: read
 
 jobs:
-    auto-discover-project:
+    load-configuration:
         runs-on: ubuntu-latest
         outputs:
-            project_name: ${{ steps.detect_project.outputs.project_name }}
-            docker_repo: ${{ steps.detect_project.outputs.docker_repo }}
-            workflow_categories: ${{ steps.detect_project.outputs.workflow_categories }}
-            project_type: ${{ steps.detect_project.outputs.project_type }}
+            docker_repo: ${{ steps.config.outputs.docker_repo }}
+            health_thresholds: ${{ steps.config.outputs.health_thresholds }}
+            monitoring_config: ${{ steps.config.outputs.monitoring_config }}
+            notification_config: ${{ steps.config.outputs.notification_config }}
+            external_monitoring_config: ${{ steps.config.outputs.external_monitoring_config }}
 
         steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
-
-            - name: Auto-detect project configuration
-              id: detect_project
+            - name: Load project configuration from Variables and Secrets
+              id: config
               uses: actions/github-script@v7
               with:
                   script: |
-                      console.log('🔍 Auto-detecting project configuration...');
+                      console.log('🔧 Loading project configuration from GitHub Variables and Secrets...');
 
-                      // Extract project info from repository
-                      const repoName = context.repo.repo;
-                      const repoOwner = context.repo.owner;
-                      const projectName = repoName.replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-                      console.log(`📋 Repository: ${repoOwner}/${repoName}`);
-                      console.log(`📋 Project Name: ${projectName}`);
-
-                      // Auto-detect Docker repository
-                      let dockerRepo = '${{ github.event.inputs.docker_repo }}' || '';
-
-                      // Try to detect from common files
-                      try {
-                          const possibleDockerFiles = [
-                              'Dockerfile',
-                              'docker-compose.yml',
-                              '.github/workflows'
-                          ];
+                      // Load configuration from GitHub Variables
+                      const config = {
+                          // Docker configuration (Variables)
+                          docker_username: '${{ vars.DOCKER_USERNAME }}' || '${{ github.repository_owner }}',
+                          docker_repo: '${{ github.event.inputs.override_docker_repo }}' || 
+                                      '${{ vars.DOCKER_REPOSITORY }}' || 
+                                      '${{ vars.DOCKER_USERNAME }}/${{ github.event.repository.name }}' ||
+                                      '${{ github.repository_owner }}/${{ github.event.repository.name }}',
                           
-                          // Check for Docker Hub references in workflow files
-                          const workflowsResponse = await github.rest.repos.getContent({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              path: '.github/workflows'
-                          });
+                          // Health status thresholds (Variables)
+                          health_warning_threshold: '${{ vars.HEALTH_WARNING_THRESHOLD }}' || '90',
+                          health_critical_threshold: '${{ vars.HEALTH_CRITICAL_THRESHOLD }}' || '95',
                           
-                          if (Array.isArray(workflowsResponse.data)) {
-                              for (const file of workflowsResponse.data) {
-                                  if (file.name.endsWith('.yml') || file.name.endsWith('.yaml')) {
-                                      try {
-                                          const fileContent = await github.rest.repos.getContent({
-                                              owner: context.repo.owner,
-                                              repo: context.repo.repo,
-                                              path: file.path
-                                          });
-                                          
-                                          const content = Buffer.from(fileContent.data.content, 'base64').toString();
-                                          
-                                          // Look for Docker Hub patterns
-                                          const dockerHubMatches = content.match(/[\w-]+\/[\w-]+(?=:|\s)/g);
-                                          if (dockerHubMatches && !dockerRepo) {
-                                              dockerRepo = dockerHubMatches[0];
-                                              console.log(`🐳 Auto-detected Docker repo: ${dockerRepo}`);
-                                              break;
-                                          }
-                                      } catch (e) {
-                                          // Skip files we can't read
-                                      }
-                                  }
-                              }
-                          }
-                      } catch (error) {
-                          console.log('⚠️ Could not auto-detect Docker repository');
-                      }
-
-                      // Fallback: use repository name
-                      if (!dockerRepo) {
-                          dockerRepo = `${repoOwner}/${repoName}`;
-                          console.log(`🔄 Using fallback Docker repo: ${dockerRepo}`);
-                      }
-
-                      // Auto-detect project type
-                      let projectType = 'general';
-                      const repoNameLower = repoName.toLowerCase();
-
-                      if (repoNameLower.includes('api') || repoNameLower.includes('service')) {
-                          projectType = 'api';
-                      } else if (repoNameLower.includes('web') || repoNameLower.includes('frontend')) {
-                          projectType = 'frontend';
-                      } else if (repoNameLower.includes('mobile') || repoNameLower.includes('android') || repoNameLower.includes('ios')) {
-                          projectType = 'mobile';
-                      } else if (repoNameLower.includes('lib') || repoNameLower.includes('package')) {
-                          projectType = 'library';
-                      } else if (repoNameLower.includes('infra') || repoNameLower.includes('terraform')) {
-                          projectType = 'infrastructure';
-                      }
-
-                      console.log(`🏷️ Detected project type: ${projectType}`);
-
-                      // Set outputs
-                      core.setOutput('project_name', projectName);
-                      core.setOutput('docker_repo', dockerRepo);
-                      core.setOutput('project_type', projectType);
-
-                      return {
-                          project_name: projectName,
-                          docker_repo: dockerRepo,
-                          project_type: projectType
+                          // Monitoring configuration (Variables)
+                          monitoring_labels: '${{ vars.MONITORING_LABELS }}' || 'automation,ci,build,deploy',
+                          dashboard_update_frequency: '${{ vars.DASHBOARD_SCHEDULE }}' || '*/30 * * * *',
+                          history_days: '${{ vars.HISTORY_DAYS }}' || '30',
+                          
+                          // Notification settings (Variables)
+                          enable_health_alerts: '${{ vars.ENABLE_HEALTH_ALERTS }}' || 'true',
+                          enable_slack_notifications: '${{ vars.ENABLE_SLACK_NOTIFICATIONS }}' || 'false',
+                          enable_teams_notifications: '${{ vars.ENABLE_TEAMS_NOTIFICATIONS }}' || 'false',
+                          enable_discord_notifications: '${{ vars.ENABLE_DISCORD_NOTIFICATIONS }}' || 'false',
+                          
+                          // External monitoring service-specific settings (Variables) - Datadog removed
+                          enable_external_monitoring: '${{ vars.ENABLE_EXTERNAL_MONITORING }}' || 'false',
+                          enable_prometheus_integration: '${{ vars.ENABLE_PROMETHEUS_INTEGRATION }}' || 'false',
+                          enable_grafana_integration: '${{ vars.ENABLE_GRAFANA_INTEGRATION }}' || 'false',
+                          enable_custom_webhook_integration: '${{ vars.ENABLE_CUSTOM_WEBHOOK_INTEGRATION }}' || 'false',
+                          
+                          // Project metadata (Variables)
+                          project_display_name: '${{ vars.PROJECT_DISPLAY_NAME }}' || '${{ github.repository }}',
+                          project_description: '${{ vars.PROJECT_DESCRIPTION }}' || 'Automated project monitoring'
                       };
 
+                      console.log('📋 Loaded configuration:');
+                      console.log(`  - Docker Repo: ${config.docker_repo}`);
+                      console.log(`  - Health Thresholds: Warning ${config.health_warning_threshold}%, Critical ${config.health_critical_threshold}%`);
+                      console.log(`  - Monitoring Labels: ${config.monitoring_labels}`);
+                      console.log(`  - Update Frequency: ${config.dashboard_update_frequency}`);
+                      console.log(`  - Health Alerts: ${config.enable_health_alerts}`);
+                      console.log(`  - Slack Notifications: ${config.enable_slack_notifications}`);
+                      console.log(`  - Teams Notifications: ${config.enable_teams_notifications}`);
+                      console.log(`  - Discord Notifications: ${config.enable_discord_notifications}`);
+                      console.log(`  - External Monitoring Master: ${config.enable_external_monitoring}`);
+                      console.log(`  - Prometheus Integration: ${config.enable_prometheus_integration}`);
+                      console.log(`  - Grafana Integration: ${config.enable_grafana_integration}`);
+                      console.log(`  - Custom Webhook Integration: ${config.enable_custom_webhook_integration}`);
+
+                      // Configuration validation
+                      const healthThresholds = {
+                          warning: parseInt(config.health_warning_threshold),
+                          critical: parseInt(config.health_critical_threshold)
+                      };
+
+                      if (healthThresholds.warning >= healthThresholds.critical) {
+                          console.log('⚠️ Warning: Health warning threshold should be lower than critical threshold');
+                          healthThresholds.warning = healthThresholds.critical - 5;
+                      }
+
+                      const monitoringConfig = {
+                          labels: config.monitoring_labels.split(',').map(l => l.trim()),
+                          history_days: parseInt(config.history_days),
+                          update_frequency: config.dashboard_update_frequency
+                      };
+
+                      const notificationConfig = {
+                          health_alerts: config.enable_health_alerts === 'true',
+                          slack_notifications: config.enable_slack_notifications === 'true',
+                          teams_notifications: config.enable_teams_notifications === 'true',
+                          discord_notifications: config.enable_discord_notifications === 'true',
+                          external_monitoring: config.enable_external_monitoring === 'true'
+                      };
+
+                      // External monitoring service-specific configuration (Datadog removed)
+                      const externalMonitoringConfig = {
+                          master_enable: config.enable_external_monitoring === 'true',
+                          prometheus: config.enable_prometheus_integration === 'true',
+                          grafana: config.enable_grafana_integration === 'true',
+                          custom_webhook: config.enable_custom_webhook_integration === 'true'
+                      };
+
+                      // Set outputs
+                      core.setOutput('docker_repo', config.docker_repo);
+                      core.setOutput('health_thresholds', JSON.stringify(healthThresholds));
+                      core.setOutput('monitoring_config', JSON.stringify(monitoringConfig));
+                      core.setOutput('notification_config', JSON.stringify(notificationConfig));
+                      core.setOutput('external_monitoring_config', JSON.stringify(externalMonitoringConfig));
+
+                      return config;
+
     collect-metrics:
-        needs: auto-discover-project
+        needs: load-configuration
         runs-on: ubuntu-latest
         outputs:
             dashboard_data: ${{ steps.compile_data.outputs.dashboard_json }}
@@ -166,15 +148,17 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-            - name: Auto-discover and analyze all workflows
+            - name: Auto-discover workflows with configurable settings
               id: discover_workflows
               uses: actions/github-script@v7
               with:
                   script: |
-                      console.log('🔍 Auto-discovering all repository workflows...');
+                      const monitoringConfig = JSON.parse('${{ needs.load-configuration.outputs.monitoring_config }}');
 
-                      const thirtyDaysAgo = new Date();
-                      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                      console.log(`🔍 Auto-discovering workflows with ${monitoringConfig.history_days} days history...`);
+
+                      const historyDate = new Date();
+                      historyDate.setDate(historyDate.getDate() - monitoringConfig.history_days);
 
                       // Get all workflows in repository
                       const workflowsResponse = await github.rest.actions.listRepoWorkflows({
@@ -205,9 +189,9 @@ jobs:
                       for (const workflow of allWorkflows) {
                           const name = workflow.name.toLowerCase();
                           const path = workflow.path.toLowerCase();
-                          
+
                           console.log(`🔍 Analyzing workflow: ${workflow.name}`);
-                          
+
                           // Smart categorization
                           let category = 'other';
                           if (name.includes('build') || name.includes('compile') || name.includes('make')) {
@@ -223,12 +207,12 @@ jobs:
                           } else if (name.includes('cleanup') || name.includes('maintenance') || name.includes('update')) {
                               category = 'maintenance';
                           }
-                          
+
                           workflowCategories[category].push({
                               ...workflow,
                               category: category
                           });
-                          
+
                           // Get workflow runs for statistics
                           try {
                               const runsResponse = await github.rest.actions.listWorkflowRuns({
@@ -237,25 +221,25 @@ jobs:
                                   workflow_id: workflow.id,
                                   per_page: 50
                               });
-                              
+
                               const recentRuns = runsResponse.data.workflow_runs.filter(run => 
-                                  new Date(run.created_at) > thirtyDaysAgo
+                                  new Date(run.created_at) > historyDate
                               );
-                              
+
                               totalRuns += recentRuns.length;
-                              
+
                               for (const run of recentRuns) {
                                   if (run.conclusion === 'success') {
                                       successfulRuns++;
                                   } else if (run.conclusion === 'failure') {
                                       failedRuns++;
                                   }
-                                  
+
                                   if (run.updated_at && run.created_at) {
                                       const duration = new Date(run.updated_at) - new Date(run.created_at);
                                       averageDuration += duration;
                                   }
-                                  
+
                                   if (recentBuilds.length < 20) {
                                       recentBuilds.push({
                                           name: workflow.name,
@@ -295,57 +279,363 @@ jobs:
 
                       return stats;
 
-            - name: Check container registry (Docker Hub/GHCR)
+            - name: Check container registry with configurable credentials
               id: container_stats
+              env:
+                  # Access Token authentication
+                  DOCKER_USERNAME: ${{ vars.DOCKER_USERNAME }}
+                  DOCKER_ACCESS_TOKEN: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+                  DOCKER_REPO: ${{ needs.load-configuration.outputs.docker_repo }}
               run: |
-                  echo "🔍 Checking container registry statistics..."
+                  echo "🔍 Checking container registry with Docker Hub Access Token..."
 
-                  DOCKER_REPO="${{ needs.auto-discover-project.outputs.docker_repo }}"
+                  # Access Token masking for security
+                  echo "::add-mask::$DOCKER_ACCESS_TOKEN"
+
                   echo "📊 Target repository: $DOCKER_REPO"
+                  echo "👤 Docker username: $DOCKER_USERNAME"
 
                   # Initialize default values
                   PULL_COUNT=0
                   STAR_COUNT=0
                   LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-                  # Try Docker Hub first
-                  if [ ! -z "$DOCKER_REPO" ]; then
-                      echo "🐳 Checking Docker Hub: $DOCKER_REPO"
-                      REPO_INFO=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null || echo '{}')
+                  # Docker Hub Access Token authentication (multiple methods)
+                  if [ ! -z "$DOCKER_ACCESS_TOKEN" ] && [ ! -z "$DOCKER_USERNAME" ]; then
+                      echo "🔐 Using Docker Hub Access Token authentication..."
                       
-                      if echo "$REPO_INFO" | jq -e .pull_count >/dev/null 2>&1; then
-                          PULL_COUNT=$(echo "$REPO_INFO" | jq -r '.pull_count // 0')
-                          STAR_COUNT=$(echo "$REPO_INFO" | jq -r '.star_count // 0')
-                          LAST_UPDATED=$(echo "$REPO_INFO" | jq -r '.last_updated // ""')
+                      # Method 1: Try Bearer Token authentication
+                      echo "🔑 Trying Bearer Token authentication..."
+                      REPO_INFO=$(curl -s -H "Authorization: Bearer $DOCKER_ACCESS_TOKEN" \
+                          "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null)
+                      
+                      # If Bearer Token fails, Method 2: Use Username + Access Token for JWT
+                      if [ -z "$REPO_INFO" ] || echo "$REPO_INFO" | grep -q "error\|unauthorized"; then
+                          echo "🔄 Bearer Token failed, trying Username + Access Token for JWT..."
                           
-                          if [ -z "$LAST_UPDATED" ] || [ "$LAST_UPDATED" = "null" ]; then
-                              LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                          TOKEN_RESPONSE=$(curl -s -X POST \
+                              -H "Content-Type: application/json" \
+                              -d "{\"username\":\"$DOCKER_USERNAME\",\"password\":\"$DOCKER_ACCESS_TOKEN\"}" \
+                              "https://hub.docker.com/v2/users/login/" 2>/dev/null)
+                          
+                          if echo "$TOKEN_RESPONSE" | jq -e .token >/dev/null 2>&1; then
+                              JWT_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r .token)
+                              echo "✅ JWT Token obtained successfully"
+                              
+                              # Authenticated API call with JWT Token
+                              REPO_INFO=$(curl -s -H "Authorization: JWT $JWT_TOKEN" \
+                                  "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null)
+                              
+                              if [ ! -z "$REPO_INFO" ] && ! echo "$REPO_INFO" | grep -q "error\|unauthorized"; then
+                                  echo "✅ Docker Hub authentication successful with JWT"
+                              else
+                                  echo "⚠️ JWT authentication failed"
+                                  REPO_INFO=""
+                              fi
+                          else
+                              echo "⚠️ Failed to obtain JWT token with Access Token"
+                              REPO_INFO=""
                           fi
-                          
-                          echo "✅ Docker Hub data found: $PULL_COUNT pulls, $STAR_COUNT stars"
                       else
-                          echo "⚠️ No Docker Hub data found for $DOCKER_REPO"
-                          
-                          # Try GHCR as fallback
-                          echo "🔍 Checking GitHub Container Registry..."
-                          GHCR_REPO="ghcr.io/${{ github.repository }}"
-                          echo "📦 GHCR repository: $GHCR_REPO"
-                          # GHCR doesn't have public stats API, so we'll use repository info
+                          echo "✅ Bearer Token authentication successful"
+                      fi
+                      
+                  elif [ ! -z "$DOCKER_ACCESS_TOKEN" ]; then
+                      echo "🔑 Using Access Token without username (Bearer only)..."
+                      REPO_INFO=$(curl -s -H "Authorization: Bearer $DOCKER_ACCESS_TOKEN" \
+                          "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null)
+                      
+                      if [ ! -z "$REPO_INFO" ] && ! echo "$REPO_INFO" | grep -q "error\|unauthorized"; then
+                          echo "✅ Bearer Token authentication successful"
+                      else
+                          echo "⚠️ Bearer Token authentication failed"
+                          REPO_INFO=""
                       fi
                   fi
 
-                  # Create JSON output
+                  # Fallback to Public API if authentication fails
+                  if [ -z "$REPO_INFO" ] || echo "$REPO_INFO" | grep -q "error\|unauthorized\|not found"; then
+                      echo "🔄 Authenticated access failed, falling back to public Docker Hub API..."
+                      REPO_INFO=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null || echo '{}')
+                      
+                      if [ ! -z "$REPO_INFO" ] && [ "$REPO_INFO" != "{}" ]; then
+                          echo "📊 Using public API data (limited information)"
+                      else
+                          echo "⚠️ No Docker Hub data available for $DOCKER_REPO"
+                          REPO_INFO='{"pull_count":0,"star_count":0,"last_updated":null}'
+                      fi
+                  fi
+
+                  # Data extraction and validation
+                  if echo "$REPO_INFO" | jq -e . >/dev/null 2>&1; then
+                      PULL_COUNT=$(echo "$REPO_INFO" | jq -r '.pull_count // 0')
+                      STAR_COUNT=$(echo "$REPO_INFO" | jq -r '.star_count // 0')
+                      LAST_UPDATED=$(echo "$REPO_INFO" | jq -r '.last_updated // ""')
+                      
+                      if [ -z "$LAST_UPDATED" ] || [ "$LAST_UPDATED" = "null" ]; then
+                          LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                      fi
+                      
+                      echo "✅ Docker Hub data retrieved successfully:"
+                      echo "  - Total pulls: $PULL_COUNT"
+                      echo "  - Stars: $STAR_COUNT"
+                      echo "  - Last updated: $LAST_UPDATED"
+                  else
+                      echo "⚠️ Failed to parse Docker Hub response, using defaults"
+                      PULL_COUNT=0
+                      STAR_COUNT=0
+                      LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  fi
+
+                  # Additional information with Access Token
+                  if [ ! -z "$JWT_TOKEN" ]; then
+                      echo "🔍 Fetching additional authenticated data..."
+                      
+                      # Get tags information (detailed info available to authenticated users)
+                      TAGS_INFO=$(curl -s -H "Authorization: JWT $JWT_TOKEN" \
+                          "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/tags/?page_size=5" 2>/dev/null)
+                      
+                      if echo "$TAGS_INFO" | jq -e .results >/dev/null 2>&1; then
+                          TAG_COUNT=$(echo "$TAGS_INFO" | jq '.results | length')
+                          echo "📋 Available tags: $TAG_COUNT (showing recent)"
+                          echo "$TAGS_INFO" | jq -r '.results[]?.name' | head -3 | while read tag; do
+                              echo "  - $tag"
+                          done
+                      fi
+                      
+                      # Repository statistics (detailed info through authenticated access)
+                      STATS_INFO=$(curl -s -H "Authorization: JWT $JWT_TOKEN" \
+                          "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/analytics/" 2>/dev/null)
+                      
+                      if echo "$STATS_INFO" | jq -e . >/dev/null 2>&1; then
+                          echo "📈 Additional statistics available through authenticated access"
+                      fi
+                  fi
+
+                  # Generate JSON output
                   cat > container_stats.json << EOF
                   {
                     "registry_type": "docker_hub",
                     "repository": "$DOCKER_REPO",
                     "pull_count": $PULL_COUNT,
                     "star_count": $STAR_COUNT,
-                    "last_updated": "$LAST_UPDATED"
+                    "last_updated": "$LAST_UPDATED",
+                    "authentication_method": "$([ ! -z "$JWT_TOKEN" ] && echo "access_token_jwt" || [ ! -z "$DOCKER_ACCESS_TOKEN" ] && echo "access_token_bearer" || echo "public_api")",
+                    "data_source": "$([ ! -z "$JWT_TOKEN" ] && echo "authenticated" || echo "public")"
                   }
                   EOF
 
                   echo "container_stats=$(cat container_stats.json | jq -c .)" >> $GITHUB_OUTPUT
+
+                  echo "🎉 Container registry check completed with Access Token authentication"
+
+            - name: External monitoring integration with service-specific control
+              if: ${{ fromJson(needs.load-configuration.outputs.external_monitoring_config).master_enable }}
+              env:
+                  PROMETHEUS_URL: ${{ secrets.PROMETHEUS_URL }}
+                  GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+                  GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
+                  CUSTOM_MONITORING_WEBHOOK: ${{ secrets.CUSTOM_MONITORING_WEBHOOK }}
+              run: |
+                  echo "🔗 External monitoring integration with service-specific configuration..."
+
+                  # External service secret masking
+                  echo "::add-mask::$GRAFANA_API_KEY"
+                  echo "::add-mask::$PROMETHEUS_URL"
+                  echo "::add-mask::$GRAFANA_URL"
+                  echo "::add-mask::$CUSTOM_MONITORING_WEBHOOK"
+
+                  # Parse service-specific configuration
+                  EXTERNAL_CONFIG='${{ needs.load-configuration.outputs.external_monitoring_config }}'
+                  PROMETHEUS_ENABLED=$(echo "$EXTERNAL_CONFIG" | jq -r '.prometheus')
+                  GRAFANA_ENABLED=$(echo "$EXTERNAL_CONFIG" | jq -r '.grafana')
+                  CUSTOM_WEBHOOK_ENABLED=$(echo "$EXTERNAL_CONFIG" | jq -r '.custom_webhook')
+
+                  echo "📋 Service-specific configuration:"
+                  echo "  - Prometheus Integration: $PROMETHEUS_ENABLED"
+                  echo "  - Grafana Integration: $GRAFANA_ENABLED"
+                  echo "  - Custom Webhook Integration: $CUSTOM_WEBHOOK_ENABLED"
+
+                  # Extract dashboard data for metrics
+                  DASHBOARD_DATA='${{ needs.collect-metrics.outputs.dashboard_data }}'
+                  SUCCESS_RATE=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.successRate // 0')
+                  TOTAL_RUNS=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.totalRuns // 0')
+                  FAILED_RUNS=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.failedRuns // 0')
+                  AVG_DURATION=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.averageDuration // 0')
+                  DOCKER_PULLS=$(echo "$DASHBOARD_DATA" | jq -r '.container_stats.pull_count // 0')
+                  DOCKER_STARS=$(echo "$DASHBOARD_DATA" | jq -r '.container_stats.star_count // 0')
+                  ACTIVE_ISSUES=$(echo "$DASHBOARD_DATA" | jq -r '.active_issues // 0')
+
+                  CURRENT_TIMESTAMP=$(date +%s)
+                  REPO_NAME="${{ github.repository }}"
+
+                  echo "📊 Extracted metrics for enabled services:"
+                  echo "  - Success Rate: ${SUCCESS_RATE}%"
+                  echo "  - Total Runs: ${TOTAL_RUNS}"
+                  echo "  - Failed Runs: ${FAILED_RUNS}"
+                  echo "  - Average Duration: ${AVG_DURATION} minutes"
+                  echo "  - Docker Pulls: ${DOCKER_PULLS}"
+                  echo "  - Active Issues: ${ACTIVE_ISSUES}"
+
+                  # ✅ Conditional Prometheus Integration
+                  if [ "$PROMETHEUS_ENABLED" = "true" ] && [ ! -z "$PROMETHEUS_URL" ]; then
+                      echo "📈 Prometheus integration is ENABLED - sending metrics..."
+                      
+                      # Create Prometheus metrics file
+                      cat > metrics.txt << EOF
+                  # HELP github_workflow_success_rate GitHub workflow success rate percentage
+                  # TYPE github_workflow_success_rate gauge
+                  github_workflow_success_rate{repository="$REPO_NAME",service="github-actions"} $SUCCESS_RATE
+
+                  # HELP github_workflow_total_runs Total GitHub workflow runs in the last period
+                  # TYPE github_workflow_total_runs counter
+                  github_workflow_total_runs{repository="$REPO_NAME",service="github-actions"} $TOTAL_RUNS
+
+                  # HELP github_workflow_failed_runs Failed GitHub workflow runs in the last period
+                  # TYPE github_workflow_failed_runs counter  
+                  github_workflow_failed_runs{repository="$REPO_NAME",service="github-actions"} $FAILED_RUNS
+
+                  # HELP github_workflow_average_duration_minutes Average workflow duration in minutes
+                  # TYPE github_workflow_average_duration_minutes gauge
+                  github_workflow_average_duration_minutes{repository="$REPO_NAME",service="github-actions"} $AVG_DURATION
+
+                  # HELP github_container_pull_count Docker Hub pull count
+                  # TYPE github_container_pull_count gauge
+                  github_container_pull_count{repository="$REPO_NAME",service="docker-hub"} $DOCKER_PULLS
+
+                  # HELP github_container_star_count Docker Hub star count
+                  # TYPE github_container_star_count gauge
+                  github_container_star_count{repository="$REPO_NAME",service="docker-hub"} $DOCKER_STARS
+
+                  # HELP github_issues_active_count Active GitHub issues count
+                  # TYPE github_issues_active_count gauge
+                  github_issues_active_count{repository="$REPO_NAME",service="github-issues"} $ACTIVE_ISSUES
+
+                  # HELP github_dashboard_last_update_timestamp Last dashboard update timestamp
+                  # TYPE github_dashboard_last_update_timestamp gauge
+                  github_dashboard_last_update_timestamp{repository="$REPO_NAME",service="dashboard"} $CURRENT_TIMESTAMP
+                  EOF
+                      
+                      echo "📋 Generated Prometheus metrics for pushgateway"
+                      
+                      # Push to Prometheus Pushgateway with job and instance labels
+                      JOB_NAME="github_workflow_monitoring"
+                      INSTANCE_NAME=$(echo "$REPO_NAME" | tr '/' '_')
+                      
+                      PROMETHEUS_RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+                          --data-binary @metrics.txt \
+                          "$PROMETHEUS_URL/metrics/job/$JOB_NAME/instance/$INSTANCE_NAME")
+                      
+                      HTTP_CODE="${PROMETHEUS_RESPONSE: -3}"
+                      if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
+                          echo "✅ Successfully pushed metrics to Prometheus Pushgateway"
+                      else
+                          echo "❌ Failed to push metrics to Prometheus (HTTP: $HTTP_CODE)"
+                          echo "Response: ${PROMETHEUS_RESPONSE%???}"
+                      fi
+                      
+                      # Cleanup
+                      rm -f metrics.txt
+                  elif [ "$PROMETHEUS_ENABLED" = "true" ]; then
+                      echo "⚠️ Prometheus integration is ENABLED but PROMETHEUS_URL is not configured"
+                  else
+                      echo "⚪ Prometheus integration is DISABLED - skipping"
+                  fi
+
+                  # ✅ Conditional Grafana Integration
+                  if [ "$GRAFANA_ENABLED" = "true" ] && [ ! -z "$GRAFANA_API_KEY" ] && [ ! -z "$GRAFANA_URL" ]; then
+                      echo "📊 Grafana integration is ENABLED - creating annotations..."
+                      
+                      # Create annotation for dashboard update
+                      GRAFANA_ANNOTATION=$(cat << EOF
+                  {
+                      "dashboardUID": "github-workflow-monitoring",
+                      "time": $(($CURRENT_TIMESTAMP * 1000)),
+                      "timeEnd": $(($CURRENT_TIMESTAMP * 1000)),
+                      "tags": ["github-actions", "dashboard-update", "$REPO_NAME"],
+                      "text": "Dashboard updated: Success Rate ${SUCCESS_RATE}%, ${FAILED_RUNS} failures, ${TOTAL_RUNS} total runs"
+                  }
+                  EOF
+                      )
+                      
+                      # Send annotation to Grafana
+                      GRAFANA_RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+                          "$GRAFANA_URL/api/annotations" \
+                          -H "Content-Type: application/json" \
+                          -H "Authorization: Bearer $GRAFANA_API_KEY" \
+                          -d "$GRAFANA_ANNOTATION")
+                      
+                      HTTP_CODE="${GRAFANA_RESPONSE: -3}"
+                      if [ "$HTTP_CODE" = "200" ]; then
+                          echo "✅ Successfully created Grafana annotation"
+                      else
+                          echo "❌ Failed to create Grafana annotation (HTTP: $HTTP_CODE)"
+                          echo "Response: ${GRAFANA_RESPONSE%???}"
+                      fi
+                      
+                      # Update Grafana dashboard variables (if dashboard exists)
+                      echo "🔄 Attempting to refresh Grafana dashboard..."
+                      DASHBOARD_REFRESH=$(curl -s -w "%{http_code}" -X POST \
+                          "$GRAFANA_URL/api/dashboards/uid/github-workflow-monitoring/restore" \
+                          -H "Authorization: Bearer $GRAFANA_API_KEY")
+                      
+                      HTTP_CODE="${DASHBOARD_REFRESH: -3}"
+                      if [ "$HTTP_CODE" = "200" ]; then
+                          echo "✅ Grafana dashboard refreshed"
+                      else
+                          echo "ℹ️ Grafana dashboard refresh not available or not configured"
+                      fi
+                  elif [ "$GRAFANA_ENABLED" = "true" ]; then
+                      echo "⚠️ Grafana integration is ENABLED but GRAFANA_API_KEY or GRAFANA_URL is not configured"
+                  else
+                      echo "⚪ Grafana integration is DISABLED - skipping"
+                  fi
+
+                  # ✅ Conditional Custom Webhook Integration
+                  if [ "$CUSTOM_WEBHOOK_ENABLED" = "true" ] && [ ! -z "$CUSTOM_MONITORING_WEBHOOK" ]; then
+                      echo "🔗 Custom webhook integration is ENABLED - sending metrics..."
+                      
+                      CUSTOM_PAYLOAD=$(cat << EOF
+                  {
+                      "timestamp": "$CURRENT_TIMESTAMP",
+                      "repository": "$REPO_NAME",
+                      "metrics": {
+                          "success_rate": $SUCCESS_RATE,
+                          "total_runs": $TOTAL_RUNS,
+                          "failed_runs": $FAILED_RUNS,
+                          "average_duration": $AVG_DURATION,
+                          "docker_pulls": $DOCKER_PULLS,
+                          "docker_stars": $DOCKER_STARS,
+                          "active_issues": $ACTIVE_ISSUES
+                      },
+                      "status": "${{ needs.collect-metrics.outputs.system_health }}",
+                      "dashboard_url": "${{ github.server_url }}/${{ github.repository }}/issues?q=is%3Aopen+label%3Aautomation-dashboard"
+                  }
+                  EOF
+                      )
+                      
+                      CUSTOM_RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+                          "$CUSTOM_MONITORING_WEBHOOK" \
+                          -H "Content-Type: application/json" \
+                          -d "$CUSTOM_PAYLOAD")
+                      
+                      HTTP_CODE="${CUSTOM_RESPONSE: -3}"
+                      if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "202" ]; then
+                          echo "✅ Successfully sent metrics to custom webhook"
+                      else
+                          echo "❌ Failed to send metrics to custom webhook (HTTP: $HTTP_CODE)"
+                      fi
+                  elif [ "$CUSTOM_WEBHOOK_ENABLED" = "true" ]; then
+                      echo "⚠️ Custom webhook integration is ENABLED but CUSTOM_MONITORING_WEBHOOK is not configured"
+                  else
+                      echo "⚪ Custom webhook integration is DISABLED - skipping"
+                  fi
+
+                  echo "🎉 External monitoring integration completed!"
+                  echo "📊 Service Status Summary:"
+                  echo "  - Prometheus: $([ "$PROMETHEUS_ENABLED" = "true" ] && [ ! -z "$PROMETHEUS_URL" ] && echo "✅ Active" || [ "$PROMETHEUS_ENABLED" = "true" ] && echo "⚠️ Enabled but not configured" || echo "⚪ Disabled")"
+                  echo "  - Grafana: $([ "$GRAFANA_ENABLED" = "true" ] && [ ! -z "$GRAFANA_API_KEY" ] && [ ! -z "$GRAFANA_URL" ] && echo "✅ Active" || [ "$GRAFANA_ENABLED" = "true" ] && echo "⚠️ Enabled but not configured" || echo "⚪ Disabled")"
+                  echo "  - Custom Webhook: $([ "$CUSTOM_WEBHOOK_ENABLED" = "true" ] && [ ! -z "$CUSTOM_MONITORING_WEBHOOK" ] && echo "✅ Active" || [ "$CUSTOM_WEBHOOK_ENABLED" = "true" ] && echo "⚠️ Enabled but not configured" || echo "⚪ Disabled")"
 
             - name: Analyze system health with configurable thresholds
               id: system_health
@@ -353,26 +643,20 @@ jobs:
               with:
                   script: |
                       const workflowStats = ${{ steps.discover_workflows.outputs.result }};
-                      const containerStats = JSON.parse('${{ steps.container_stats.outputs.container_stats }}');
+                      const healthThresholds = JSON.parse('${{ needs.load-configuration.outputs.health_thresholds }}');
 
-                      // Parse health thresholds from input
-                      const thresholds = '${{ github.event.inputs.health_thresholds }}'.split(',');
-                      const warningThreshold = parseFloat(thresholds[0]) || 90;
-                      const criticalThreshold = parseFloat(thresholds[1]) || 95;
-
-                      console.log(`🎯 Health thresholds: Warning <${warningThreshold}%, Critical <${criticalThreshold}%`);
+                      console.log(`🎯 Using configured health thresholds: Warning <${healthThresholds.warning}%, Critical <${healthThresholds.critical}%`);
 
                       let healthStatus = 'healthy';
                       let healthIssues = [];
 
-                      // Check success rate
                       const successRate = parseFloat(workflowStats.successRate);
-                      if (successRate < criticalThreshold) {
+                      if (successRate < healthThresholds.critical) {
                           healthStatus = 'unhealthy';
-                          healthIssues.push(`Critical: Success rate ${successRate}% below ${criticalThreshold}%`);
-                      } else if (successRate < warningThreshold) {
+                          healthIssues.push(`Critical: Success rate ${successRate}% below ${healthThresholds.critical}%`);
+                      } else if (successRate < healthThresholds.warning) {
                           healthStatus = 'degraded';
-                          healthIssues.push(`Warning: Success rate ${successRate}% below ${warningThreshold}%`);
+                          healthIssues.push(`Warning: Success rate ${successRate}% below ${healthThresholds.warning}%`);
                       }
 
                       // Check for recent failures (last 24 hours)
@@ -406,8 +690,8 @@ jobs:
                           issues: healthIssues,
                           last_check: new Date().toISOString(),
                           thresholds: {
-                              warning: warningThreshold,
-                              critical: criticalThreshold
+                              warning: healthThresholds.warning,
+                              critical: healthThresholds.critical
                           }
                       };
 
@@ -422,16 +706,13 @@ jobs:
                       const workflowStats = ${{ steps.discover_workflows.outputs.result }};
                       const containerStats = JSON.parse('${{ steps.container_stats.outputs.container_stats }}');
                       const healthData = ${{ steps.system_health.outputs.result }};
-                      const projectInfo = ${{ needs.auto-discover-project.outputs }};
 
                       // Check for active automation issues
-                      const customLabels = '${{ github.event.inputs.monitoring_labels }}'.split(',').filter(l => l.trim());
-                      const allLabels = ['automation', 'ci', 'build', 'deploy', ...customLabels];
-
+                      const monitoringConfig = JSON.parse('${{ needs.load-configuration.outputs.monitoring_config }}');
                       const issuesResponse = await github.rest.issues.listForRepo({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
-                          labels: allLabels.join(','),
+                          labels: monitoringConfig.labels.join(','),
                           state: 'open'
                       });
 
@@ -439,7 +720,6 @@ jobs:
 
                       const dashboardData = {
                           last_updated: new Date().toISOString(),
-                          project_info: projectInfo,
                           system_health: healthData,
                           workflow_stats: workflowStats,
                           container_stats: containerStats,
@@ -460,7 +740,7 @@ jobs:
                       return dashboardData;
 
     update-dashboard:
-        needs: [auto-discover-project, collect-metrics]
+        needs: [load-configuration, collect-metrics]
         runs-on: ubuntu-latest
 
         steps:
@@ -488,22 +768,96 @@ jobs:
                           return null;
                       }
 
-            - name: Generate universal dashboard content
-              id: generate_content
+            - name: Generate configurable dashboard content
               run: |
-                  PROJECT_NAME="${{ needs.auto-discover-project.outputs.project_name }}"
-                  PROJECT_TYPE="${{ needs.auto-discover-project.outputs.project_type }}"
-                  DOCKER_REPO="${{ needs.auto-discover-project.outputs.docker_repo }}"
+                  PROJECT_NAME="${{ vars.PROJECT_DISPLAY_NAME || github.repository }}"
+                  PROJECT_DESCRIPTION="${{ vars.PROJECT_DESCRIPTION || 'Automated project monitoring' }}"
+                  DOCKER_REPO="${{ needs.load-configuration.outputs.docker_repo }}"
 
+                  # Variables-based fully configurable dashboard
                   cat > dashboard_content.md << EOF
-                  ## 🤖 ${PROJECT_NAME} Automation Dashboard
+                  ## 🤖 ${PROJECT_NAME} - Automation Dashboard
 
-                  **Project Type**: ${PROJECT_TYPE}
+                  **Description**: ${PROJECT_DESCRIPTION}
+                  **Docker Repository**: [\`${DOCKER_REPO}\`](https://hub.docker.com/r/${DOCKER_REPO})
+                  **Configuration**: Variables & Secrets based
                   **Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}
-                  **System Health**: ${{ needs.collect-metrics.outputs.system_health == 'healthy' && '🟢 Healthy' || needs.collect-metrics.outputs.system_health == 'degraded' && '🟡 Degraded' || '🔴 Unhealthy' }}
-                  **Dashboard Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+                  **System Health**: SYSTEM_HEALTH_PLACEHOLDER
 
-                  ---
+                  ### ⚙️ Current Configuration
+
+                  | Setting | Value | Source |
+                  |---------|-------|--------|
+                  | Health Warning Threshold | ${{ fromJson(needs.load-configuration.outputs.health_thresholds).warning }}% | Variables |
+                  | Health Critical Threshold | ${{ fromJson(needs.load-configuration.outputs.health_thresholds).critical }}% | Variables |
+                  | History Period | ${{ fromJson(needs.load-configuration.outputs.monitoring_config).history_days }} days | Variables |
+                  | Update Frequency | ${{ fromJson(needs.load-configuration.outputs.monitoring_config).update_frequency }} | Variables |
+                  | Health Alerts | ${{ fromJson(needs.load-configuration.outputs.notification_config).health_alerts }} | Variables |
+                  | Slack Notifications | ${{ fromJson(needs.load-configuration.outputs.notification_config).slack_notifications }} | Variables |
+                  | Teams Notifications | ${{ fromJson(needs.load-configuration.outputs.notification_config).teams_notifications }} | Variables |
+                  | Discord Notifications | ${{ fromJson(needs.load-configuration.outputs.notification_config).discord_notifications }} | Variables |
+                  | External Monitoring Master | ${{ fromJson(needs.load-configuration.outputs.external_monitoring_config).master_enable }} | Variables |
+                  | Prometheus Integration | ${{ fromJson(needs.load-configuration.outputs.external_monitoring_config).prometheus }} | Variables |
+                  | Grafana Integration | ${{ fromJson(needs.load-configuration.outputs.external_monitoring_config).grafana }} | Variables |
+                  | Custom Webhook Integration | ${{ fromJson(needs.load-configuration.outputs.external_monitoring_config).custom_webhook }} | Variables |
+
+                  ### 🔧 Configuration Management
+
+                  To customize this dashboard, update the following in your repository settings:
+
+                  **Variables** (Repository Settings → Secrets and variables → Actions → Variables):
+                  - \`DOCKER_USERNAME\`: Your Docker Hub username
+                  - \`DOCKER_REPOSITORY\`: Docker repository name (optional)
+                  - \`HEALTH_WARNING_THRESHOLD\`: Warning threshold percentage (default: 90)
+                  - \`HEALTH_CRITICAL_THRESHOLD\`: Critical threshold percentage (default: 95)
+                  - \`MONITORING_LABELS\`: Comma-separated labels to monitor (default: automation,ci,build,deploy)
+                  - \`PROJECT_DISPLAY_NAME\`: Custom project display name
+                  - \`PROJECT_DESCRIPTION\`: Project description
+                  - \`DASHBOARD_SCHEDULE\`: Cron schedule for updates (default: every 30 minutes)
+                  - \`HISTORY_DAYS\`: Historical data period in days (default: 30)
+                  - \`ENABLE_HEALTH_ALERTS\`: Enable health alerts (default: true)
+                  - \`ENABLE_SLACK_NOTIFICATIONS\`: Enable Slack notifications (default: false)
+                  - \`ENABLE_TEAMS_NOTIFICATIONS\`: Enable Teams notifications (default: false)
+                  - \`ENABLE_DISCORD_NOTIFICATIONS\`: Enable Discord notifications (default: false)
+                  - \`ENABLE_EXTERNAL_MONITORING\`: Enable external monitoring integration (default: false)
+                  - \`ENABLE_PROMETHEUS_INTEGRATION\`: Enable Prometheus integration (default: false)
+                  - \`ENABLE_GRAFANA_INTEGRATION\`: Enable Grafana integration (default: false)
+                  - \`ENABLE_CUSTOM_WEBHOOK_INTEGRATION\`: Enable custom webhook integration (default: false)
+
+                  **Secrets** (Repository Settings → Secrets and variables → Actions → Secrets):
+                  - \`DOCKER_ACCESS_TOKEN\`: Docker Hub access token
+                  - \`SLACK_WEBHOOK_URL\`: Slack webhook for notifications (optional)
+                  - \`TEAMS_WEBHOOK_URL\`: Microsoft Teams webhook for notifications (optional)
+                  - \`DISCORD_WEBHOOK_URL\`: Discord webhook for notifications (optional)
+                  - \`PROMETHEUS_URL\`: Prometheus Pushgateway URL (optional)
+                  - \`GRAFANA_API_KEY\`: Grafana API key (optional)
+                  - \`GRAFANA_URL\`: Grafana instance URL (optional)
+                  - \`CUSTOM_MONITORING_WEBHOOK\`: Custom monitoring webhook URL (optional)
+
+                  ### 🎯 Service Integration Status
+
+                  Current configuration status based on your Variables and Secrets:
+
+                  | Service | Status | Required Variables | Required Secrets |
+                  |---------|--------|-------------------|------------------|
+                  | **Docker Hub** | ${{ vars.DOCKER_USERNAME && '✅ Configured' || '⚠️ Missing DOCKER_USERNAME' }} | DOCKER_USERNAME | DOCKER_ACCESS_TOKEN |
+                  | **Health Alerts** | ${{ vars.ENABLE_HEALTH_ALERTS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_HEALTH_ALERTS | - |
+                  | **Slack Notifications** | ${{ vars.ENABLE_SLACK_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_SLACK_NOTIFICATIONS | SLACK_WEBHOOK_URL |
+                  | **Teams Notifications** | ${{ vars.ENABLE_TEAMS_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_TEAMS_NOTIFICATIONS | TEAMS_WEBHOOK_URL |
+                  | **Discord Notifications** | ${{ vars.ENABLE_DISCORD_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_DISCORD_NOTIFICATIONS | DISCORD_WEBHOOK_URL |
+                  | **Prometheus Integration** | ${{ vars.ENABLE_PROMETHEUS_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_PROMETHEUS_INTEGRATION | PROMETHEUS_URL |
+                  | **Grafana Integration** | ${{ vars.ENABLE_GRAFANA_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_GRAFANA_INTEGRATION | GRAFANA_API_KEY, GRAFANA_URL |
+                  | **Custom Webhook** | ${{ vars.ENABLE_CUSTOM_WEBHOOK_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_CUSTOM_WEBHOOK_INTEGRATION | CUSTOM_MONITORING_WEBHOOK |
+
+                  ### 🔗 Setup Links
+
+                  - [📖 Variables Setup Guide](../../settings/variables/actions)
+                  - [🔐 Secrets Setup Guide](../../settings/secrets/actions)
+                  - [📊 Docker Hub Access Token](https://hub.docker.com/settings/security)
+                  - [📱 Slack Webhook Setup](https://api.slack.com/messaging/webhooks)
+                  - [💼 Teams Webhook Setup](https://docs.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook)
+                  - [🎮 Discord Webhook Setup](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks)
+                  - [📊 Grafana API Key](https://grafana.com/docs/grafana/latest/administration/api-keys/)
 
                   ### 📊 Current Automation Status
 
@@ -511,7 +865,7 @@ jobs:
                   |-----------|--------|----------|---------------|
                   | WORKFLOW_STATUS_TABLE |
 
-                  ### 📈 Performance Metrics (Last 30 Days)
+                  ### 📈 Performance Metrics (Last ${{ fromJson(needs.load-configuration.outputs.monitoring_config).history_days }} Days)
 
                   - **Total Runs**: TOTAL_RUNS
                   - **Success Rate**: SUCCESS_RATE%
@@ -572,6 +926,13 @@ jobs:
                       const workflowStats = dashboardData.workflow_stats;
                       const containerStats = dashboardData.container_stats;
 
+                      // System health status processing
+                      const systemHealthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
+                      const healthDisplay = systemHealthStatus === 'healthy' ? '🟢 Healthy' : 
+                                          systemHealthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy';
+
+                      console.log(`📊 System health status: ${systemHealthStatus} -> ${healthDisplay}`);
+
                       // Generate workflow status table
                       let workflowStatusTable = '';
                       Object.entries(workflowStats.workflowCategories).forEach(([category, workflows]) => {
@@ -591,9 +952,9 @@ jobs:
                       if (workflowStats.recentBuilds && workflowStats.recentBuilds.length > 0) {
                           recentBuildsTable = workflowStats.recentBuilds.slice(0, 10).map(build => {
                               const status = build.status === 'success' ? '✅' : 
-                                           build.status === 'failure' ? '❌' : 
-                                           build.status === 'in_progress' ? '🔄' : '⏸️';
-                              
+                                          build.status === 'failure' ? '❌' : 
+                                          build.status === 'in_progress' ? '🔄' : '⏸️';
+
                               const buildTime = new Date(build.created_at);
                               const timeAgo = buildTime.toLocaleDateString('en-US', { 
                                   month: 'short', 
@@ -601,7 +962,7 @@ jobs:
                                   hour: '2-digit', 
                                   minute: '2-digit' 
                               });
-                              
+
                               return `| ${build.name} | ${build.category} | ${status} ${build.status} | [#${build.run_number}](${build.html_url}) | ${timeAgo} |`;
                           }).join('\n');
                       } else {
@@ -619,9 +980,12 @@ jobs:
                           .replace('CONTAINER_PULLS', containerStats.pull_count.toLocaleString())
                           .replace('CONTAINER_STARS', containerStats.star_count)
                           .replace('CONTAINER_UPDATED', containerStats.last_updated)
-                          .replace('ACTIVE_ISSUES', dashboardData.active_issues);
+                          .replace('ACTIVE_ISSUES', dashboardData.active_issues)
+                          .replace('SYSTEM_HEALTH_PLACEHOLDER', healthDisplay);
 
-                      const title = `🤖 Automation Dashboard - ${dashboardData.project_info.project_name}`;
+                      console.log('✅ All placeholders replaced successfully');
+
+                      const title = `🤖 Automation Dashboard - ${{ vars.PROJECT_DISPLAY_NAME || github.repository }}`;
 
                       if (existingIssueNumber) {
                           await github.rest.issues.update({
@@ -644,80 +1008,112 @@ jobs:
                       }
 
     notify-health-issues:
-        needs: [auto-discover-project, collect-metrics, update-dashboard]
-        if: needs.collect-metrics.outputs.system_health != 'healthy'
+        needs: [load-configuration, collect-metrics, update-dashboard]
+        if: needs.collect-metrics.outputs.system_health != 'healthy' && fromJson(needs.load-configuration.outputs.notification_config).health_alerts
         runs-on: ubuntu-latest
 
         steps:
-            - name: Create universal health alert
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
-                      const healthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
-                      const projectName = '${{ needs.auto-discover-project.outputs.project_name }}';
+            - name: Send configurable notifications to multiple platforms
+              if: ${{ fromJson(needs.load-configuration.outputs.notification_config).slack_notifications || fromJson(needs.load-configuration.outputs.notification_config).teams_notifications || fromJson(needs.load-configuration.outputs.notification_config).discord_notifications }}
+              env:
+                  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+                  TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+                  DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+              run: |
+                  PROJECT_NAME="${{ vars.PROJECT_DISPLAY_NAME || github.repository }}"
+                  HEALTH_STATUS="${{ needs.collect-metrics.outputs.system_health }}"
 
-                      // Find existing health issue
-                      const issues = await github.rest.issues.listForRepo({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          labels: 'automation-health-alert',
-                          state: 'open'
-                      });
+                  # Webhook URL masking for security
+                  echo "::add-mask::$SLACK_WEBHOOK_URL"
+                  echo "::add-mask::$TEAMS_WEBHOOK_URL"
+                  echo "::add-mask::$DISCORD_WEBHOOK_URL"
 
-                      const healthIssue = issues.data.find(issue => 
-                          issue.title.includes('🚨 System Health Alert')
-                      );
+                  echo "📢 Sending health alert notifications to configured platforms..."
 
-                      const healthIssuesList = dashboardData.system_health.issues.length > 0 
-                          ? dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n')
-                          : 'No specific issues detected.';
+                  # Slack notification
+                  if [ "${{ fromJson(needs.load-configuration.outputs.notification_config).slack_notifications }}" = "true" ] && [ ! -z "$SLACK_WEBHOOK_URL" ]; then
+                      echo "📱 Sending Slack notification..."
+                      curl -X POST "$SLACK_WEBHOOK_URL" \
+                          -H "Content-Type: application/json" \
+                          -d "{
+                              \"text\": \"🚨 Health Alert: ${PROJECT_NAME}\",
+                              \"attachments\": [{
+                                  \"color\": \"danger\",
+                                  \"fields\": [{
+                                      \"title\": \"Status\",
+                                      \"value\": \"${HEALTH_STATUS}\",
+                                      \"short\": true
+                                  }, {
+                                      \"title\": \"Repository\",
+                                      \"value\": \"${{ github.repository }}\",
+                                      \"short\": true
+                                  }, {
+                                      \"title\": \"Dashboard\",
+                                      \"value\": \"<${{ github.server_url }}/${{ github.repository }}/issues?q=is%3Aopen+label%3Aautomation-dashboard|View Dashboard>\",
+                                      \"short\": true
+                                  }]
+                              }]
+                          }" && echo "✅ Slack notification sent"
+                  fi
 
-                      const alertBody = `
-                      ## 🚨 System Health Alert - ${projectName}
+                  # Microsoft Teams notification
+                  if [ "${{ fromJson(needs.load-configuration.outputs.notification_config).teams_notifications }}" = "true" ] && [ ! -z "$TEAMS_WEBHOOK_URL" ]; then
+                      echo "💼 Sending Microsoft Teams notification..."
+                      curl -X POST "$TEAMS_WEBHOOK_URL" \
+                          -H "Content-Type: application/json" \
+                          -d '{
+                              "@type": "MessageCard",
+                              "@context": "http://schema.org/extensions",
+                              "summary": "Health Alert: '"${PROJECT_NAME}"'",
+                              "themeColor": "FF0000",
+                              "title": "🚨 Health Alert",
+                              "sections": [{
+                                  "activityTitle": "Project: '"${PROJECT_NAME}"'",
+                                  "facts": [
+                                      {"name": "Status", "value": "'"${HEALTH_STATUS}"'"},
+                                      {"name": "Repository", "value": "${{ github.repository }}"},
+                                      {"name": "Time", "value": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}
+                                  ],
+                                  "markdown": true
+                              }],
+                              "potentialAction": [{
+                                  "@type": "OpenUri",
+                                  "name": "View Dashboard",
+                                  "targets": [{
+                                      "os": "default",
+                                      "uri": "${{ github.server_url }}/${{ github.repository }}/issues?q=is%3Aopen+label%3Aautomation-dashboard"
+                                  }]
+                              }]
+                          }' && echo "✅ Teams notification sent"
+                  fi
 
-                      **Status**: ${healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy'}
-                      **Detection Time**: ${new Date().toISOString()}
-                      **Project**: ${projectName}
+                  # Discord notification
+                  if [ "${{ fromJson(needs.load-configuration.outputs.notification_config).discord_notifications }}" = "true" ] && [ ! -z "$DISCORD_WEBHOOK_URL" ]; then
+                      echo "🎮 Sending Discord notification..."
+                      curl -X POST "$DISCORD_WEBHOOK_URL" \
+                          -H "Content-Type: application/json" \
+                          -d '{
+                              "content": "🚨 **Health Alert**",
+                              "embeds": [{
+                                  "title": "'"${PROJECT_NAME}"' - System Health Alert",
+                                  "color": 16711680,
+                                  "fields": [
+                                      {"name": "Status", "value": "'"${HEALTH_STATUS}"'", "inline": true},
+                                      {"name": "Repository", "value": "${{ github.repository }}", "inline": true},
+                                      {"name": "Time", "value": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'", "inline": true}
+                                  ],
+                                  "footer": {
+                                      "text": "Universal Automation Dashboard"
+                                  },
+                                  "timestamp": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
+                              }]
+                          }' && echo "✅ Discord notification sent"
+                  fi
 
-                      ### 🔍 Detected Issues:
-                      ${healthIssuesList}
-
-                      ### 📊 Current Metrics:
-                      - **Success Rate**: ${dashboardData.workflow_stats.successRate}%
-                      - **Failed Runs (30d)**: ${dashboardData.workflow_stats.failedRuns}
-                      - **Alert Thresholds**: Warning <${dashboardData.system_health.thresholds.warning}%, Critical <${dashboardData.system_health.thresholds.critical}%
-
-                      ### 🔧 Recommended Actions:
-                      - [ ] Review recent workflow failures in [Actions tab](../../actions)
-                      - [ ] Check system configurations
-                      - [ ] Monitor system recovery
-
-                      ---
-                      *This alert will automatically resolve when system health improves.*
-                      `;
-
-                      if (healthIssue) {
-                          await github.rest.issues.update({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: healthIssue.number,
-                              body: alertBody
-                          });
-                          console.log(`Updated health alert issue #${healthIssue.number}`);
-                      } else {
-                          await github.rest.issues.create({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              title: `🚨 System Health Alert - ${projectName}`,
-                              body: alertBody,
-                              labels: ['automation-health-alert', 'alert', healthStatus]
-                          });
-                          console.log('Created new health alert issue');
-                      }
+                  echo "📢 Notification delivery completed for all configured platforms"
 
     close-health-alert-if-healthy:
-        needs: [auto-discover-project, collect-metrics, update-dashboard]
+        needs: [load-configuration, collect-metrics, update-dashboard]
         if: needs.collect-metrics.outputs.system_health == 'healthy'
         runs-on: ubuntu-latest
 
@@ -739,16 +1135,16 @@ jobs:
                                   owner: context.repo.owner,
                                   repo: context.repo.repo,
                                   issue_number: issue.number,
-                                  body: `## ✅ System Health Recovered!\n\n**Recovery Time**: ${new Date().toISOString()}\n**Status**: 🟢 All systems healthy\n\nAll automation components have returned to normal operation.`
+                                  body: `## ✅ System Health Recovered!\n\n**Recovery Time**: ${new Date().toISOString()}\n**Status**: 🟢 All systems healthy\n\nAll automation components have returned to normal operation.\n\nThis health monitor will remain closed until new issues are detected.`
                               });
-                              
+
                               await github.rest.issues.update({
                                   owner: context.repo.owner,
                                   repo: context.repo.repo,
                                   issue_number: issue.number,
                                   state: 'closed'
                               });
-                              
-                              console.log(`Closed health alert issue #${issue.number}`);
+
+                              console.log(`Closed health alert issue #${issue.number} - system recovered`);
                           }
                       }
