@@ -1304,6 +1304,320 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
+            # Find existing health alert issue
+            - name: Find existing health alert issue
+              id: find_health_issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const issues = await github.rest.issues.listForRepo({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        labels: 'automation-health-alert',
+                        state: 'open'
+                      });
+
+                      const healthIssue = issues.data.find(issue => 
+                        issue.title.includes('🚨 System Health Monitor')
+                      );
+
+                      if (healthIssue) {
+                        console.log(`Found existing health alert issue: #${healthIssue.number}`);
+                        return healthIssue.number;
+                      } else {
+                        console.log('No existing health alert issue found');
+                        return null;
+                      }
+
+            # Generate health alert content
+            - name: Generate health alert content
+              id: generate_health_content
+              run: |
+                  PROJECT_NAME="${{ env.PROJECT_DISPLAY_NAME || github.repository }}"
+
+                  cat > health_alert_content.md << 'EOF'
+                  ## 🚨 System Health Monitor - PLACEHOLDER_PROJECT_NAME
+
+                  **Current Status**: PLACEHOLDER_HEALTH_STATUS
+                  **Last Updated**: PLACEHOLDER_LAST_UPDATED
+                  **Detection Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+                  ---
+
+                  ### 🔍 Current Health Issues:
+
+                  PLACEHOLDER_HEALTH_ISSUES
+
+                  ### 📊 Current Metrics:
+                  - **System Health**: PLACEHOLDER_SYSTEM_HEALTH
+                  - **Success Rate**: PLACEHOLDER_SUCCESS_RATE
+                  - **Total Runs**: PLACEHOLDER_TOTAL_RUNS
+                  - **Failed Runs**: PLACEHOLDER_FAILED_RUNS
+                  - **Alert Level**: PLACEHOLDER_ALERT_LEVEL
+                  - **History Period**: PLACEHOLDER_HISTORY_DAYS days
+
+                  ### 🔧 Recommended Actions:
+                  - [ ] Review recent workflow failures in [Actions tab](../../actions)
+                  - [ ] Check automation configurations  
+                  - [ ] Verify external dependencies (Docker Hub, External APIs)
+                  - [ ] Monitor system recovery
+                  - [ ] Review [Automation Dashboard](../../issues?q=is%3Aopen+label%3Aautomation-dashboard) for details
+
+                  ### 📈 Health History:
+                  This issue tracks ongoing system health. It will be updated with each health check and automatically closed when all systems return to healthy status.
+
+                  ### 🔄 Auto-Resolution:
+                  ✅ This alert will automatically close when system health returns to **🟢 Healthy** status.
+
+                  ---
+
+                  ### 🤖 Automation Components Status:
+                  PLACEHOLDER_AUTOMATION_STATUS_TABLE
+
+                  ---
+
+                  ### 🔔 Notification Status:
+                  PLACEHOLDER_NOTIFICATION_STATUS
+
+                  ---
+
+                  *🚨 This health monitor is automatically updated when issues are detected.*
+
+                  *📊 For detailed metrics, see the [Automation Dashboard](../../issues?q=is%3Aissue+is%3Aopen+label%3Aautomation-dashboard)*
+
+                  *⚙️ Last health check: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
+                  EOF
+
+            # Create or update health alert issue with dynamic component analysis
+            - name: Create or update health alert issue with dynamic analysis
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const healthContent = fs.readFileSync('health_alert_content.md', 'utf8');
+                      const existingIssueNumber = ${{ steps.find_health_issue.outputs.result }};
+                      const healthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
+                      const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
+                      const monitoringConfig = JSON.parse('${{ needs.load-configuration.outputs.monitoring_config }}');
+                      const notificationConfig = JSON.parse('${{ needs.load-configuration.outputs.notification_config }}');
+
+                      console.log('🔧 Processing health alert with dynamic component analysis...');
+
+
+                      function analyzeWorkflowCategoryHealth(categoryName, workflows, recentBuilds, overallHealth) {
+                        console.log(`🔍 Analyzing ${categoryName} category with ${workflows.length} workflows`);
+                        
+                        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                        
+                        
+                        const categoryBuilds = recentBuilds.filter(build => 
+                          workflows.some(workflow => workflow.name === build.name)
+                        );
+                        
+                        console.log(`  - Found ${categoryBuilds.length} builds for ${categoryName}`);
+                        
+                        
+                        const recentFailures = categoryBuilds.filter(build => 
+                          build.status === 'failure' && new Date(build.created_at) > twentyFourHoursAgo
+                        );
+                        
+                        const recentSuccesses = categoryBuilds.filter(build => 
+                          build.status === 'success' && new Date(build.created_at) > twentyFourHoursAgo
+                        );
+                        
+                        const inProgress = categoryBuilds.filter(build => 
+                          build.status === 'in_progress' || build.status === 'queued'
+                        );
+
+                        
+                        if (recentFailures.length > Math.max(1, workflows.length * 0.3)) {
+                          return {
+                            status: '🔴 Failed',
+                            action: 'Fix Required',
+                            reason: `${recentFailures.length}/${workflows.length} workflows failed in 24h`,
+                            details: `Affected: ${recentFailures.map(f => f.name).join(', ')}`
+                          };
+                        } else if (recentFailures.length > 0 && recentSuccesses.length === 0) {
+                          return {
+                            status: '🟡 Degraded', 
+                            action: 'Review',
+                            reason: 'Recent failures detected',
+                            details: `Failed: ${recentFailures.map(f => f.name).join(', ')}`
+                          };
+                        } else if (inProgress.length > 0) {
+                          return {
+                            status: '🔄 Running',
+                            action: 'Monitor',
+                            reason: `${inProgress.length} workflows in progress`,
+                            details: `Running: ${inProgress.map(p => p.name).join(', ')}`
+                          };
+                        } else if (recentSuccesses.length > 0) {
+                          return {
+                            status: '✅ Operational',
+                            action: 'Monitor',
+                            reason: `${recentSuccesses.length} successful runs`,
+                            details: 'All workflows operating normally'
+                          };
+                        } else if (workflows.length === 0) {
+                          return {
+                            status: '⚪ No Workflows',
+                            action: 'N/A',
+                            reason: 'No workflows in this category',
+                            details: 'Category is empty'
+                          };
+                        } else {
+                          
+                          const statusMap = {
+                            'healthy': { status: '✅ Operational', action: 'Monitor', reason: 'System healthy' },
+                            'degraded': { status: '🟡 Degraded', action: 'Review', reason: 'System degraded' },
+                            'unhealthy': { status: '🔴 Critical', action: 'Urgent Fix', reason: 'System unhealthy' }
+                          };
+                          
+                          const result = statusMap[overallHealth] || statusMap['unhealthy'];
+                          return {
+                            ...result,
+                            details: 'No recent activity detected'
+                          };
+                        }
+                      }
+
+
+                      const workflowCategories = dashboardData.workflow_stats.workflowCategories || {};
+                      const recentBuilds = dashboardData.workflow_stats.recentBuilds || [];
+
+                      let automationStatusTable = '';
+                      const categoryAnalysis = {};
+
+                      Object.entries(workflowCategories).forEach(([category, workflows]) => {
+                        if (workflows.length > 0) {
+                          const analysis = analyzeWorkflowCategoryHealth(category, workflows, recentBuilds, healthStatus);
+                          categoryAnalysis[category] = analysis;
+                          
+                          const categoryDisplayName = category.charAt(0).toUpperCase() + category.slice(1) + ' Workflows';
+                          automationStatusTable += `| ${categoryDisplayName} | ${analysis.status} | ${analysis.action} |\n`;
+                          
+                          console.log(`📊 ${category}: ${analysis.status} (${analysis.reason})`);
+                        }
+                      });
+
+                      if (!automationStatusTable) {
+                        automationStatusTable = '| No workflow categories detected | ⚪ None | N/A |';
+                      }
+
+
+                      let healthIssuesList = 'No specific issues detected.';
+                      if (dashboardData.system_health.issues && dashboardData.system_health.issues.length > 0) {
+                        healthIssuesList = dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n');
+                      }
+
+
+                      const notificationStatus = `
+                      | Service | Status | Last Attempt |
+                      |---------|--------|-------------|
+                      | Slack | ${notificationConfig.slack_notifications ? '✅ Enabled' : '⚪ Disabled'} | This run |
+                      | Teams | ${notificationConfig.teams_notifications ? '✅ Enabled' : '⚪ Disabled'} | This run |
+                      | Discord | ${notificationConfig.discord_notifications ? '✅ Enabled' : '⚪ Disabled'} | This run |
+                      | GitHub Issue | ✅ Active | This run |`.trim();
+
+                      const healthStatusDisplay = healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy';
+                      const alertLevel = healthStatus === 'degraded' ? 'Warning' : 'Critical';
+
+
+                      let updatedContent = healthContent
+                        .replace('PLACEHOLDER_PROJECT_NAME', '${{ env.PROJECT_DISPLAY_NAME || github.repository }}')
+                        .replace('PLACEHOLDER_HEALTH_STATUS', healthStatusDisplay)
+                        .replace('PLACEHOLDER_LAST_UPDATED', new Date().toISOString())
+                        .replace('PLACEHOLDER_HEALTH_ISSUES', healthIssuesList)
+                        .replace('PLACEHOLDER_SYSTEM_HEALTH', healthStatus)
+                        .replace('PLACEHOLDER_SUCCESS_RATE', `${dashboardData.workflow_stats.successRate || 0}%`)
+                        .replace('PLACEHOLDER_TOTAL_RUNS', `${dashboardData.workflow_stats.totalRuns || 0}`)
+                        .replace('PLACEHOLDER_FAILED_RUNS', `${dashboardData.workflow_stats.failedRuns || 0}`)
+                        .replace('PLACEHOLDER_ALERT_LEVEL', alertLevel)
+                        .replace('PLACEHOLDER_HISTORY_DAYS', monitoringConfig.history_days)
+                        .replace('PLACEHOLDER_AUTOMATION_STATUS_TABLE', automationStatusTable)
+                        .replace('PLACEHOLDER_NOTIFICATION_STATUS', notificationStatus);
+
+                      console.log('✅ All placeholders replaced with dynamic component analysis');
+
+                      const title = `🚨 System Health Monitor - ${{ env.PROJECT_DISPLAY_NAME || github.repository }}`;
+
+                      if (existingIssueNumber) {
+                        await github.rest.issues.update({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: existingIssueNumber,
+                          title: title,
+                          body: updatedContent,
+                          state: 'open'
+                        });
+                        
+                        
+                        const detailedComment = `## 🔄 Health Status Update - ${new Date().toLocaleString('en-US', { 
+                          timeZone: 'Asia/Seoul',
+                          year: 'numeric',
+                          month: 'short', 
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        })} KST
+
+                        **System Status**: ${healthStatusDisplay}
+                        **Trigger**: ${{ github.event_name }}
+                        **Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+                        ### 📊 Component Analysis Details:
+                        ${Object.entries(categoryAnalysis).map(([category, analysis]) => 
+                          `- **${category.charAt(0).toUpperCase() + category.slice(1)}**: ${analysis.status} - ${analysis.details}`
+                        ).join('\n')}
+
+                        ### 🔔 Notification Status:
+                        - Slack: ${notificationConfig.slack_notifications ? '✅ Enabled' : '⚪ Disabled'}
+                        - Teams: ${notificationConfig.teams_notifications ? '✅ Enabled' : '⚪ Disabled'}  
+                        - Discord: ${notificationConfig.discord_notifications ? '✅ Enabled' : '⚪ Disabled'}
+
+                        ---
+                        *Health alert updated automatically*`;
+                        
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: existingIssueNumber,
+                          body: detailedComment
+                        });
+                        
+                        console.log(`✅ Updated existing health alert issue #${existingIssueNumber}`);
+                      } else {
+                        const newIssue = await github.rest.issues.create({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          title: title,
+                          body: updatedContent,
+                          labels: ['automation-health-alert', 'alert', healthStatus, 'pinned']
+                        });
+                        
+                        
+                        await github.rest.issues.createComment({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: newIssue.data.number,
+                          body: `## 🚨 Health Alert Activated
+
+                        **Alert Created**: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' })} KST
+
+                        This health monitor will track system status and automatically update with each health check.
+
+                        **Monitoring Features**:
+                        - ✅ Dynamic component analysis
+                        - ✅ Real-time status updates  
+                        - ✅ Automatic resolution
+                        - ✅ Multi-platform notifications
+
+                        🚨 **This alert will remain open until all systems return to healthy status.**`
+                        );
+                        
+                        console.log(`✅ Created new health alert issue #${newIssue.data.number}`);
+                      }
             - name: Send configurable notifications to multiple platforms
               if: ${{ fromJson(needs.load-configuration.outputs.notification_config).slack_notifications || fromJson(needs.load-configuration.outputs.notification_config).teams_notifications || fromJson(needs.load-configuration.outputs.notification_config).discord_notifications }}
               env:
