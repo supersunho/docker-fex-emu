@@ -1,9 +1,9 @@
 name: Automation Dashboard
 
 on:
-    # Regular updates every 5 minutes
+    # Regular updates daily
     schedule:
-        - cron: "*/5 * * * *"
+        - cron: "* * * * *"
 
     # Update when automation workflows complete
     workflow_run:
