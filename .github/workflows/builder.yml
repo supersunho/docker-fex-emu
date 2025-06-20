@@ -1,4 +1,4 @@
-name: FEXBash Builder V4 (Optimized)
+name: FEXBash Builder V6
 
 on:
     # Daily automatic builds (Latest candidates only)
