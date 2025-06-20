@@ -1,9 +1,9 @@
 name: Universal Automation Dashboard
 
 on:
-    schedule:
-        # Allow cron schedule to be set via Variables (default provided)
-        - cron: "*/30 * * * *"
+    # schedule:
+    #     # Allow cron schedule to be set via Variables (default provided)
+    #     - cron: "*/30 * * * *"
 
     workflow_run:
         workflows: ["*"]
@@ -725,20 +725,87 @@ jobs:
               uses: actions/github-script@v7
               with:
                   script: |
-                      const workflowStats = ${{ steps.discover_workflows.outputs.result }};
-                      const containerStats = JSON.parse('${{ steps.container_stats.outputs.container_stats }}');
-                      const healthData = ${{ steps.system_health.outputs.result }};
+                      console.log('🔗 Starting dashboard data compilation...');
 
-                      // Check for active automation issues
-                      const monitoringConfig = JSON.parse('${{ needs.load-configuration.outputs.monitoring_config }}');
-                      const issuesResponse = await github.rest.issues.listForRepo({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          labels: monitoringConfig.labels.join(','),
-                          state: 'open'
+
+                      function safeJsonParse(jsonString, defaultValue = {}) {
+                          try {
+                              if (!jsonString || jsonString.trim() === '' || jsonString === 'undefined' || jsonString === 'null') {
+                                  console.log('⚠️ Empty or invalid JSON string, using default value');
+                                  return defaultValue;
+                              }
+                              return JSON.parse(jsonString);
+                          } catch (error) {
+                              console.log(`❌ JSON parsing error: ${error.message}`);
+                              console.log(`Raw input: "${jsonString}"`);
+                              return defaultValue;
+                          }
+                      }
+
+
+                      console.log('📊 Parsing workflow statistics...');
+                      const workflowStatsRaw = '${{ steps.discover_workflows.outputs.result }}';
+                      const workflowStats = safeJsonParse(workflowStatsRaw, {
+                          totalRuns: 0,
+                          successfulRuns: 0,
+                          failedRuns: 0,
+                          successRate: 0,
+                          averageDuration: 0,
+                          recentBuilds: [],
+                          workflowCategories: {}
                       });
+                      console.log(`✅ Workflow stats parsed: ${workflowStats.totalRuns} total runs`);
 
-                      const activeAutomationIssues = issuesResponse.data.length;
+                      console.log('🐳 Parsing container statistics...');
+                      const containerStatsRaw = '${{ steps.container_stats.outputs.container_stats }}';
+                      const containerStats = safeJsonParse(containerStatsRaw, {
+                          registry_type: "docker_hub",
+                          repository: "unknown/unknown",
+                          pull_count: 0,
+                          star_count: 0,
+                          last_updated: new Date().toISOString(),
+                          authentication_method: "fallback",
+                          data_source: "default"
+                      });
+                      console.log(`✅ Container stats parsed: ${containerStats.pull_count} pulls`);
+
+                      console.log('🏥 Parsing health data...');
+                      const healthDataRaw = '${{ steps.system_health.outputs.result }}';
+                      const healthData = safeJsonParse(healthDataRaw, {
+                          status: 'unknown',
+                          issues: [],
+                          last_check: new Date().toISOString(),
+                          thresholds: { warning: 90, critical: 95 }
+                      });
+                      console.log(`✅ Health data parsed: status = ${healthData.status}`);
+
+
+                      console.log('⚙️ Parsing monitoring configuration...');
+                      const monitoringConfigRaw = '${{ needs.load-configuration.outputs.monitoring_config }}';
+                      const monitoringConfig = safeJsonParse(monitoringConfigRaw, {
+                          labels: ['automation', 'ci', 'build', 'deploy'],
+                          history_days: 30,
+                          update_frequency: '*/30 * * * *'
+                      });
+                      console.log(`✅ Monitoring config parsed: ${monitoringConfig.labels.length} labels`);
+
+
+                      let activeAutomationIssues = 0;
+                      try {
+                          console.log('🔍 Checking for active automation issues...');
+                          const issuesResponse = await github.rest.issues.listForRepo({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              labels: monitoringConfig.labels.join(','),
+                              state: 'open'
+                          });
+                          activeAutomationIssues = issuesResponse.data.length;
+                          console.log(`✅ Found ${activeAutomationIssues} active automation issues`);
+                      } catch (error) {
+                          console.log(`⚠️ Failed to fetch issues: ${error.message}`);
+                          activeAutomationIssues = 0;
+                      }
+
 
                       const dashboardData = {
                           last_updated: new Date().toISOString(),
@@ -750,14 +817,39 @@ jobs:
                           metadata: {
                               generated_by: 'universal-automation-dashboard',
                               github_run: context.runId,
-                              version: '2.0.0'
+                              version: '2.0.0',
+                              compilation_status: 'success'
                           }
                       };
 
-                      // Set outputs
-                      core.setOutput('dashboard_json', JSON.stringify(dashboardData));
+
+                      console.log('🔍 Validating compiled data...');
+                      const requiredFields = ['last_updated', 'system_health', 'workflow_stats', 'container_stats'];
+                      const missingFields = requiredFields.filter(field => !dashboardData[field]);
+
+                      if (missingFields.length > 0) {
+                          console.log(`⚠️ Missing required fields: ${missingFields.join(', ')}`);
+                          
+                          missingFields.forEach(field => {
+                              dashboardData[field] = {};
+                          });
+                      }
+
+
+                      const dashboardDataString = JSON.stringify(dashboardData);
+                      console.log(`📊 Dashboard data size: ${dashboardDataString.length} characters`);
+
+                      core.setOutput('dashboard_json', dashboardDataString);
                       core.setOutput('last_updated', dashboardData.last_updated);
                       core.setOutput('system_health', healthData.status);
+
+                      console.log('✅ Dashboard data compilation completed successfully');
+                      console.log('📋 Summary:');
+                      console.log(`  - Workflow Runs: ${workflowStats.totalRuns}`);
+                      console.log(`  - Success Rate: ${workflowStats.successRate}%`);
+                      console.log(`  - Container Pulls: ${containerStats.pull_count}`);
+                      console.log(`  - System Health: ${healthData.status}`);
+                      console.log(`  - Active Issues: ${activeAutomationIssues}`);
 
                       return dashboardData;
 
