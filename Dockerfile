@@ -274,9 +274,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     update-ca-certificates && \
     echo "✅ CA certificates updated"
 
-
-ENV CURL_CA_BUNDLE=""
-
 # Create fex user for FEXRootFSFetcher
 RUN echo "👤 Creating fex user for RootFS operations..." && \
     useradd -m -s /bin/bash fex && \
