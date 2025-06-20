@@ -119,7 +119,7 @@ jobs:
 
         steps:
             - name: Determine build scope based on trigger reason
-              id: build_scope
+              id: build-scope
               run: |
                   FORCE_TRIGGERED="${{ needs.check-fex-release.outputs.force_triggered }}"
 
@@ -140,7 +140,7 @@ jobs:
                   script: |
                       const newVersion = '${{ needs.check-fex-release.outputs.new_version }}';
                       const forceTriggered = '${{ needs.check-fex-release.outputs.force_triggered }}';
-                      const buildScope = '${{ steps.build_scope.outputs.build_scope }}';
+                      const buildScope = '${{ steps.build_scope.outputs.build-scope }}';
                       const triggerType = forceTriggered === 'true' ? 'Manual Force Check' : 'Automatic Detection';
 
                       const issueBody = `
@@ -204,9 +204,9 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   inputs: |
                       {
-                          "build_scope": "${{ steps.build_scope.outputs.build_scope }}",
+                          "build_scope": "${{ steps.build-scope.outputs.build_scope }}",
                           "version": "${{ needs.check-fex-release.outputs.new_version }}",
-                          "force_rebuild": "${{ steps.build_scope.outputs.force_rebuild }}",
+                          "force_rebuild": "${{ steps.build-scope.outputs.force_rebuild }}",
                           "trigger_reason": "auto_fex_release",
                           "tracking_issue": "${{ steps.create-issue.outputs.issue_number }}"
                       }

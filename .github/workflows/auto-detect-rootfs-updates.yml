@@ -25,9 +25,10 @@ jobs:
 
         steps:
             - name: Download previous RootFS data
-              uses: dawidd6/action-download-artifact@v2
+              uses: dawidd6/action-download-artifact@v11
               with:
                   name: rootfs-data-snapshot
+                  workflow_conclusion: success
                   if_no_artifact_found: warn
 
             - name: Fetch current RootFS data
@@ -97,7 +98,7 @@ jobs:
 
         steps:
             - name: Determine build scope for RootFS changes
-              id: build_scope
+              id: build-scope
               run: |
                   FORCE_TRIGGERED="${{ needs.check-rootfs-updates.outputs.force_triggered }}"
 
@@ -110,11 +111,12 @@ jobs:
                   fi
 
             - name: Create GitHub issue for RootFS update
+              id: create-issue
               uses: actions/github-script@v7
               with:
                   script: |
                       const forceTriggered = '${{ needs.check-rootfs-updates.outputs.force_triggered }}';
-                      const buildScope = '${{ steps.build_scope.outputs.build_scope }}';
+                      const buildScope = '${{ steps.build_scope.outputs.build-scope }}';
                       const triggerType = forceTriggered === 'true' ? 'Manual Force Check' : 'RootFS Data Changed';
 
                       const issueBody = `
@@ -142,7 +144,7 @@ jobs:
                       *This issue was automatically created by the RootFS update detection system* 🤖
                       `;
 
-                      await github.rest.issues.create({
+                      const issue = await github.rest.issues.create({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
                         title: `🔄 RootFS Update Detected - Auto-Rebuild Triggered`,
@@ -155,14 +157,20 @@ jobs:
                         ]
                       });
 
+                      console.log(`Created tracking issue: #${issue.data.number}`);
+                      core.setOutput('issue_number', issue.data.number);
+                      core.setOutput('issue_url', issue.data.html_url);
+
+                      return issue.data.number;
             - name: Trigger selective rebuild
               uses: benc-uk/workflow-dispatch@v1
               with:
                   workflow: builder.yml
                   inputs: |
                       {
-                        "build_scope": "${{ steps.build_scope.outputs.build_scope }}",
+                        "build_scope": "${{ steps.build-scope.outputs.build_scope }}",
                         "version": "latest", 
                         "force_rebuild": "true",
-                        "trigger_reason": "rootfs_update"
+                        "trigger_reason": "rootfs_update",
+                        "tracking_issue": "${{ steps.create-issue.outputs.issue_number }}"
                       }
