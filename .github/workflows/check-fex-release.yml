@@ -30,7 +30,7 @@ jobs:
               with:
                   name: fex-release-info
                   workflow_conclusion: success
-                  workflow: auto-detect-releases.yml
+                  workflow: check-fex-releases.yml
                   if_no_artifact_found: warn
 
             - name: Get latest FEX release from official repository
