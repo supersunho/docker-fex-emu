@@ -1,0 +1,754 @@
+name: Universal Automation Dashboard
+
+on:
+    # Regular updates every 30 minutes (adjustable)
+    schedule:
+        - cron: "*/30 * * * *"
+
+    # Auto-trigger when any workflow completes
+    workflow_run:
+        workflows: ["*"] # All workflows
+        types: [completed, requested]
+
+    # Manual trigger with full customization
+    workflow_dispatch:
+        inputs:
+            force_refresh:
+                description: "Force refresh all dashboard data"
+                required: false
+                default: false
+                type: boolean
+            include_historical:
+                description: "Include historical data (last 30 days)"
+                required: false
+                default: true
+                type: boolean
+            docker_repo:
+                description: "Docker Hub repository (format: username/repo)"
+                required: false
+                default: ""
+                type: string
+            monitoring_labels:
+                description: "Custom labels for monitoring (comma-separated)"
+                required: false
+                default: "automation,ci,build,deploy"
+                type: string
+            health_thresholds:
+                description: "Health thresholds (success_rate_warning,success_rate_critical)"
+                required: false
+                default: "90,95"
+                type: string
+
+permissions:
+    contents: read
+    issues: write
+    actions: read
+
+jobs:
+    auto-discover-project:
+        runs-on: ubuntu-latest
+        outputs:
+            project_name: ${{ steps.detect_project.outputs.project_name }}
+            docker_repo: ${{ steps.detect_project.outputs.docker_repo }}
+            workflow_categories: ${{ steps.detect_project.outputs.workflow_categories }}
+            project_type: ${{ steps.detect_project.outputs.project_type }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Auto-detect project configuration
+              id: detect_project
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      console.log('🔍 Auto-detecting project configuration...');
+
+                      // Extract project info from repository
+                      const repoName = context.repo.repo;
+                      const repoOwner = context.repo.owner;
+                      const projectName = repoName.replace(/[-_]/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                      console.log(`📋 Repository: ${repoOwner}/${repoName}`);
+                      console.log(`📋 Project Name: ${projectName}`);
+
+                      // Auto-detect Docker repository
+                      let dockerRepo = '${{ github.event.inputs.docker_repo }}' || '';
+
+                      // Try to detect from common files
+                      try {
+                          const possibleDockerFiles = [
+                              'Dockerfile',
+                              'docker-compose.yml',
+                              '.github/workflows'
+                          ];
+                          
+                          // Check for Docker Hub references in workflow files
+                          const workflowsResponse = await github.rest.repos.getContent({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              path: '.github/workflows'
+                          });
+                          
+                          if (Array.isArray(workflowsResponse.data)) {
+                              for (const file of workflowsResponse.data) {
+                                  if (file.name.endsWith('.yml') || file.name.endsWith('.yaml')) {
+                                      try {
+                                          const fileContent = await github.rest.repos.getContent({
+                                              owner: context.repo.owner,
+                                              repo: context.repo.repo,
+                                              path: file.path
+                                          });
+                                          
+                                          const content = Buffer.from(fileContent.data.content, 'base64').toString();
+                                          
+                                          // Look for Docker Hub patterns
+                                          const dockerHubMatches = content.match(/[\w-]+\/[\w-]+(?=:|\s)/g);
+                                          if (dockerHubMatches && !dockerRepo) {
+                                              dockerRepo = dockerHubMatches[0];
+                                              console.log(`🐳 Auto-detected Docker repo: ${dockerRepo}`);
+                                              break;
+                                          }
+                                      } catch (e) {
+                                          // Skip files we can't read
+                                      }
+                                  }
+                              }
+                          }
+                      } catch (error) {
+                          console.log('⚠️ Could not auto-detect Docker repository');
+                      }
+
+                      // Fallback: use repository name
+                      if (!dockerRepo) {
+                          dockerRepo = `${repoOwner}/${repoName}`;
+                          console.log(`🔄 Using fallback Docker repo: ${dockerRepo}`);
+                      }
+
+                      // Auto-detect project type
+                      let projectType = 'general';
+                      const repoNameLower = repoName.toLowerCase();
+
+                      if (repoNameLower.includes('api') || repoNameLower.includes('service')) {
+                          projectType = 'api';
+                      } else if (repoNameLower.includes('web') || repoNameLower.includes('frontend')) {
+                          projectType = 'frontend';
+                      } else if (repoNameLower.includes('mobile') || repoNameLower.includes('android') || repoNameLower.includes('ios')) {
+                          projectType = 'mobile';
+                      } else if (repoNameLower.includes('lib') || repoNameLower.includes('package')) {
+                          projectType = 'library';
+                      } else if (repoNameLower.includes('infra') || repoNameLower.includes('terraform')) {
+                          projectType = 'infrastructure';
+                      }
+
+                      console.log(`🏷️ Detected project type: ${projectType}`);
+
+                      // Set outputs
+                      core.setOutput('project_name', projectName);
+                      core.setOutput('docker_repo', dockerRepo);
+                      core.setOutput('project_type', projectType);
+
+                      return {
+                          project_name: projectName,
+                          docker_repo: dockerRepo,
+                          project_type: projectType
+                      };
+
+    collect-metrics:
+        needs: auto-discover-project
+        runs-on: ubuntu-latest
+        outputs:
+            dashboard_data: ${{ steps.compile_data.outputs.dashboard_json }}
+            last_updated: ${{ steps.compile_data.outputs.last_updated }}
+            system_health: ${{ steps.compile_data.outputs.system_health }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Auto-discover and analyze all workflows
+              id: discover_workflows
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      console.log('🔍 Auto-discovering all repository workflows...');
+
+                      const thirtyDaysAgo = new Date();
+                      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                      // Get all workflows in repository
+                      const workflowsResponse = await github.rest.actions.listRepoWorkflows({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo
+                      });
+
+                      const allWorkflows = workflowsResponse.data.workflows;
+                      console.log(`📋 Found ${allWorkflows.length} workflows in repository`);
+
+                      // Auto-categorize workflows based on patterns
+                      const workflowCategories = {
+                          'build': [],
+                          'test': [],
+                          'deploy': [],
+                          'automation': [],
+                          'security': [],
+                          'maintenance': [],
+                          'other': []
+                      };
+
+                      let totalRuns = 0;
+                      let successfulRuns = 0;
+                      let failedRuns = 0;
+                      let averageDuration = 0;
+                      let recentBuilds = [];
+
+                      for (const workflow of allWorkflows) {
+                          const name = workflow.name.toLowerCase();
+                          const path = workflow.path.toLowerCase();
+                          
+                          console.log(`🔍 Analyzing workflow: ${workflow.name}`);
+                          
+                          // Smart categorization
+                          let category = 'other';
+                          if (name.includes('build') || name.includes('compile') || name.includes('make')) {
+                              category = 'build';
+                          } else if (name.includes('test') || name.includes('spec') || name.includes('lint')) {
+                              category = 'test';
+                          } else if (name.includes('deploy') || name.includes('release') || name.includes('publish')) {
+                              category = 'deploy';
+                          } else if (name.includes('auto') || name.includes('schedule') || name.includes('cron')) {
+                              category = 'automation';
+                          } else if (name.includes('security') || name.includes('scan') || name.includes('audit')) {
+                              category = 'security';
+                          } else if (name.includes('cleanup') || name.includes('maintenance') || name.includes('update')) {
+                              category = 'maintenance';
+                          }
+                          
+                          workflowCategories[category].push({
+                              ...workflow,
+                              category: category
+                          });
+                          
+                          // Get workflow runs for statistics
+                          try {
+                              const runsResponse = await github.rest.actions.listWorkflowRuns({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  workflow_id: workflow.id,
+                                  per_page: 50
+                              });
+                              
+                              const recentRuns = runsResponse.data.workflow_runs.filter(run => 
+                                  new Date(run.created_at) > thirtyDaysAgo
+                              );
+                              
+                              totalRuns += recentRuns.length;
+                              
+                              for (const run of recentRuns) {
+                                  if (run.conclusion === 'success') {
+                                      successfulRuns++;
+                                  } else if (run.conclusion === 'failure') {
+                                      failedRuns++;
+                                  }
+                                  
+                                  if (run.updated_at && run.created_at) {
+                                      const duration = new Date(run.updated_at) - new Date(run.created_at);
+                                      averageDuration += duration;
+                                  }
+                                  
+                                  if (recentBuilds.length < 20) {
+                                      recentBuilds.push({
+                                          name: workflow.name,
+                                          category: category,
+                                          status: run.conclusion || run.status,
+                                          created_at: run.created_at,
+                                          updated_at: run.updated_at,
+                                          html_url: run.html_url,
+                                          run_number: run.run_number,
+                                          event: run.event
+                                      });
+                                  }
+                              }
+                          } catch (error) {
+                              console.log(`⚠️ Error fetching runs for ${workflow.name}: ${error.message}`);
+                          }
+                      }
+
+                      // Calculate statistics
+                      averageDuration = totalRuns > 0 ? Math.round(averageDuration / totalRuns / 1000 / 60) : 0;
+                      const successRate = totalRuns > 0 ? ((successfulRuns / totalRuns) * 100).toFixed(1) : 0;
+
+                      const stats = {
+                          totalRuns,
+                          successfulRuns,
+                          failedRuns,
+                          successRate,
+                          averageDuration,
+                          recentBuilds: recentBuilds.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+                          workflowCategories: workflowCategories
+                      };
+
+                      console.log('✅ Workflow discovery completed:');
+                      Object.keys(workflowCategories).forEach(cat => {
+                          console.log(`  - ${cat}: ${workflowCategories[cat].length} workflows`);
+                      });
+
+                      return stats;
+
+            - name: Check container registry (Docker Hub/GHCR)
+              id: container_stats
+              run: |
+                  echo "🔍 Checking container registry statistics..."
+
+                  DOCKER_REPO="${{ needs.auto-discover-project.outputs.docker_repo }}"
+                  echo "📊 Target repository: $DOCKER_REPO"
+
+                  # Initialize default values
+                  PULL_COUNT=0
+                  STAR_COUNT=0
+                  LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+                  # Try Docker Hub first
+                  if [ ! -z "$DOCKER_REPO" ]; then
+                      echo "🐳 Checking Docker Hub: $DOCKER_REPO"
+                      REPO_INFO=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null || echo '{}')
+                      
+                      if echo "$REPO_INFO" | jq -e .pull_count >/dev/null 2>&1; then
+                          PULL_COUNT=$(echo "$REPO_INFO" | jq -r '.pull_count // 0')
+                          STAR_COUNT=$(echo "$REPO_INFO" | jq -r '.star_count // 0')
+                          LAST_UPDATED=$(echo "$REPO_INFO" | jq -r '.last_updated // ""')
+                          
+                          if [ -z "$LAST_UPDATED" ] || [ "$LAST_UPDATED" = "null" ]; then
+                              LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                          fi
+                          
+                          echo "✅ Docker Hub data found: $PULL_COUNT pulls, $STAR_COUNT stars"
+                      else
+                          echo "⚠️ No Docker Hub data found for $DOCKER_REPO"
+                          
+                          # Try GHCR as fallback
+                          echo "🔍 Checking GitHub Container Registry..."
+                          GHCR_REPO="ghcr.io/${{ github.repository }}"
+                          echo "📦 GHCR repository: $GHCR_REPO"
+                          # GHCR doesn't have public stats API, so we'll use repository info
+                      fi
+                  fi
+
+                  # Create JSON output
+                  cat > container_stats.json << EOF
+                  {
+                    "registry_type": "docker_hub",
+                    "repository": "$DOCKER_REPO",
+                    "pull_count": $PULL_COUNT,
+                    "star_count": $STAR_COUNT,
+                    "last_updated": "$LAST_UPDATED"
+                  }
+                  EOF
+
+                  echo "container_stats=$(cat container_stats.json | jq -c .)" >> $GITHUB_OUTPUT
+
+            - name: Analyze system health with configurable thresholds
+              id: system_health
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const workflowStats = ${{ steps.discover_workflows.outputs.result }};
+                      const containerStats = JSON.parse('${{ steps.container_stats.outputs.container_stats }}');
+
+                      // Parse health thresholds from input
+                      const thresholds = '${{ github.event.inputs.health_thresholds }}'.split(',');
+                      const warningThreshold = parseFloat(thresholds[0]) || 90;
+                      const criticalThreshold = parseFloat(thresholds[1]) || 95;
+
+                      console.log(`🎯 Health thresholds: Warning <${warningThreshold}%, Critical <${criticalThreshold}%`);
+
+                      let healthStatus = 'healthy';
+                      let healthIssues = [];
+
+                      // Check success rate
+                      const successRate = parseFloat(workflowStats.successRate);
+                      if (successRate < criticalThreshold) {
+                          healthStatus = 'unhealthy';
+                          healthIssues.push(`Critical: Success rate ${successRate}% below ${criticalThreshold}%`);
+                      } else if (successRate < warningThreshold) {
+                          healthStatus = 'degraded';
+                          healthIssues.push(`Warning: Success rate ${successRate}% below ${warningThreshold}%`);
+                      }
+
+                      // Check for recent failures (last 24 hours)
+                      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+                      const recentFailures = workflowStats.recentBuilds.filter(build => 
+                          build.status === 'failure' && 
+                          new Date(build.created_at) > twentyFourHoursAgo
+                      );
+
+                      if (recentFailures.length > 3) {
+                          healthStatus = 'unhealthy';
+                          healthIssues.push(`Critical: ${recentFailures.length} failures in last 24 hours`);
+                      } else if (recentFailures.length > 1) {
+                          if (healthStatus === 'healthy') healthStatus = 'degraded';
+                          healthIssues.push(`Warning: ${recentFailures.length} failures in last 24 hours`);
+                      }
+
+                      // Check for stuck workflows
+                      const runningBuilds = workflowStats.recentBuilds.filter(build => 
+                          (build.status === 'in_progress' || build.status === 'queued') &&
+                          new Date(build.created_at) < new Date(Date.now() - 2 * 60 * 60 * 1000) // 2 hours
+                      );
+
+                      if (runningBuilds.length > 0) {
+                          if (healthStatus === 'healthy') healthStatus = 'degraded';
+                          healthIssues.push(`Warning: ${runningBuilds.length} workflows running >2 hours`);
+                      }
+
+                      const healthData = {
+                          status: healthStatus,
+                          issues: healthIssues,
+                          last_check: new Date().toISOString(),
+                          thresholds: {
+                              warning: warningThreshold,
+                              critical: criticalThreshold
+                          }
+                      };
+
+                      console.log('📊 System health analysis:', healthData);
+                      return healthData;
+
+            - name: Compile universal dashboard data
+              id: compile_data
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const workflowStats = ${{ steps.discover_workflows.outputs.result }};
+                      const containerStats = JSON.parse('${{ steps.container_stats.outputs.container_stats }}');
+                      const healthData = ${{ steps.system_health.outputs.result }};
+                      const projectInfo = ${{ needs.auto-discover-project.outputs }};
+
+                      // Check for active automation issues
+                      const customLabels = '${{ github.event.inputs.monitoring_labels }}'.split(',').filter(l => l.trim());
+                      const allLabels = ['automation', 'ci', 'build', 'deploy', ...customLabels];
+
+                      const issuesResponse = await github.rest.issues.listForRepo({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          labels: allLabels.join(','),
+                          state: 'open'
+                      });
+
+                      const activeAutomationIssues = issuesResponse.data.length;
+
+                      const dashboardData = {
+                          last_updated: new Date().toISOString(),
+                          project_info: projectInfo,
+                          system_health: healthData,
+                          workflow_stats: workflowStats,
+                          container_stats: containerStats,
+                          active_issues: activeAutomationIssues,
+                          repository: `${context.repo.owner}/${context.repo.repo}`,
+                          metadata: {
+                              generated_by: 'universal-automation-dashboard',
+                              github_run: context.runId,
+                              version: '2.0.0'
+                          }
+                      };
+
+                      // Set outputs
+                      core.setOutput('dashboard_json', JSON.stringify(dashboardData));
+                      core.setOutput('last_updated', dashboardData.last_updated);
+                      core.setOutput('system_health', healthData.status);
+
+                      return dashboardData;
+
+    update-dashboard:
+        needs: [auto-discover-project, collect-metrics]
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Find existing dashboard issue
+              id: find_issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const issues = await github.rest.issues.listForRepo({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          labels: 'automation-dashboard',
+                          state: 'open'
+                      });
+
+                      const dashboardIssue = issues.data.find(issue => 
+                          issue.title.includes('🤖 Automation Dashboard')
+                      );
+
+                      if (dashboardIssue) {
+                          console.log(`Found existing dashboard issue: #${dashboardIssue.number}`);
+                          return dashboardIssue.number;
+                      } else {
+                          console.log('No existing dashboard issue found');
+                          return null;
+                      }
+
+            - name: Generate universal dashboard content
+              id: generate_content
+              run: |
+                  PROJECT_NAME="${{ needs.auto-discover-project.outputs.project_name }}"
+                  PROJECT_TYPE="${{ needs.auto-discover-project.outputs.project_type }}"
+                  DOCKER_REPO="${{ needs.auto-discover-project.outputs.docker_repo }}"
+
+                  cat > dashboard_content.md << EOF
+                  ## 🤖 ${PROJECT_NAME} Automation Dashboard
+
+                  **Project Type**: ${PROJECT_TYPE}
+                  **Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}
+                  **System Health**: ${{ needs.collect-metrics.outputs.system_health == 'healthy' && '🟢 Healthy' || needs.collect-metrics.outputs.system_health == 'degraded' && '🟡 Degraded' || '🔴 Unhealthy' }}
+                  **Dashboard Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+                  ---
+
+                  ### 📊 Current Automation Status
+
+                  | Component | Status | Category | Last Activity |
+                  |-----------|--------|----------|---------------|
+                  | WORKFLOW_STATUS_TABLE |
+
+                  ### 📈 Performance Metrics (Last 30 Days)
+
+                  - **Total Runs**: TOTAL_RUNS
+                  - **Success Rate**: SUCCESS_RATE%
+                  - **Average Duration**: AVERAGE_DURATION minutes
+                  - **Failed Runs**: FAILED_RUNS
+
+                  ### 🏗️ Recent Activity
+
+                  | Workflow | Category | Status | Run # | Time |
+                  |----------|----------|--------|-------|------|
+                  | RECENT_BUILDS_TABLE |
+
+                  ### 📦 Container Registry
+
+                  - **Repository**: [\`${DOCKER_REPO}\`](https://hub.docker.com/r/${DOCKER_REPO})
+                  - **Total Pulls**: CONTAINER_PULLS
+                  - **Stars**: CONTAINER_STARS
+                  - **Last Updated**: CONTAINER_UPDATED
+
+                  ### 🎯 Active Issues
+
+                  Current open automation issues: ACTIVE_ISSUES
+
+                  ---
+
+                  ### 🔧 Quick Actions
+
+                  | Action | Description |
+                  |--------|-------------|
+                  | [🔄 Refresh Dashboard](../../actions/workflows/universal-automation-dashboard.yml) | Manually refresh this dashboard |
+                  | [📊 View All Workflows](../../actions) | View all workflow runs |
+                  | [🐛 Create Issue](../../issues/new) | Report a problem |
+
+                  ### 📋 Health Indicators
+
+                  - 🟢 **Healthy**: All systems operational
+                  - 🟡 **Degraded**: Minor issues detected
+                  - 🔴 **Unhealthy**: Significant issues requiring attention
+
+                  ---
+
+                  *🤖 This dashboard automatically adapts to any project and updates regularly.*
+
+                  *📊 Data source: GitHub Actions API + Container Registry APIs*
+
+                  *⚙️ Generated by Universal Automation Dashboard v2.0.0*
+                  EOF
+
+            - name: Create or update universal dashboard issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const dashboardContent = fs.readFileSync('dashboard_content.md', 'utf8');
+                      const existingIssueNumber = ${{ steps.find_issue.outputs.result }};
+                      const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
+
+                      const workflowStats = dashboardData.workflow_stats;
+                      const containerStats = dashboardData.container_stats;
+
+                      // Generate workflow status table
+                      let workflowStatusTable = '';
+                      Object.entries(workflowStats.workflowCategories).forEach(([category, workflows]) => {
+                          if (workflows.length > 0) {
+                              const categoryStatus = '✅ Active';
+                              const lastActivity = 'Recent';
+                              workflowStatusTable += `| ${category.charAt(0).toUpperCase() + category.slice(1)} Workflows | ${categoryStatus} | ${category} | ${lastActivity} |\n`;
+                          }
+                      });
+
+                      if (!workflowStatusTable) {
+                          workflowStatusTable = '| No workflows detected | ⚠️ None | - | - |';
+                      }
+
+                      // Generate recent builds table
+                      let recentBuildsTable = '';
+                      if (workflowStats.recentBuilds && workflowStats.recentBuilds.length > 0) {
+                          recentBuildsTable = workflowStats.recentBuilds.slice(0, 10).map(build => {
+                              const status = build.status === 'success' ? '✅' : 
+                                           build.status === 'failure' ? '❌' : 
+                                           build.status === 'in_progress' ? '🔄' : '⏸️';
+                              
+                              const buildTime = new Date(build.created_at);
+                              const timeAgo = buildTime.toLocaleDateString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric', 
+                                  hour: '2-digit', 
+                                  minute: '2-digit' 
+                              });
+                              
+                              return `| ${build.name} | ${build.category} | ${status} ${build.status} | [#${build.run_number}](${build.html_url}) | ${timeAgo} |`;
+                          }).join('\n');
+                      } else {
+                          recentBuildsTable = '| No recent activity | - | - | - | - |';
+                      }
+
+                      // Replace all placeholders
+                      let updatedContent = dashboardContent
+                          .replace('WORKFLOW_STATUS_TABLE', workflowStatusTable)
+                          .replace('TOTAL_RUNS', workflowStats.totalRuns || 0)
+                          .replace('SUCCESS_RATE', workflowStats.successRate || 0)
+                          .replace('AVERAGE_DURATION', workflowStats.averageDuration || 0)
+                          .replace('FAILED_RUNS', workflowStats.failedRuns || 0)
+                          .replace('RECENT_BUILDS_TABLE', recentBuildsTable)
+                          .replace('CONTAINER_PULLS', containerStats.pull_count.toLocaleString())
+                          .replace('CONTAINER_STARS', containerStats.star_count)
+                          .replace('CONTAINER_UPDATED', containerStats.last_updated)
+                          .replace('ACTIVE_ISSUES', dashboardData.active_issues);
+
+                      const title = `🤖 Automation Dashboard - ${dashboardData.project_info.project_name}`;
+
+                      if (existingIssueNumber) {
+                          await github.rest.issues.update({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: existingIssueNumber,
+                              title: title,
+                              body: updatedContent
+                          });
+                          console.log(`✅ Updated dashboard issue #${existingIssueNumber}`);
+                      } else {
+                          const newIssue = await github.rest.issues.create({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              title: title,
+                              body: updatedContent,
+                              labels: ['automation-dashboard', 'pinned', 'enhancement']
+                          });
+                          console.log(`✅ Created new dashboard issue #${newIssue.data.number}`);
+                      }
+
+    notify-health-issues:
+        needs: [auto-discover-project, collect-metrics, update-dashboard]
+        if: needs.collect-metrics.outputs.system_health != 'healthy'
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Create universal health alert
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
+                      const healthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
+                      const projectName = '${{ needs.auto-discover-project.outputs.project_name }}';
+
+                      // Find existing health issue
+                      const issues = await github.rest.issues.listForRepo({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          labels: 'automation-health-alert',
+                          state: 'open'
+                      });
+
+                      const healthIssue = issues.data.find(issue => 
+                          issue.title.includes('🚨 System Health Alert')
+                      );
+
+                      const healthIssuesList = dashboardData.system_health.issues.length > 0 
+                          ? dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n')
+                          : 'No specific issues detected.';
+
+                      const alertBody = `
+                      ## 🚨 System Health Alert - ${projectName}
+
+                      **Status**: ${healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy'}
+                      **Detection Time**: ${new Date().toISOString()}
+                      **Project**: ${projectName}
+
+                      ### 🔍 Detected Issues:
+                      ${healthIssuesList}
+
+                      ### 📊 Current Metrics:
+                      - **Success Rate**: ${dashboardData.workflow_stats.successRate}%
+                      - **Failed Runs (30d)**: ${dashboardData.workflow_stats.failedRuns}
+                      - **Alert Thresholds**: Warning <${dashboardData.system_health.thresholds.warning}%, Critical <${dashboardData.system_health.thresholds.critical}%
+
+                      ### 🔧 Recommended Actions:
+                      - [ ] Review recent workflow failures in [Actions tab](../../actions)
+                      - [ ] Check system configurations
+                      - [ ] Monitor system recovery
+
+                      ---
+                      *This alert will automatically resolve when system health improves.*
+                      `;
+
+                      if (healthIssue) {
+                          await github.rest.issues.update({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: healthIssue.number,
+                              body: alertBody
+                          });
+                          console.log(`Updated health alert issue #${healthIssue.number}`);
+                      } else {
+                          await github.rest.issues.create({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              title: `🚨 System Health Alert - ${projectName}`,
+                              body: alertBody,
+                              labels: ['automation-health-alert', 'alert', healthStatus]
+                          });
+                          console.log('Created new health alert issue');
+                      }
+
+    close-health-alert-if-healthy:
+        needs: [auto-discover-project, collect-metrics, update-dashboard]
+        if: needs.collect-metrics.outputs.system_health == 'healthy'
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Close health alert if system recovered
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const issues = await github.rest.issues.listForRepo({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          labels: 'automation-health-alert',
+                          state: 'open'
+                      });
+
+                      for (const issue of issues.data) {
+                          if (issue.title.includes('🚨 System Health Alert')) {
+                              await github.rest.issues.createComment({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  issue_number: issue.number,
+                                  body: `## ✅ System Health Recovered!\n\n**Recovery Time**: ${new Date().toISOString()}\n**Status**: 🟢 All systems healthy\n\nAll automation components have returned to normal operation.`
+                              });
+                              
+                              await github.rest.issues.update({
+                                  owner: context.repo.owner,
+                                  repo: context.repo.repo,
+                                  issue_number: issue.number,
+                                  state: 'closed'
+                              });
+                              
+                              console.log(`Closed health alert issue #${issue.number}`);
+                          }
+                      }
