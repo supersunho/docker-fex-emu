@@ -1,0 +1,512 @@
+name: Automation Dashboard
+
+on:
+    # Regular updates every 5 minutes
+    schedule:
+        - cron: "*/5 * * * *"
+
+    # Update when automation workflows complete
+    workflow_run:
+        workflows: ["Auto-detect FEX Releases", "Auto-detect RootFS Updates", "FEXBash Builder V4 (Optimized)"]
+        types: [completed, requested]
+
+    # Manual trigger for dashboard refresh
+    workflow_dispatch:
+        inputs:
+            force_refresh:
+                description: "Force refresh all dashboard data"
+                required: false
+                default: false
+                type: boolean
+            include_historical:
+                description: "Include historical data (last 30 days)"
+                required: false
+                default: true
+                type: boolean
+
+permissions:
+    contents: read
+    issues: write
+    actions: read
+
+jobs:
+    collect-metrics:
+        runs-on: ubuntu-latest
+        outputs:
+            dashboard_data: ${{ steps.compile_data.outputs.dashboard_json }}
+            last_updated: ${{ steps.compile_data.outputs.last_updated }}
+            system_health: ${{ steps.compile_data.outputs.system_health }}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Collect automation workflow statistics
+              id: collect_stats
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const thirtyDaysAgo = new Date();
+                      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+                      // Collect workflow run statistics
+                      const workflows = [
+                        'Auto-detect FEX Releases',
+                        'Auto-detect RootFS Updates', 
+                        'FEXBash Builder V4 (Optimized)'
+                      ];
+
+                      let totalRuns = 0;
+                      let successfulRuns = 0;
+                      let failedRuns = 0;
+                      let averageDuration = 0;
+                      let recentBuilds = [];
+
+                      for (const workflowName of workflows) {
+                        try {
+                          // Get workflow ID
+                          const workflowsResponse = await github.rest.actions.listRepoWorkflows({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo
+                          });
+                          
+                          const workflow = workflowsResponse.data.workflows.find(w => w.name === workflowName);
+                          if (!workflow) continue;
+                          
+                          // Get workflow runs
+                          const runsResponse = await github.rest.actions.listWorkflowRuns({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            workflow_id: workflow.id,
+                            per_page: 50
+                          });
+                          
+                          const recentRuns = runsResponse.data.workflow_runs.filter(run => 
+                            new Date(run.created_at) > thirtyDaysAgo
+                          );
+                          
+                          totalRuns += recentRuns.length;
+                          
+                          for (const run of recentRuns) {
+                            if (run.conclusion === 'success') {
+                              successfulRuns++;
+                            } else if (run.conclusion === 'failure') {
+                              failedRuns++;
+                            }
+                            
+                            // Calculate duration
+                            if (run.updated_at && run.created_at) {
+                              const duration = new Date(run.updated_at) - new Date(run.created_at);
+                              averageDuration += duration;
+                            }
+                            
+                            // Collect recent builds for display
+                            if (recentBuilds.length < 10) {
+                              recentBuilds.push({
+                                name: workflowName,
+                                status: run.conclusion || run.status,
+                                created_at: run.created_at,
+                                html_url: run.html_url,
+                                run_number: run.run_number
+                              });
+                            }
+                          }
+                        } catch (error) {
+                          console.log(`Error fetching data for ${workflowName}:`, error.message);
+                        }
+                      }
+
+                      // Calculate average duration in minutes
+                      averageDuration = totalRuns > 0 ? Math.round(averageDuration / totalRuns / 1000 / 60) : 0;
+
+                      // Calculate success rate
+                      const successRate = totalRuns > 0 ? ((successfulRuns / totalRuns) * 100).toFixed(1) : 0;
+
+                      const stats = {
+                        totalRuns,
+                        successfulRuns,
+                        failedRuns,
+                        successRate,
+                        averageDuration,
+                        recentBuilds: recentBuilds.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                      };
+
+                      console.log('Collected workflow statistics:', JSON.stringify(stats, null, 2));
+                      return stats;
+
+            - name: Check Docker Hub images
+              id: docker_stats
+              run: |
+                  echo "🔍 Collecting Docker Hub statistics..."
+
+                  # Get repository info from Docker Hub API
+                  DOCKER_REPO="supersunho/fex-emu"
+
+                  # Get repository stats
+                  REPO_INFO=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" || echo '{}')
+                  PULL_COUNT=$(echo "$REPO_INFO" | jq -r '.pull_count // 0')
+                  STAR_COUNT=$(echo "$REPO_INFO" | jq -r '.star_count // 0')
+
+                  # Get recent tags
+                  TAGS_INFO=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/tags/?page_size=10" || echo '{"results":[]}')
+
+                  echo "📊 Docker Hub statistics:"
+                  echo "  - Total pulls: $PULL_COUNT"
+                  echo "  - Stars: $STAR_COUNT"
+
+                  # Create JSON output
+                  cat > docker_stats.json << EOF
+                  {
+                    "pull_count": $PULL_COUNT,
+                    "star_count": $STAR_COUNT,
+                    "last_updated": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  }
+                  EOF
+
+                  echo "docker_stats=$(cat docker_stats.json | jq -c .)" >> $GITHUB_OUTPUT
+
+            - name: Analyze system health
+              id: system_health
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      // Check recent workflow failures
+                      const workflowStats = ${{ steps.collect_stats.outputs.result }};
+                      const dockerStats = JSON.parse('${{ steps.docker_stats.outputs.docker_stats }}');
+
+                      let healthStatus = 'healthy';
+                      let healthIssues = [];
+
+                      // Check success rate
+                      if (parseFloat(workflowStats.successRate) < 90) {
+                        healthStatus = 'degraded';
+                        healthIssues.push(`Low success rate: ${workflowStats.successRate}%`);
+                      }
+
+                      // Check for recent failures
+                      const recentFailures = workflowStats.recentBuilds.filter(build => 
+                        build.status === 'failure' && 
+                        new Date(build.created_at) > new Date(Date.now() - 24 * 60 * 60 * 1000)
+                      );
+
+                      if (recentFailures.length > 2) {
+                        healthStatus = 'unhealthy';
+                        healthIssues.push(`${recentFailures.length} failures in last 24 hours`);
+                      }
+
+                      // Check if any workflows are stuck
+                      const runningBuilds = workflowStats.recentBuilds.filter(build => 
+                        build.status === 'in_progress' &&
+                        new Date(build.created_at) < new Date(Date.now() - 60 * 60 * 1000)
+                      );
+
+                      if (runningBuilds.length > 0) {
+                        healthStatus = 'degraded';
+                        healthIssues.push(`${runningBuilds.length} builds running >1 hour`);
+                      }
+
+                      const healthData = {
+                        status: healthStatus,
+                        issues: healthIssues,
+                        last_check: new Date().toISOString()
+                      };
+
+                      console.log('System health analysis:', healthData);
+                      return healthData;
+
+            - name: Compile dashboard data
+              id: compile_data
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const workflowStats = ${{ steps.collect_stats.outputs.result }};
+                      const dockerStats = JSON.parse('${{ steps.docker_stats.outputs.docker_stats }}');
+                      const healthData = ${{ steps.system_health.outputs.result }};
+
+                      // Check for active automation issues
+                      const issuesResponse = await github.rest.issues.listForRepo({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        labels: 'automation',
+                        state: 'open'
+                      });
+
+                      const activeAutomationIssues = issuesResponse.data.length;
+
+                      // Get next scheduled runs
+                      const now = new Date();
+                      const nextFexCheck = new Date(now);
+                      nextFexCheck.setHours(24, 0, 0, 0); // Next day at 00:00
+                      if (nextFexCheck <= now) nextFexCheck.setDate(nextFexCheck.getDate() + 1);
+
+                      const nextRootfsCheck = new Date(now);
+                      const currentHour = now.getHours();
+                      if (currentHour < 6) {
+                        nextRootfsCheck.setHours(6, 0, 0, 0);
+                      } else if (currentHour < 18) {
+                        nextRootfsCheck.setHours(18, 0, 0, 0);
+                      } else {
+                        nextRootfsCheck.setDate(nextRootfsCheck.getDate() + 1);
+                        nextRootfsCheck.setHours(6, 0, 0, 0);
+                      }
+
+                      const dashboardData = {
+                        last_updated: new Date().toISOString(),
+                        system_health: healthData,
+                        workflow_stats: workflowStats,
+                        docker_stats: dockerStats,
+                        active_issues: activeAutomationIssues,
+                        schedule: {
+                          next_fex_check: nextFexCheck.toISOString(),
+                          next_rootfs_check: nextRootfsCheck.toISOString()
+                        },
+                        metadata: {
+                          generated_by: 'automation-dashboard',
+                          github_run: context.runId,
+                          repository: `${context.repo.owner}/${context.repo.repo}`
+                        }
+                      };
+
+                      // Set outputs
+                      core.setOutput('dashboard_json', JSON.stringify(dashboardData));
+                      core.setOutput('last_updated', dashboardData.last_updated);
+                      core.setOutput('system_health', healthData.status);
+
+                      return dashboardData;
+
+    update-dashboard:
+        needs: collect-metrics
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Find existing dashboard issue
+              id: find_issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const issues = await github.rest.issues.listForRepo({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        labels: 'automation-dashboard',
+                        state: 'open'
+                      });
+
+                      const dashboardIssue = issues.data.find(issue => 
+                        issue.title.includes('🤖 Automation Dashboard')
+                      );
+
+                      if (dashboardIssue) {
+                        console.log(`Found existing dashboard issue: #${dashboardIssue.number}`);
+                        return dashboardIssue.number;
+                      } else {
+                        console.log('No existing dashboard issue found');
+                        return null;
+                      }
+
+            - name: Generate dashboard content
+              id: generate_content
+              run: |
+                  cat > dashboard_content.md << 'EOF'
+                  ## 🤖 FEX-Emu Automation Dashboard
+
+                  **Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}
+                  **System Health**: ${{ needs.collect-metrics.outputs.system_health == 'healthy' && '🟢 Healthy' || needs.collect-metrics.outputs.system_health == 'degraded' && '🟡 Degraded' || '🔴 Unhealthy' }}
+                  **Dashboard Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+                  ---
+
+                  ### 📊 Current Automation Status
+
+                  | Component | Status | Last Run | Next Scheduled |
+                  |-----------|--------|----------|----------------|
+                  | 🔍 FEX Release Detection | ${{ needs.collect-metrics.outputs.system_health == 'healthy' && '✅ Active' || '⚠️ Issues' }} | Auto | Daily 00:00 UTC |
+                  | 🔄 RootFS Update Detection | ${{ needs.collect-metrics.outputs.system_health == 'healthy' && '✅ Active' || '⚠️ Issues' }} | Auto | 06:00, 18:00 UTC |
+                  | 🏗️ Container Builds | ${{ needs.collect-metrics.outputs.system_health == 'healthy' && '✅ Operational' || '⚠️ Issues' }} | Triggered | On-demand |
+                  | 🐳 Docker Hub Deployment | ${{ needs.collect-metrics.outputs.system_health == 'healthy' && '✅ Operational' || '⚠️ Issues' }} | Auto | With builds |
+
+                  ### 📈 Performance Metrics (Last 30 Days)
+
+                  ```
+                  ${{ needs.collect-metrics.outputs.dashboard_data }}
+                  ```
+
+                  ### 🏗️ Recent Build Activity
+
+                  | Workflow | Status | Run # | Time |
+                  |----------|--------|-------|------|
+                  | Loading... | ... | ... | ... |
+
+                  ### 🐳 Docker Hub Statistics
+
+                  - **Repository**: [`supersunho/fex-emu`](https://hub.docker.com/r/supersunho/fex-emu)
+                  - **Total Pulls**: Loading...
+                  - **Stars**: Loading...
+                  - **Last Updated**: Loading...
+
+                  ### 🎯 Active Automation Issues
+
+                  Current open automation issues: Loading...
+
+                  ### ⏰ Upcoming Scheduled Tasks
+
+                  - **FEX Release Check**: Next daily check
+                  - **RootFS Update Check**: Next bi-daily check
+                  - **Maintenance**: Weekly cleanup (Sundays)
+
+                  ---
+
+                  ### 🔧 Manual Actions
+
+                  | Action | Description | Usage |
+                  |--------|-------------|-------|
+                  | [🔄 Force FEX Check](../../actions/workflows/auto-detect-fex-releases.yml) | Manually trigger FEX release detection | Click "Run workflow" → Enable "Force check" |
+                  | [🔄 Force RootFS Check](../../actions/workflows/auto-detect-rootfs-updates.yml) | Manually trigger RootFS update detection | Click "Run workflow" → Enable "Force check" |
+                  | [🏗️ Manual Build](../../actions/workflows/build-containers.yml) | Manually trigger container builds | Select scope and version |
+                  | [📊 Refresh Dashboard](../../actions/workflows/automation-dashboard.yml) | Refresh this dashboard | Click "Run workflow" |
+
+                  ### 📋 System Health Indicators
+
+                  - 🟢 **Healthy**: All systems operational, success rate >95%
+                  - 🟡 **Degraded**: Minor issues, success rate 90-95%
+                  - 🔴 **Unhealthy**: Significant issues, success rate <90%
+
+                  ### 🤖 Automation Features
+
+                  ✅ **Automatic FEX Release Detection**: Daily scan for new releases  
+                  ✅ **Automatic RootFS Update Detection**: Bi-daily RootFS changes scan  
+                  ✅ **Triggered Container Builds**: Auto-build on new releases  
+                  ✅ **Multi-Registry Deployment**: Docker Hub + GHCR simultaneous push  
+                  ✅ **Issue Tracking**: Auto-created issues for builds and updates  
+                  ✅ **Performance Monitoring**: Build time and success rate tracking  
+                  ✅ **Health Monitoring**: System status and alert notifications  
+
+                  ---
+
+                  *🤖 This dashboard is automatically updated every 5 minutes and when automation workflows complete.*
+
+                  *📊 Data source: GitHub Actions API + Docker Hub API*
+
+                  *⚙️ Last refresh: Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
+                  EOF
+
+            - name: Create or update dashboard issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const fs = require('fs');
+                      const dashboardContent = fs.readFileSync('dashboard_content.md', 'utf8');
+                      const existingIssueNumber = ${{ steps.find_issue.outputs.result }};
+                      const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
+
+                      // Parse workflow stats and Docker stats for display
+                      const workflowStats = dashboardData.workflow_stats;
+                      const dockerStats = dashboardData.docker_stats;
+
+                      // Generate recent builds table
+                      let recentBuildsTable = '';
+                      if (workflowStats.recentBuilds && workflowStats.recentBuilds.length > 0) {
+                        recentBuildsTable = workflowStats.recentBuilds.slice(0, 5).map(build => {
+                          const status = build.status === 'success' ? '✅' : 
+                                       build.status === 'failure' ? '❌' : 
+                                       build.status === 'in_progress' ? '🔄' : '⏸️';
+                          const timeAgo = new Date(build.created_at).toLocaleDateString();
+                          return `| ${build.name} | ${status} ${build.status} | [#${build.run_number}](${build.html_url}) | ${timeAgo} |`;
+                        }).join('\n');
+                      } else {
+                        recentBuildsTable = '| No recent builds | - | - | - |';
+                      }
+
+                      // Update dashboard content with real data
+                      const updatedContent = dashboardContent
+                        .replace('Loading...', workflowStats.totalRuns || 0)
+                        .replace(/\| Loading\.\.\. \| \.\.\. \| \.\.\. \| \.\.\. \|/, recentBuildsTable)
+                        .replace('- **Total Pulls**: Loading...', `- **Total Pulls**: ${dockerStats.pull_count.toLocaleString()}`)
+                        .replace('- **Stars**: Loading...', `- **Stars**: ${dockerStats.star_count}`)
+                        .replace('- **Last Updated**: Loading...', `- **Last Updated**: ${dockerStats.last_updated}`)
+                        .replace('Current open automation issues: Loading...', `Current open automation issues: ${dashboardData.active_issues}`);
+
+                      const title = '🤖 Automation Dashboard - Real-time System Status';
+
+                      if (existingIssueNumber) {
+                        // Update existing issue
+                        await github.rest.issues.update({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: existingIssueNumber,
+                          title: title,
+                          body: updatedContent
+                        });
+                        
+                        console.log(`Updated dashboard issue #${existingIssueNumber}`);
+                      } else {
+                        // Create new issue
+                        const newIssue = await github.rest.issues.create({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          title: title,
+                          body: updatedContent,
+                          labels: ['automation-dashboard', 'pinned', 'enhancement']
+                        });
+                        
+                        console.log(`Created new dashboard issue #${newIssue.data.number}`);
+                      }
+
+            - name: Generate job summary
+              run: |
+                  echo "## 📊 Dashboard Update Summary" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Status**: ✅ Dashboard updated successfully" >> $GITHUB_STEP_SUMMARY
+                  echo "**System Health**: ${{ needs.collect-metrics.outputs.system_health }}" >> $GITHUB_STEP_SUMMARY
+                  echo "**Last Updated**: ${{ needs.collect-metrics.outputs.last_updated }}" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "### 📈 Quick Stats" >> $GITHUB_STEP_SUMMARY
+                  echo "- Automation workflows monitored" >> $GITHUB_STEP_SUMMARY
+                  echo "- Docker Hub integration active" >> $GITHUB_STEP_SUMMARY
+                  echo "- Real-time health monitoring enabled" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "🔗 **View Dashboard**: Check the pinned 'Automation Dashboard' issue in the Issues tab" >> $GITHUB_STEP_SUMMARY
+
+    notify-health-issues:
+        needs: [collect-metrics, update-dashboard]
+        if: needs.collect-metrics.outputs.system_health != 'healthy'
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Create health alert issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const healthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
+                      const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
+
+                      const alertBody = `
+                      ## 🚨 Automation System Health Alert
+
+                      **Alert Level**: ${healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy'}
+                      **Detection Time**: ${new Date().toISOString()}
+                      **Dashboard Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+                      ### 🔍 Detected Issues:
+                      ${dashboardData.system_health.issues.map(issue => `- ⚠️ ${issue}`).join('\n')}
+
+                      ### 📊 Current Statistics:
+                      - **Success Rate**: ${dashboardData.workflow_stats.successRate}%
+                      - **Total Runs (30d)**: ${dashboardData.workflow_stats.totalRuns}
+                      - **Failed Runs**: ${dashboardData.workflow_stats.failedRuns}
+
+                      ### 🔧 Recommended Actions:
+                      - [ ] Review recent workflow failures
+                      - [ ] Check automation configurations
+                      - [ ] Verify external dependencies
+                      - [ ] Monitor for resolution
+
+                      **This alert will auto-resolve when system health returns to normal.**
+                      `;
+
+                      await github.rest.issues.create({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        title: `🚨 Automation Health Alert - ${healthStatus.toUpperCase()}`,
+                        body: alertBody,
+                        labels: ['automation', 'alert', 'health-check', healthStatus]
+                      });

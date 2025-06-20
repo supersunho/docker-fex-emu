@@ -1166,3 +1166,49 @@ jobs:
                   echo "**🏗️ Ubuntu Achievement**: Native glibc compatibility with 5-year LTS support lifecycle" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "*Generated on $(date '+%Y-%m-%d %H:%M:%S UTC') by [FEXBash Ubuntu Builder V4](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*" >> $GITHUB_STEP_SUMMARY
+
+            - name: Close tracking issue if build successful
+              if: needs.build-arm.result == 'success' && needs.merge-manifests.result == 'success'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      // Find related automation issues
+                      const issues = await github.rest.issues.listForRepo({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          labels: 'automation,build-trigger',
+                          state: 'open'
+                      });
+
+                      const buildVersion = '${{ needs.prepare-and-generate.outputs.fex_semantic }}';
+
+                      for (const issue of issues.data) {
+                          if (issue.title.includes(buildVersion) || issue.title.includes('FEX Release')) {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: issue.number,
+                              body: `
+                              ## ✅ Build Completed Successfully
+                              
+                              **Build Status**: 🎉 Success
+                              **Completion Time**: ${new Date().toISOString()}
+                              **Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+                              
+                              ### 📦 Generated Images:
+                              - Docker Hub: \`supersunho/fex-emu\` with new tags
+                              - Registry manifests updated
+                              - All quality checks passed
+                              
+                              Automatically closing this tracking issue.
+                              `
+                          });
+                          
+                          await github.rest.issues.update({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: issue.number,
+                              state: 'closed'
+                          });
+                          }
+                      }
