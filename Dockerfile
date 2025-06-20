@@ -267,7 +267,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         e2fsprogs \
         util-linux >/dev/null 2>&1 && \   
     echo "✅ All RootFS tools and dependencies installed successfully" && \
-    echo "🎯 Ubuntu RootFS preparer ready!"
+    echo "🎯 Ubuntu RootFS preparer ready!" && \
+    echo "🔒 Updating CA certificates for maximum compatibility..." && \
+    apt-get update -qq >/dev/null 2>&1 && \
+    apt-get install -y apt-utils ca-certificates && \
+    update-ca-certificates && \
+    echo "✅ CA certificates updated"
+
 
 ENV CURL_CA_BUNDLE=""
 
