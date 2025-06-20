@@ -14,9 +14,10 @@ This repository provides ARM64-optimized container images built from the origina
 
 Container images are hosted on 
 
-DockerHub: **[supersunho/fex-emu](https://hub.docker.com/r/supersunho/fex-emu)**
-
-Github: **[supersunho/docker-fex-emu](https://github.com/supersunho/docker-fex-emu)**
+| Host                 | URL                              |
+| :------------------ | :--------------------------------------- |
+| DockerHub | **[supersunho/fex-emu](https://hub.docker.com/r/supersunho/fex-emu)** |
+| Github | **[supersunho/docker-fex-emu](https://github.com/supersunho/docker-fex-emu)** |
 
 ## 🚀 Quick Start
 
