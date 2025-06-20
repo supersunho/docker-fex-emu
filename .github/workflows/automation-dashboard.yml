@@ -1,13 +1,13 @@
 name: Automation Dashboard
 
 on:
-    # Regular updates daily
+    # Regular updates every 5 minutes
     schedule:
         - cron: "*/5 * * * *"
 
     # Update when automation workflows complete
     workflow_run:
-        workflows: ["Auto-detect FEX Releases", "Auto-detect RootFS Updates", "FEXBash Builder V4 (Optimized)"]
+        workflows: ["Auto-detect FEX Releases", "Auto-detect RootFS Updates", "FEXBash Builder"]
         types: [completed, requested]
 
     # Manual trigger for dashboard refresh
@@ -41,6 +41,7 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
+            # Collect automation workflow statistics
             - name: Collect automation workflow statistics
               id: collect_stats
               uses: actions/github-script@v7
@@ -49,11 +50,11 @@ jobs:
                       const thirtyDaysAgo = new Date();
                       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-                      // Collect workflow run statistics
+                      // ✅ Fixed workflow names for accurate matching
                       const workflows = [
                         'Auto-detect FEX Releases',
                         'Auto-detect RootFS Updates', 
-                        'FEXBash Builder'
+                        'FEXBash Builder'  // Fixed name
                       ];
 
                       let totalRuns = 0;
@@ -62,16 +63,32 @@ jobs:
                       let averageDuration = 0;
                       let recentBuilds = [];
 
+                      console.log('🔍 Searching for workflows:', workflows);
+
                       for (const workflowName of workflows) {
                         try {
+                          console.log(`📋 Processing workflow: ${workflowName}`);
+                          
                           // Get workflow ID
                           const workflowsResponse = await github.rest.actions.listRepoWorkflows({
                             owner: context.repo.owner,
                             repo: context.repo.repo
                           });
                           
-                          const workflow = workflowsResponse.data.workflows.find(w => w.name === workflowName);
-                          if (!workflow) continue;
+                          // ✅ More flexible workflow matching
+                          const workflow = workflowsResponse.data.workflows.find(w => 
+                            w.name === workflowName || 
+                            w.name.includes(workflowName) ||
+                            workflowName.includes(w.name)
+                          );
+                          
+                          if (!workflow) {
+                            console.log(`⚠️ Workflow not found: ${workflowName}`);
+                            console.log('Available workflows:', workflowsResponse.data.workflows.map(w => w.name));
+                            continue;
+                          }
+                          
+                          console.log(`✅ Found workflow: ${workflow.name} (ID: ${workflow.id})`);
                           
                           // Get workflow runs
                           const runsResponse = await github.rest.actions.listWorkflowRuns({
@@ -85,6 +102,7 @@ jobs:
                             new Date(run.created_at) > thirtyDaysAgo
                           );
                           
+                          console.log(`📊 Found ${recentRuns.length} recent runs for ${workflow.name}`);
                           totalRuns += recentRuns.length;
                           
                           for (const run of recentRuns) {
@@ -100,19 +118,22 @@ jobs:
                               averageDuration += duration;
                             }
                             
-                            // Collect recent builds for display
-                            if (recentBuilds.length < 10) {
+                            // ✅ Enhanced recent builds collection
+                            if (recentBuilds.length < 15) {
                               recentBuilds.push({
-                                name: workflowName,
+                                name: workflow.name,  // Use actual workflow name
                                 status: run.conclusion || run.status,
                                 created_at: run.created_at,
+                                updated_at: run.updated_at,
                                 html_url: run.html_url,
-                                run_number: run.run_number
+                                run_number: run.run_number,
+                                event: run.event,
+                                head_branch: run.head_branch
                               });
                             }
                           }
                         } catch (error) {
-                          console.log(`Error fetching data for ${workflowName}:`, error.message);
+                          console.log(`❌ Error fetching data for ${workflowName}:`, error.message);
                         }
                       }
 
@@ -131,9 +152,10 @@ jobs:
                         recentBuilds: recentBuilds.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
                       };
 
-                      console.log('Collected workflow statistics:', JSON.stringify(stats, null, 2));
+                      console.log('✅ Collected workflow statistics:', JSON.stringify(stats, null, 2));
                       return stats;
 
+            # Check Docker Hub images
             - name: Check Docker Hub images
               id: docker_stats
               run: |
@@ -165,6 +187,7 @@ jobs:
 
                   echo "docker_stats=$(cat docker_stats.json | jq -c .)" >> $GITHUB_OUTPUT
 
+            # Analyze system health
             - name: Analyze system health
               id: system_health
               uses: actions/github-script@v7
@@ -214,6 +237,7 @@ jobs:
                       console.log('System health analysis:', healthData);
                       return healthData;
 
+            # Compile dashboard data
             - name: Compile dashboard data
               id: compile_data
               uses: actions/github-script@v7
@@ -279,6 +303,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
+            # Find existing dashboard issue
             - name: Find existing dashboard issue
               id: find_issue
               uses: actions/github-script@v7
@@ -303,6 +328,7 @@ jobs:
                         return null;
                       }
 
+            # Generate dashboard content
             - name: Generate dashboard content
               id: generate_content
               run: |
@@ -389,6 +415,7 @@ jobs:
                   *⚙️ Last refresh: Workflow run [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
                   EOF
 
+            # Create or update dashboard issue
             - name: Create or update dashboard issue
               uses: actions/github-script@v7
               with:
@@ -402,24 +429,62 @@ jobs:
                       const workflowStats = dashboardData.workflow_stats;
                       const dockerStats = dashboardData.docker_stats;
 
-                      // Generate recent builds table
+                      console.log('📊 Workflow stats received:', workflowStats);
+                      console.log('🔢 Recent builds count:', workflowStats.recentBuilds?.length || 0);
+
+                      // ✅ Enhanced Recent Builds table generation
                       let recentBuildsTable = '';
                       if (workflowStats.recentBuilds && workflowStats.recentBuilds.length > 0) {
-                        recentBuildsTable = workflowStats.recentBuilds.slice(0, 5).map(build => {
+                        console.log('✅ Generating recent builds table...');
+                        
+                        recentBuildsTable = workflowStats.recentBuilds.slice(0, 8).map(build => {
                           const status = build.status === 'success' ? '✅' : 
                                        build.status === 'failure' ? '❌' : 
-                                       build.status === 'in_progress' ? '🔄' : '⏸️';
-                          const timeAgo = new Date(build.created_at).toLocaleDateString();
-                          return `| ${build.name} | ${status} ${build.status} | [#${build.run_number}](${build.html_url}) | ${timeAgo} |`;
+                                       build.status === 'in_progress' ? '🔄' : 
+                                       build.status === 'cancelled' ? '⏹️' : '⏸️';
+                          
+                          // More readable time format
+                          const buildTime = new Date(build.created_at);
+                          const timeAgo = buildTime.toLocaleDateString('en-US', { 
+                            month: 'short', 
+                            day: 'numeric', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          });
+                          
+                          // Shorten workflow names
+                          const shortName = build.name.replace('FEXBash Builder V4 (Optimized)', 'FEX Builder')
+                                                     .replace('Auto-detect FEX Releases', 'FEX Detection')
+                                                     .replace('Auto-detect RootFS Updates', 'RootFS Detection');
+                          
+                          return `| ${shortName} | ${status} ${build.status} | [#${build.run_number}](${build.html_url}) | ${timeAgo} |`;
                         }).join('\n');
+                        
+                        console.log('✅ Recent builds table generated:', recentBuildsTable);
                       } else {
-                        recentBuildsTable = '| No recent builds | - | - | - |';
+                        console.log('⚠️ No recent builds found, using fallback');
+                        recentBuildsTable = '| No recent builds found | - | - | - |';
                       }
 
-                      // Update dashboard content with real data
-                      const updatedContent = dashboardContent
-                        .replace('Loading...', workflowStats.totalRuns || 0)
-                        .replace(/\| Loading\.\.\. \| \.\.\. \| \.\.\. \| \.\.\. \|/, recentBuildsTable)
+                      // ✅ Safer string replacement
+                      let updatedContent = dashboardContent;
+
+                      // Replace recent builds table
+                      const loadingPattern = /\| Loading\.\.\. \| \.\.\. \| \.\.\. \| \.\.\. \|/g;
+                      if (updatedContent.match(loadingPattern)) {
+                        updatedContent = updatedContent.replace(loadingPattern, recentBuildsTable);
+                        console.log('✅ Recent builds table replaced successfully');
+                      } else {
+                        console.log('⚠️ Loading pattern not found, using alternative replacement');
+                        updatedContent = updatedContent.replace(
+                          /### 🏗️ Recent Build Activity\s*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|\s*\|[^|]*\|[^|]*\|[^|]*\|[^|]*\|/g,
+                          `### 🏗️ Recent Build Activity\n\n| Workflow | Status | Run # | Time |\n|----------|--------|-------|------|\n${recentBuildsTable}`
+                        );
+                      }
+
+                      // Replace other data
+                      updatedContent = updatedContent
+                        .replace(/Loading\.\.\./g, workflowStats.totalRuns || 0)
                         .replace('- **Total Pulls**: Loading...', `- **Total Pulls**: ${dockerStats.pull_count.toLocaleString()}`)
                         .replace('- **Stars**: Loading...', `- **Stars**: ${dockerStats.star_count}`)
                         .replace('- **Last Updated**: Loading...', `- **Last Updated**: ${dockerStats.last_updated}`)
@@ -437,7 +502,7 @@ jobs:
                           body: updatedContent
                         });
                         
-                        console.log(`Updated dashboard issue #${existingIssueNumber}`);
+                        console.log(`✅ Updated dashboard issue #${existingIssueNumber}`);
                       } else {
                         // Create new issue
                         const newIssue = await github.rest.issues.create({
@@ -448,9 +513,10 @@ jobs:
                           labels: ['automation-dashboard', 'pinned', 'enhancement']
                         });
                         
-                        console.log(`Created new dashboard issue #${newIssue.data.number}`);
+                        console.log(`✅ Created new dashboard issue #${newIssue.data.number}`);
                       }
 
+            # Generate job summary
             - name: Generate job summary
               run: |
                   echo "## 📊 Dashboard Update Summary" >> $GITHUB_STEP_SUMMARY
@@ -472,6 +538,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
+            # Find existing health alert issue
             - name: Find existing health alert issue
               id: find_health_issue
               uses: actions/github-script@v7
@@ -496,6 +563,7 @@ jobs:
                         return null;
                       }
 
+            # Generate health alert content
             - name: Generate health alert content
               id: generate_health_content
               run: |
@@ -548,6 +616,7 @@ jobs:
                   *⚙️ Last health check: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
                   EOF
 
+            # Create or update health alert issue
             - name: Create or update health alert issue
               uses: actions/github-script@v7
               with:
@@ -557,7 +626,6 @@ jobs:
                       const existingIssueNumber = ${{ steps.find_health_issue.outputs.result }};
                       const healthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
                       const dashboardData = JSON.parse('${{ needs.collect-metrics.outputs.dashboard_data }}');
-
 
                       let updatedContent = healthContent;
 
@@ -595,7 +663,6 @@ jobs:
                         
                         console.log(`Updated existing health alert issue #${existingIssueNumber}`);
                       } else {
-                        
                         const newIssue = await github.rest.issues.create({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
@@ -607,6 +674,7 @@ jobs:
                         console.log(`Created new health alert issue #${newIssue.data.number}`);
                       }
 
+    # Close health alert issue if system is healthy
     close-health-alert-if-healthy:
         needs: [collect-metrics, update-dashboard]
         if: needs.collect-metrics.outputs.system_health == 'healthy'
@@ -617,7 +685,6 @@ jobs:
               uses: actions/github-script@v7
               with:
                   script: |
-
                       const issues = await github.rest.issues.listForRepo({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
@@ -627,14 +694,12 @@ jobs:
 
                       for (const issue of issues.data) {
                         if (issue.title.includes('🚨 System Health Monitor')) {
-                          
                           await github.rest.issues.createComment({
                             owner: context.repo.owner,
                             repo: context.repo.repo,
                             issue_number: issue.number,
                             body: `## ✅ System Health Recovered!\n\n**Recovery Time**: ${new Date().toISOString()}\n**Status**: 🟢 All systems healthy\n\n🎉 All automation components have returned to normal operation.\n\nThis health monitor will remain closed until new issues are detected.`
                           });
-                          
                           
                           await github.rest.issues.update({
                             owner: context.repo.owner,
