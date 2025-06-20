@@ -1,26 +1,6 @@
 name: Universal Automation Dashboard
 
-on:
-    # schedule:
-    #     # Allow cron schedule to be set via Variables (default provided)
-    #     - cron: "*/30 * * * *"
-
-    workflow_run:
-        workflows: ["*"]
-        types: [completed, requested]
-
-    workflow_dispatch:
-        inputs:
-            force_refresh:
-                description: "Force refresh all dashboard data"
-                required: false
-                default: false
-                type: boolean
-
-permissions:
-    contents: read
-    issues: write
-    actions: read
+# Workflow-level environment variables with default values
 env:
     # 📊 PROJECT CONFIGURATION
     PROJECT_DISPLAY_NAME: ${{ github.repository }}
@@ -51,6 +31,35 @@ env:
     MONITORING_LABELS: "automation,ci,build,deploy"
     DASHBOARD_SCHEDULE: "*/30 * * * *"
 
+on:
+    # Schedule trigger (can be customized via environment variable)
+    schedule:
+        - cron: "*/30 * * * *"
+
+    # Auto-trigger when any workflow completes
+    workflow_run:
+        workflows: ["*"]
+        types: [completed, requested]
+
+    # Manual trigger with customization options
+    workflow_dispatch:
+        inputs:
+            force_refresh:
+                description: "Force refresh all dashboard data"
+                required: false
+                default: false
+                type: boolean
+            override_docker_repo:
+                description: "Override Docker repository (temporary)"
+                required: false
+                default: ""
+                type: string
+
+permissions:
+    contents: read
+    issues: write
+    actions: read
+
 jobs:
     load-configuration:
         runs-on: ubuntu-latest
@@ -62,59 +71,46 @@ jobs:
             external_monitoring_config: ${{ steps.config.outputs.external_monitoring_config }}
 
         steps:
-            - name: Load project configuration from Variables and Secrets
+            - name: Load project configuration from environment variables
               id: config
               uses: actions/github-script@v7
               with:
                   script: |
-                      console.log('🔧 Loading project configuration from GitHub Variables and Secrets...');
+                      console.log('Loading project configuration from environment variables...');
 
-                      // Load configuration from GitHub Variables
+                      // Load configuration from environment variables
                       const config = {
-                          // Docker configuration (Variables)
-                          docker_username: '${{ env.DOCKER_USERNAME }}' || '${{ github.repository_owner }}',
-                          docker_repo: '${{ env.DOCKER_USERNAME }}/${{ env.DOCKER_REPOSITORY }}' ||
-                                      '${{ github.repository_owner }}/${{ github.event.repository.name }}',
+                          docker_username: process.env.DOCKER_USERNAME,
+                          docker_repo: '${{ github.event.inputs.override_docker_repo }}' || 
+                                      `${process.env.DOCKER_USERNAME}/${process.env.DOCKER_REPOSITORY}`,
                           
-                          // Health status thresholds (Variables)
-                          health_warning_threshold: '${{ env.HEALTH_WARNING_THRESHOLD }}' || '90',
-                          health_critical_threshold: '${{ env.HEALTH_CRITICAL_THRESHOLD }}' || '95',
+                          project_display_name: process.env.PROJECT_DISPLAY_NAME,
+                          project_description: process.env.PROJECT_DESCRIPTION,
                           
-                          // Monitoring configuration (Variables)
-                          monitoring_labels: '${{ env.MONITORING_LABELS }}' || 'automation,ci,build,deploy',
-                          dashboard_update_frequency: '*/30 * * * *',
-                          history_days: '${{ env.HISTORY_DAYS }}' || '30',
+                          health_warning_threshold: process.env.HEALTH_WARNING_THRESHOLD,
+                          health_critical_threshold: process.env.HEALTH_CRITICAL_THRESHOLD,
                           
-                          // Notification settings (Variables)
-                          enable_health_alerts: '${{ env.ENABLE_HEALTH_ALERTS }}' || 'true',
-                          enable_slack_notifications: '${{ env.ENABLE_SLACK_NOTIFICATIONS }}' || 'false',
-                          enable_teams_notifications: '${{ env.ENABLE_TEAMS_NOTIFICATIONS }}' || 'false',
-                          enable_discord_notifications: '${{ env.ENABLE_DISCORD_NOTIFICATIONS }}' || 'false',
+                          monitoring_labels: process.env.MONITORING_LABELS,
+                          dashboard_update_frequency: process.env.DASHBOARD_SCHEDULE,
+                          history_days: process.env.HISTORY_DAYS,
                           
-                          // External monitoring service-specific settings (Variables) - Datadog removed
-                          enable_external_monitoring: '${{ env.ENABLE_EXTERNAL_MONITORING }}' || 'false',
-                          enable_prometheus_integration: '${{ env.ENABLE_PROMETHEUS_INTEGRATION }}' || 'false',
-                          enable_grafana_integration: '${{ env.ENABLE_GRAFANA_INTEGRATION }}' || 'false',
-                          enable_custom_webhook_integration: '${{ env.ENABLE_CUSTOM_WEBHOOK_INTEGRATION }}' || 'false',
+                          enable_health_alerts: process.env.ENABLE_HEALTH_ALERTS,
+                          enable_slack_notifications: process.env.ENABLE_SLACK_NOTIFICATIONS,
+                          enable_teams_notifications: process.env.ENABLE_TEAMS_NOTIFICATIONS,
+                          enable_discord_notifications: process.env.ENABLE_DISCORD_NOTIFICATIONS,
                           
-                          // Project metadata (Variables)
-                          project_display_name: '${{ env.PROJECT_DISPLAY_NAME }}' || '${{ github.repository }}',
-                          project_description: '${{ env.PROJECT_DESCRIPTION }}' || 'Automated project monitoring'
+                          enable_external_monitoring: process.env.ENABLE_EXTERNAL_MONITORING,
+                          enable_prometheus_integration: process.env.ENABLE_PROMETHEUS_INTEGRATION,
+                          enable_grafana_integration: process.env.ENABLE_GRAFANA_INTEGRATION,
+                          enable_custom_webhook_integration: process.env.ENABLE_CUSTOM_WEBHOOK_INTEGRATION
                       };
 
-                      console.log('📋 Loaded configuration:');
-                      console.log(`  - Docker Repo: ${config.docker_repo}`);
-                      console.log(`  - Health Thresholds: Warning ${config.health_warning_threshold}%, Critical ${config.health_critical_threshold}%`);
-                      console.log(`  - Monitoring Labels: ${config.monitoring_labels}`);
-                      console.log(`  - Update Frequency: ${config.dashboard_update_frequency}`);
-                      console.log(`  - Health Alerts: ${config.enable_health_alerts}`);
+                      console.log('Configuration loaded with defaults:');
+                      console.log(`  - Docker Username: ${config.docker_username}`);
+                      console.log(`  - Docker Repository: ${config.docker_repo}`);
+                      console.log(`  - Project Name: ${config.project_display_name}`);
+                      console.log(`  - Health Thresholds: ${config.health_warning_threshold}%/${config.health_critical_threshold}%`);
                       console.log(`  - Slack Notifications: ${config.enable_slack_notifications}`);
-                      console.log(`  - Teams Notifications: ${config.enable_teams_notifications}`);
-                      console.log(`  - Discord Notifications: ${config.enable_discord_notifications}`);
-                      console.log(`  - External Monitoring Master: ${config.enable_external_monitoring}`);
-                      console.log(`  - Prometheus Integration: ${config.enable_prometheus_integration}`);
-                      console.log(`  - Grafana Integration: ${config.enable_grafana_integration}`);
-                      console.log(`  - Custom Webhook Integration: ${config.enable_custom_webhook_integration}`);
 
                       // Configuration validation
                       const healthThresholds = {
@@ -123,7 +119,7 @@ jobs:
                       };
 
                       if (healthThresholds.warning >= healthThresholds.critical) {
-                          console.log('⚠️ Warning: Health warning threshold should be lower than critical threshold');
+                          console.log('Warning: Health warning threshold should be lower than critical threshold');
                           healthThresholds.warning = healthThresholds.critical - 5;
                       }
 
@@ -141,7 +137,7 @@ jobs:
                           external_monitoring: config.enable_external_monitoring === 'true'
                       };
 
-                      // External monitoring service-specific configuration (Datadog removed)
+                      // External monitoring service-specific configuration
                       const externalMonitoringConfig = {
                           master_enable: config.enable_external_monitoring === 'true',
                           prometheus: config.enable_prometheus_integration === 'true',
@@ -177,7 +173,7 @@ jobs:
                   script: |
                       const monitoringConfig = JSON.parse('${{ needs.load-configuration.outputs.monitoring_config }}');
 
-                      console.log(`🔍 Auto-discovering workflows with ${monitoringConfig.history_days} days history...`);
+                      console.log(`Auto-discovering workflows with ${monitoringConfig.history_days} days history...`);
 
                       const historyDate = new Date();
                       historyDate.setDate(historyDate.getDate() - monitoringConfig.history_days);
@@ -189,7 +185,7 @@ jobs:
                       });
 
                       const allWorkflows = workflowsResponse.data.workflows;
-                      console.log(`📋 Found ${allWorkflows.length} workflows in repository`);
+                      console.log(`Found ${allWorkflows.length} workflows in repository`);
 
                       // Auto-categorize workflows based on patterns
                       const workflowCategories = {
@@ -210,9 +206,8 @@ jobs:
 
                       for (const workflow of allWorkflows) {
                           const name = workflow.name.toLowerCase();
-                          const path = workflow.path.toLowerCase();
 
-                          console.log(`🔍 Analyzing workflow: ${workflow.name}`);
+                          console.log(`Analyzing workflow: ${workflow.name}`);
 
                           // Smart categorization
                           let category = 'other';
@@ -276,7 +271,7 @@ jobs:
                                   }
                               }
                           } catch (error) {
-                              console.log(`⚠️ Error fetching runs for ${workflow.name}: ${error.message}`);
+                              console.log(`Error fetching runs for ${workflow.name}: ${error.message}`);
                           }
                       }
 
@@ -294,7 +289,7 @@ jobs:
                           workflowCategories: workflowCategories
                       };
 
-                      console.log('✅ Workflow discovery completed:');
+                      console.log('Workflow discovery completed:');
                       Object.keys(workflowCategories).forEach(cat => {
                           console.log(`  - ${cat}: ${workflowCategories[cat].length} workflows`);
                       });
@@ -304,18 +299,17 @@ jobs:
             - name: Check container registry with configurable credentials
               id: container_stats
               env:
-                  # Access Token authentication
                   DOCKER_USERNAME: ${{ env.DOCKER_USERNAME }}
-                  DOCKER_ACCESS_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+                  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
                   DOCKER_REPO: ${{ needs.load-configuration.outputs.docker_repo }}
               run: |
-                  echo "🔍 Checking container registry with Docker Hub Access Token..."
+                  echo "Checking container registry with Docker Hub Access Token..."
 
                   # Access Token masking for security
-                  echo "::add-mask::$DOCKER_ACCESS_TOKEN"
+                  echo "::add-mask::$DOCKERHUB_TOKEN"
 
-                  echo "📊 Target repository: $DOCKER_REPO"
-                  echo "👤 Docker username: $DOCKER_USERNAME"
+                  echo "Target repository: $DOCKER_REPO"
+                  echo "Docker username: $DOCKER_USERNAME"
 
                   # Initialize default values
                   PULL_COUNT=0
@@ -323,67 +317,67 @@ jobs:
                   LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
                   # Docker Hub Access Token authentication (multiple methods)
-                  if [ ! -z "$DOCKER_ACCESS_TOKEN" ] && [ ! -z "$DOCKER_USERNAME" ]; then
-                      echo "🔐 Using Docker Hub Access Token authentication..."
+                  if [ ! -z "$DOCKERHUB_TOKEN" ] && [ ! -z "$DOCKER_USERNAME" ]; then
+                      echo "Using Docker Hub Access Token authentication..."
                       
                       # Method 1: Try Bearer Token authentication
-                      echo "🔑 Trying Bearer Token authentication..."
-                      REPO_INFO=$(curl -s -H "Authorization: Bearer $DOCKER_ACCESS_TOKEN" \
+                      echo "Trying Bearer Token authentication..."
+                      REPO_INFO=$(curl -s -H "Authorization: Bearer $DOCKERHUB_TOKEN" \
                           "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null)
                       
                       # If Bearer Token fails, Method 2: Use Username + Access Token for JWT
                       if [ -z "$REPO_INFO" ] || echo "$REPO_INFO" | grep -q "error\|unauthorized"; then
-                          echo "🔄 Bearer Token failed, trying Username + Access Token for JWT..."
+                          echo "Bearer Token failed, trying Username + Access Token for JWT..."
                           
                           TOKEN_RESPONSE=$(curl -s -X POST \
                               -H "Content-Type: application/json" \
-                              -d "{\"username\":\"$DOCKER_USERNAME\",\"password\":\"$DOCKER_ACCESS_TOKEN\"}" \
+                              -d "{\"username\":\"$DOCKER_USERNAME\",\"password\":\"$DOCKERHUB_TOKEN\"}" \
                               "https://hub.docker.com/v2/users/login/" 2>/dev/null)
                           
                           if echo "$TOKEN_RESPONSE" | jq -e .token >/dev/null 2>&1; then
                               JWT_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r .token)
-                              echo "✅ JWT Token obtained successfully"
+                              echo "JWT Token obtained successfully"
                               
                               # Authenticated API call with JWT Token
                               REPO_INFO=$(curl -s -H "Authorization: JWT $JWT_TOKEN" \
                                   "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null)
                               
                               if [ ! -z "$REPO_INFO" ] && ! echo "$REPO_INFO" | grep -q "error\|unauthorized"; then
-                                  echo "✅ Docker Hub authentication successful with JWT"
+                                  echo "Docker Hub authentication successful with JWT"
                               else
-                                  echo "⚠️ JWT authentication failed"
+                                  echo "JWT authentication failed"
                                   REPO_INFO=""
                               fi
                           else
-                              echo "⚠️ Failed to obtain JWT token with Access Token"
+                              echo "Failed to obtain JWT token with Access Token"
                               REPO_INFO=""
                           fi
                       else
-                          echo "✅ Bearer Token authentication successful"
+                          echo "Bearer Token authentication successful"
                       fi
                       
-                  elif [ ! -z "$DOCKER_ACCESS_TOKEN" ]; then
-                      echo "🔑 Using Access Token without username (Bearer only)..."
-                      REPO_INFO=$(curl -s -H "Authorization: Bearer $DOCKER_ACCESS_TOKEN" \
+                  elif [ ! -z "$DOCKERHUB_TOKEN" ]; then
+                      echo "Using Access Token without username (Bearer only)..."
+                      REPO_INFO=$(curl -s -H "Authorization: Bearer $DOCKERHUB_TOKEN" \
                           "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null)
                       
                       if [ ! -z "$REPO_INFO" ] && ! echo "$REPO_INFO" | grep -q "error\|unauthorized"; then
-                          echo "✅ Bearer Token authentication successful"
+                          echo "Bearer Token authentication successful"
                       else
-                          echo "⚠️ Bearer Token authentication failed"
+                          echo "Bearer Token authentication failed"
                           REPO_INFO=""
                       fi
                   fi
 
                   # Fallback to Public API if authentication fails
                   if [ -z "$REPO_INFO" ] || echo "$REPO_INFO" | grep -q "error\|unauthorized\|not found"; then
-                      echo "🔄 Authenticated access failed, falling back to public Docker Hub API..."
+                      echo "Authenticated access failed, falling back to public Docker Hub API..."
                       REPO_INFO=$(curl -s "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/" 2>/dev/null || echo '{}')
                       
                       if [ ! -z "$REPO_INFO" ] && [ "$REPO_INFO" != "{}" ]; then
-                          echo "📊 Using public API data (limited information)"
+                          echo "Using public API data (limited information)"
                       else
-                          echo "⚠️ No Docker Hub data available for $DOCKER_REPO"
+                          echo "No Docker Hub data available for $DOCKER_REPO"
                           REPO_INFO='{"pull_count":0,"star_count":0,"last_updated":null}'
                       fi
                   fi
@@ -398,40 +392,15 @@ jobs:
                           LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                       fi
                       
-                      echo "✅ Docker Hub data retrieved successfully:"
+                      echo "Docker Hub data retrieved successfully:"
                       echo "  - Total pulls: $PULL_COUNT"
                       echo "  - Stars: $STAR_COUNT"
                       echo "  - Last updated: $LAST_UPDATED"
                   else
-                      echo "⚠️ Failed to parse Docker Hub response, using defaults"
+                      echo "Failed to parse Docker Hub response, using defaults"
                       PULL_COUNT=0
                       STAR_COUNT=0
                       LAST_UPDATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                  fi
-
-                  # Additional information with Access Token
-                  if [ ! -z "$JWT_TOKEN" ]; then
-                      echo "🔍 Fetching additional authenticated data..."
-                      
-                      # Get tags information (detailed info available to authenticated users)
-                      TAGS_INFO=$(curl -s -H "Authorization: JWT $JWT_TOKEN" \
-                          "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/tags/?page_size=5" 2>/dev/null)
-                      
-                      if echo "$TAGS_INFO" | jq -e .results >/dev/null 2>&1; then
-                          TAG_COUNT=$(echo "$TAGS_INFO" | jq '.results | length')
-                          echo "📋 Available tags: $TAG_COUNT (showing recent)"
-                          echo "$TAGS_INFO" | jq -r '.results[]?.name' | head -3 | while read tag; do
-                              echo "  - $tag"
-                          done
-                      fi
-                      
-                      # Repository statistics (detailed info through authenticated access)
-                      STATS_INFO=$(curl -s -H "Authorization: JWT $JWT_TOKEN" \
-                          "https://hub.docker.com/v2/repositories/${DOCKER_REPO}/analytics/" 2>/dev/null)
-                      
-                      if echo "$STATS_INFO" | jq -e . >/dev/null 2>&1; then
-                          echo "📈 Additional statistics available through authenticated access"
-                      fi
                   fi
 
                   # Generate JSON output
@@ -442,14 +411,14 @@ jobs:
                     "pull_count": $PULL_COUNT,
                     "star_count": $STAR_COUNT,
                     "last_updated": "$LAST_UPDATED",
-                    "authentication_method": "$([ ! -z "$JWT_TOKEN" ] && echo "access_token_jwt" || [ ! -z "$DOCKER_ACCESS_TOKEN" ] && echo "access_token_bearer" || echo "public_api")",
+                    "authentication_method": "$([ ! -z "$JWT_TOKEN" ] && echo "access_token_jwt" || [ ! -z "$DOCKERHUB_TOKEN" ] && echo "access_token_bearer" || echo "public_api")",
                     "data_source": "$([ ! -z "$JWT_TOKEN" ] && echo "authenticated" || echo "public")"
                   }
                   EOF
 
                   echo "container_stats=$(cat container_stats.json | jq -c .)" >> $GITHUB_OUTPUT
 
-                  echo "🎉 Container registry check completed with Access Token authentication"
+                  echo "Container registry check completed with Access Token authentication"
 
             - name: External monitoring integration with service-specific control
               if: ${{ fromJson(needs.load-configuration.outputs.external_monitoring_config).master_enable }}
@@ -459,7 +428,7 @@ jobs:
                   GRAFANA_URL: ${{ secrets.GRAFANA_URL }}
                   CUSTOM_MONITORING_WEBHOOK: ${{ secrets.CUSTOM_MONITORING_WEBHOOK }}
               run: |
-                  echo "🔗 External monitoring integration with service-specific configuration..."
+                  echo "External monitoring integration with service-specific configuration..."
 
                   # External service secret masking
                   echo "::add-mask::$GRAFANA_API_KEY"
@@ -473,35 +442,30 @@ jobs:
                   GRAFANA_ENABLED=$(echo "$EXTERNAL_CONFIG" | jq -r '.grafana')
                   CUSTOM_WEBHOOK_ENABLED=$(echo "$EXTERNAL_CONFIG" | jq -r '.custom_webhook')
 
-                  echo "📋 Service-specific configuration:"
+                  echo "Service-specific configuration:"
                   echo "  - Prometheus Integration: $PROMETHEUS_ENABLED"
                   echo "  - Grafana Integration: $GRAFANA_ENABLED"
                   echo "  - Custom Webhook Integration: $CUSTOM_WEBHOOK_ENABLED"
 
                   # Extract dashboard data for metrics
-                  DASHBOARD_DATA='${{ needs.collect-metrics.outputs.dashboard_data }}'
-                  SUCCESS_RATE=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.successRate // 0')
-                  TOTAL_RUNS=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.totalRuns // 0')
-                  FAILED_RUNS=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.failedRuns // 0')
-                  AVG_DURATION=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.averageDuration // 0')
-                  DOCKER_PULLS=$(echo "$DASHBOARD_DATA" | jq -r '.container_stats.pull_count // 0')
-                  DOCKER_STARS=$(echo "$DASHBOARD_DATA" | jq -r '.container_stats.star_count // 0')
-                  ACTIVE_ISSUES=$(echo "$DASHBOARD_DATA" | jq -r '.active_issues // 0')
+                  DASHBOARD_DATA='${{ steps.compile_data.outputs.dashboard_json }}'
+                  SUCCESS_RATE=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.successRate // 0' 2>/dev/null || echo "0")
+                  TOTAL_RUNS=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.totalRuns // 0' 2>/dev/null || echo "0")
+                  FAILED_RUNS=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.failedRuns // 0' 2>/dev/null || echo "0")
+                  AVG_DURATION=$(echo "$DASHBOARD_DATA" | jq -r '.workflow_stats.averageDuration // 0' 2>/dev/null || echo "0")
 
                   CURRENT_TIMESTAMP=$(date +%s)
                   REPO_NAME="${{ github.repository }}"
 
-                  echo "📊 Extracted metrics for enabled services:"
+                  echo "Extracted metrics for enabled services:"
                   echo "  - Success Rate: ${SUCCESS_RATE}%"
                   echo "  - Total Runs: ${TOTAL_RUNS}"
                   echo "  - Failed Runs: ${FAILED_RUNS}"
                   echo "  - Average Duration: ${AVG_DURATION} minutes"
-                  echo "  - Docker Pulls: ${DOCKER_PULLS}"
-                  echo "  - Active Issues: ${ACTIVE_ISSUES}"
 
-                  # ✅ Conditional Prometheus Integration
+                  # Conditional Prometheus Integration
                   if [ "$PROMETHEUS_ENABLED" = "true" ] && [ ! -z "$PROMETHEUS_URL" ]; then
-                      echo "📈 Prometheus integration is ENABLED - sending metrics..."
+                      echo "Prometheus integration is ENABLED - sending metrics..."
                       
                       # Create Prometheus metrics file
                       cat > metrics.txt << EOF
@@ -521,24 +485,12 @@ jobs:
                   # TYPE github_workflow_average_duration_minutes gauge
                   github_workflow_average_duration_minutes{repository="$REPO_NAME",service="github-actions"} $AVG_DURATION
 
-                  # HELP github_container_pull_count Docker Hub pull count
-                  # TYPE github_container_pull_count gauge
-                  github_container_pull_count{repository="$REPO_NAME",service="docker-hub"} $DOCKER_PULLS
-
-                  # HELP github_container_star_count Docker Hub star count
-                  # TYPE github_container_star_count gauge
-                  github_container_star_count{repository="$REPO_NAME",service="docker-hub"} $DOCKER_STARS
-
-                  # HELP github_issues_active_count Active GitHub issues count
-                  # TYPE github_issues_active_count gauge
-                  github_issues_active_count{repository="$REPO_NAME",service="github-issues"} $ACTIVE_ISSUES
-
                   # HELP github_dashboard_last_update_timestamp Last dashboard update timestamp
                   # TYPE github_dashboard_last_update_timestamp gauge
                   github_dashboard_last_update_timestamp{repository="$REPO_NAME",service="dashboard"} $CURRENT_TIMESTAMP
                   EOF
                       
-                      echo "📋 Generated Prometheus metrics for pushgateway"
+                      echo "Generated Prometheus metrics for pushgateway"
                       
                       # Push to Prometheus Pushgateway with job and instance labels
                       JOB_NAME="github_workflow_monitoring"
@@ -550,23 +502,22 @@ jobs:
                       
                       HTTP_CODE="${PROMETHEUS_RESPONSE: -3}"
                       if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "202" ]; then
-                          echo "✅ Successfully pushed metrics to Prometheus Pushgateway"
+                          echo "Successfully pushed metrics to Prometheus Pushgateway"
                       else
-                          echo "❌ Failed to push metrics to Prometheus (HTTP: $HTTP_CODE)"
-                          echo "Response: ${PROMETHEUS_RESPONSE%???}"
+                          echo "Failed to push metrics to Prometheus (HTTP: $HTTP_CODE)"
                       fi
                       
                       # Cleanup
                       rm -f metrics.txt
                   elif [ "$PROMETHEUS_ENABLED" = "true" ]; then
-                      echo "⚠️ Prometheus integration is ENABLED but PROMETHEUS_URL is not configured"
+                      echo "Prometheus integration is ENABLED but PROMETHEUS_URL is not configured"
                   else
-                      echo "⚪ Prometheus integration is DISABLED - skipping"
+                      echo "Prometheus integration is DISABLED - skipping"
                   fi
 
-                  # ✅ Conditional Grafana Integration
+                  # Conditional Grafana Integration
                   if [ "$GRAFANA_ENABLED" = "true" ] && [ ! -z "$GRAFANA_API_KEY" ] && [ ! -z "$GRAFANA_URL" ]; then
-                      echo "📊 Grafana integration is ENABLED - creating annotations..."
+                      echo "Grafana integration is ENABLED - creating annotations..."
                       
                       # Create annotation for dashboard update
                       GRAFANA_ANNOTATION=$(cat << EOF
@@ -589,33 +540,19 @@ jobs:
                       
                       HTTP_CODE="${GRAFANA_RESPONSE: -3}"
                       if [ "$HTTP_CODE" = "200" ]; then
-                          echo "✅ Successfully created Grafana annotation"
+                          echo "Successfully created Grafana annotation"
                       else
-                          echo "❌ Failed to create Grafana annotation (HTTP: $HTTP_CODE)"
-                          echo "Response: ${GRAFANA_RESPONSE%???}"
-                      fi
-                      
-                      # Update Grafana dashboard variables (if dashboard exists)
-                      echo "🔄 Attempting to refresh Grafana dashboard..."
-                      DASHBOARD_REFRESH=$(curl -s -w "%{http_code}" -X POST \
-                          "$GRAFANA_URL/api/dashboards/uid/github-workflow-monitoring/restore" \
-                          -H "Authorization: Bearer $GRAFANA_API_KEY")
-                      
-                      HTTP_CODE="${DASHBOARD_REFRESH: -3}"
-                      if [ "$HTTP_CODE" = "200" ]; then
-                          echo "✅ Grafana dashboard refreshed"
-                      else
-                          echo "ℹ️ Grafana dashboard refresh not available or not configured"
+                          echo "Failed to create Grafana annotation (HTTP: $HTTP_CODE)"
                       fi
                   elif [ "$GRAFANA_ENABLED" = "true" ]; then
-                      echo "⚠️ Grafana integration is ENABLED but GRAFANA_API_KEY or GRAFANA_URL is not configured"
+                      echo "Grafana integration is ENABLED but GRAFANA_API_KEY or GRAFANA_URL is not configured"
                   else
-                      echo "⚪ Grafana integration is DISABLED - skipping"
+                      echo "Grafana integration is DISABLED - skipping"
                   fi
 
-                  # ✅ Conditional Custom Webhook Integration
+                  # Conditional Custom Webhook Integration
                   if [ "$CUSTOM_WEBHOOK_ENABLED" = "true" ] && [ ! -z "$CUSTOM_MONITORING_WEBHOOK" ]; then
-                      echo "🔗 Custom webhook integration is ENABLED - sending metrics..."
+                      echo "Custom webhook integration is ENABLED - sending metrics..."
                       
                       CUSTOM_PAYLOAD=$(cat << EOF
                   {
@@ -625,12 +562,9 @@ jobs:
                           "success_rate": $SUCCESS_RATE,
                           "total_runs": $TOTAL_RUNS,
                           "failed_runs": $FAILED_RUNS,
-                          "average_duration": $AVG_DURATION,
-                          "docker_pulls": $DOCKER_PULLS,
-                          "docker_stars": $DOCKER_STARS,
-                          "active_issues": $ACTIVE_ISSUES
+                          "average_duration": $AVG_DURATION
                       },
-                      "status": "${{ needs.collect-metrics.outputs.system_health }}",
+                      "status": "${{ steps.system_health.outputs.result }}",
                       "dashboard_url": "${{ github.server_url }}/${{ github.repository }}/issues?q=is%3Aopen+label%3Aautomation-dashboard"
                   }
                   EOF
@@ -643,21 +577,17 @@ jobs:
                       
                       HTTP_CODE="${CUSTOM_RESPONSE: -3}"
                       if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "202" ]; then
-                          echo "✅ Successfully sent metrics to custom webhook"
+                          echo "Successfully sent metrics to custom webhook"
                       else
-                          echo "❌ Failed to send metrics to custom webhook (HTTP: $HTTP_CODE)"
+                          echo "Failed to send metrics to custom webhook (HTTP: $HTTP_CODE)"
                       fi
                   elif [ "$CUSTOM_WEBHOOK_ENABLED" = "true" ]; then
-                      echo "⚠️ Custom webhook integration is ENABLED but CUSTOM_MONITORING_WEBHOOK is not configured"
+                      echo "Custom webhook integration is ENABLED but CUSTOM_MONITORING_WEBHOOK is not configured"
                   else
-                      echo "⚪ Custom webhook integration is DISABLED - skipping"
+                      echo "Custom webhook integration is DISABLED - skipping"
                   fi
 
-                  echo "🎉 External monitoring integration completed!"
-                  echo "📊 Service Status Summary:"
-                  echo "  - Prometheus: $([ "$PROMETHEUS_ENABLED" = "true" ] && [ ! -z "$PROMETHEUS_URL" ] && echo "✅ Active" || [ "$PROMETHEUS_ENABLED" = "true" ] && echo "⚠️ Enabled but not configured" || echo "⚪ Disabled")"
-                  echo "  - Grafana: $([ "$GRAFANA_ENABLED" = "true" ] && [ ! -z "$GRAFANA_API_KEY" ] && [ ! -z "$GRAFANA_URL" ] && echo "✅ Active" || [ "$GRAFANA_ENABLED" = "true" ] && echo "⚠️ Enabled but not configured" || echo "⚪ Disabled")"
-                  echo "  - Custom Webhook: $([ "$CUSTOM_WEBHOOK_ENABLED" = "true" ] && [ ! -z "$CUSTOM_MONITORING_WEBHOOK" ] && echo "✅ Active" || [ "$CUSTOM_WEBHOOK_ENABLED" = "true" ] && echo "⚠️ Enabled but not configured" || echo "⚪ Disabled")"
+                  echo "External monitoring integration completed!"
 
             - name: Analyze system health with configurable thresholds
               id: system_health
@@ -667,7 +597,7 @@ jobs:
                       const workflowStats = ${{ steps.discover_workflows.outputs.result }};
                       const healthThresholds = JSON.parse('${{ needs.load-configuration.outputs.health_thresholds }}');
 
-                      console.log(`🎯 Using configured health thresholds: Warning <${healthThresholds.warning}%, Critical <${healthThresholds.critical}%`);
+                      console.log(`Using configured health thresholds: Warning <${healthThresholds.warning}%, Critical <${healthThresholds.critical}%`);
 
                       let healthStatus = 'healthy';
                       let healthIssues = [];
@@ -717,7 +647,7 @@ jobs:
                           }
                       };
 
-                      console.log('📊 System health analysis:', healthData);
+                      console.log('System health analysis:', healthData);
                       return healthData;
 
             - name: Compile universal dashboard data
@@ -725,25 +655,25 @@ jobs:
               uses: actions/github-script@v7
               with:
                   script: |
-                      console.log('🔗 Starting dashboard data compilation...');
+                      console.log('Starting dashboard data compilation...');
 
-
+                      // Safe JSON parsing function
                       function safeJsonParse(jsonString, defaultValue = {}) {
                           try {
                               if (!jsonString || jsonString.trim() === '' || jsonString === 'undefined' || jsonString === 'null') {
-                                  console.log('⚠️ Empty or invalid JSON string, using default value');
+                                  console.log('Empty or invalid JSON string, using default value');
                                   return defaultValue;
                               }
                               return JSON.parse(jsonString);
                           } catch (error) {
-                              console.log(`❌ JSON parsing error: ${error.message}`);
+                              console.log(`JSON parsing error: ${error.message}`);
                               console.log(`Raw input: "${jsonString}"`);
                               return defaultValue;
                           }
                       }
 
-
-                      console.log('📊 Parsing workflow statistics...');
+                      // Parse each output safely
+                      console.log('Parsing workflow statistics...');
                       const workflowStatsRaw = '${{ steps.discover_workflows.outputs.result }}';
                       const workflowStats = safeJsonParse(workflowStatsRaw, {
                           totalRuns: 0,
@@ -754,9 +684,9 @@ jobs:
                           recentBuilds: [],
                           workflowCategories: {}
                       });
-                      console.log(`✅ Workflow stats parsed: ${workflowStats.totalRuns} total runs`);
+                      console.log(`Workflow stats parsed: ${workflowStats.totalRuns} total runs`);
 
-                      console.log('🐳 Parsing container statistics...');
+                      console.log('Parsing container statistics...');
                       const containerStatsRaw = '${{ steps.container_stats.outputs.container_stats }}';
                       const containerStats = safeJsonParse(containerStatsRaw, {
                           registry_type: "docker_hub",
@@ -767,9 +697,9 @@ jobs:
                           authentication_method: "fallback",
                           data_source: "default"
                       });
-                      console.log(`✅ Container stats parsed: ${containerStats.pull_count} pulls`);
+                      console.log(`Container stats parsed: ${containerStats.pull_count} pulls`);
 
-                      console.log('🏥 Parsing health data...');
+                      console.log('Parsing health data...');
                       const healthDataRaw = '${{ steps.system_health.outputs.result }}';
                       const healthData = safeJsonParse(healthDataRaw, {
                           status: 'unknown',
@@ -777,22 +707,22 @@ jobs:
                           last_check: new Date().toISOString(),
                           thresholds: { warning: 90, critical: 95 }
                       });
-                      console.log(`✅ Health data parsed: status = ${healthData.status}`);
+                      console.log(`Health data parsed: status = ${healthData.status}`);
 
-
-                      console.log('⚙️ Parsing monitoring configuration...');
+                      // Parse monitoring configuration safely
+                      console.log('Parsing monitoring configuration...');
                       const monitoringConfigRaw = '${{ needs.load-configuration.outputs.monitoring_config }}';
                       const monitoringConfig = safeJsonParse(monitoringConfigRaw, {
                           labels: ['automation', 'ci', 'build', 'deploy'],
                           history_days: 30,
                           update_frequency: '*/30 * * * *'
                       });
-                      console.log(`✅ Monitoring config parsed: ${monitoringConfig.labels.length} labels`);
+                      console.log(`Monitoring config parsed: ${monitoringConfig.labels.length} labels`);
 
-
+                      // Check for active automation issues (safe API call)
                       let activeAutomationIssues = 0;
                       try {
-                          console.log('🔍 Checking for active automation issues...');
+                          console.log('Checking for active automation issues...');
                           const issuesResponse = await github.rest.issues.listForRepo({
                               owner: context.repo.owner,
                               repo: context.repo.repo,
@@ -800,13 +730,13 @@ jobs:
                               state: 'open'
                           });
                           activeAutomationIssues = issuesResponse.data.length;
-                          console.log(`✅ Found ${activeAutomationIssues} active automation issues`);
+                          console.log(`Found ${activeAutomationIssues} active automation issues`);
                       } catch (error) {
-                          console.log(`⚠️ Failed to fetch issues: ${error.message}`);
+                          console.log(`Failed to fetch issues: ${error.message}`);
                           activeAutomationIssues = 0;
                       }
 
-
+                      // Final dashboard data composition
                       const dashboardData = {
                           last_updated: new Date().toISOString(),
                           system_health: healthData,
@@ -822,29 +752,29 @@ jobs:
                           }
                       };
 
-
-                      console.log('🔍 Validating compiled data...');
+                      // Data validation
+                      console.log('Validating compiled data...');
                       const requiredFields = ['last_updated', 'system_health', 'workflow_stats', 'container_stats'];
                       const missingFields = requiredFields.filter(field => !dashboardData[field]);
 
                       if (missingFields.length > 0) {
-                          console.log(`⚠️ Missing required fields: ${missingFields.join(', ')}`);
-                          
+                          console.log(`Missing required fields: ${missingFields.join(', ')}`);
+                          // Set default values for missing fields
                           missingFields.forEach(field => {
                               dashboardData[field] = {};
                           });
                       }
 
-
+                      // Set outputs
                       const dashboardDataString = JSON.stringify(dashboardData);
-                      console.log(`📊 Dashboard data size: ${dashboardDataString.length} characters`);
+                      console.log(`Dashboard data size: ${dashboardDataString.length} characters`);
 
                       core.setOutput('dashboard_json', dashboardDataString);
                       core.setOutput('last_updated', dashboardData.last_updated);
                       core.setOutput('system_health', healthData.status);
 
-                      console.log('✅ Dashboard data compilation completed successfully');
-                      console.log('📋 Summary:');
+                      console.log('Dashboard data compilation completed successfully');
+                      console.log('Summary:');
                       console.log(`  - Workflow Runs: ${workflowStats.totalRuns}`);
                       console.log(`  - Success Rate: ${workflowStats.successRate}%`);
                       console.log(`  - Container Pulls: ${containerStats.pull_count}`);
@@ -881,6 +811,7 @@ jobs:
                           console.log('No existing dashboard issue found');
                           return null;
                       }
+
             - name: Get previous dashboard data for comparison
               id: get_previous_data
               uses: actions/github-script@v7
@@ -921,9 +852,9 @@ jobs:
                               if (activeIssuesMatch) previousData.active_issues = parseInt(activeIssuesMatch[1]);
                               if (updateMatch) previousData.update_count = parseInt(updateMatch[1]);
 
-                              console.log('📊 Previous data extracted:', previousData);
+                              console.log('Previous data extracted:', previousData);
                           } catch (error) {
-                              console.log('⚠️ Could not extract previous data:', error.message);
+                              console.log('Could not extract previous data:', error.message);
                           }
                       }
 
@@ -935,6 +866,7 @@ jobs:
                   PROJECT_DESCRIPTION="${{ env.PROJECT_DESCRIPTION || 'Automated project monitoring' }}"
                   DOCKER_REPO="${{ needs.load-configuration.outputs.docker_repo }}"
 
+                  # Variables-based fully configurable dashboard
                   cat > dashboard_content.md << EOF
                   ## 🤖 ${PROJECT_NAME} - Automation Dashboard
 
@@ -1004,31 +936,6 @@ jobs:
                   - \`GRAFANA_API_KEY\`: Grafana API key (optional)
                   - \`GRAFANA_URL\`: Grafana instance URL (optional)
                   - \`CUSTOM_MONITORING_WEBHOOK\`: Custom monitoring webhook URL (optional)
-
-                  ### 🎯 Service Integration Status
-
-                  Current configuration status based on your Variables and Secrets:
-
-                  | Service | Status | Required Variables | Required Secrets |
-                  |---------|--------|-------------------|------------------|
-                  | **Docker Hub** | ${{ env.DOCKER_USERNAME && '✅ Configured' || '⚠️ Missing DOCKER_USERNAME' }} | DOCKER_USERNAME | DOCKERHUB_TOKEN |
-                  | **Health Alerts** | ${{ env.ENABLE_HEALTH_ALERTS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_HEALTH_ALERTS | - |
-                  | **Slack Notifications** | ${{ env.ENABLE_SLACK_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_SLACK_NOTIFICATIONS | SLACK_WEBHOOK_URL |
-                  | **Teams Notifications** | ${{ env.ENABLE_TEAMS_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_TEAMS_NOTIFICATIONS | TEAMS_WEBHOOK_URL |
-                  | **Discord Notifications** | ${{ env.ENABLE_DISCORD_NOTIFICATIONS == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_DISCORD_NOTIFICATIONS | DISCORD_WEBHOOK_URL |
-                  | **Prometheus Integration** | ${{ env.ENABLE_PROMETHEUS_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_PROMETHEUS_INTEGRATION | PROMETHEUS_URL |
-                  | **Grafana Integration** | ${{ env.ENABLE_GRAFANA_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_GRAFANA_INTEGRATION | GRAFANA_API_KEY, GRAFANA_URL |
-                  | **Custom Webhook** | ${{ env.ENABLE_CUSTOM_WEBHOOK_INTEGRATION == 'true' && '✅ Enabled' || '⚪ Disabled' }} | ENABLE_CUSTOM_WEBHOOK_INTEGRATION | CUSTOM_MONITORING_WEBHOOK |
-
-                  ### 🔗 Setup Links
-
-                  - [📖 Variables Setup Guide](../../settings/variables/actions)
-                  - [🔐 Secrets Setup Guide](../../settings/secrets/actions)
-                  - [📊 Docker Hub Access Token](https://hub.docker.com/settings/security)
-                  - [📱 Slack Webhook Setup](https://api.slack.com/messaging/webhooks)
-                  - [💼 Teams Webhook Setup](https://docs.microsoft.com/en-us/microsoftteams/platform/webhooks-and-connectors/how-to/add-incoming-webhook)
-                  - [🎮 Discord Webhook Setup](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks)
-                  - [📊 Grafana API Key](https://grafana.com/docs/grafana/latest/administration/api-keys/)
 
                   ### 📊 Current Automation Status
 
@@ -1106,14 +1013,14 @@ jobs:
                       const workflowStats = dashboardData.workflow_stats;
                       const containerStats = dashboardData.container_stats;
 
-
+                      // System health status processing
                       const systemHealthStatus = '${{ needs.collect-metrics.outputs.system_health }}';
                       const healthDisplay = systemHealthStatus === 'healthy' ? '🟢 Healthy' : 
                                           systemHealthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy';
 
-                      console.log(`📊 System health status: ${systemHealthStatus} -> ${healthDisplay}`);
+                      console.log('System health status: ' + systemHealthStatus + ' -> ' + healthDisplay);
 
-
+                      // Real-time tracking data calculation
                       const currentData = {
                           success_rate: parseFloat(workflowStats.successRate) || 0,
                           total_runs: workflowStats.totalRuns || 0,
@@ -1124,7 +1031,7 @@ jobs:
 
                       const updateCount = (previousData.update_count || 0) + 1;
 
-
+                      // Calculate trends
                       function getTrend(current, previous) {
                           if (previous === 0) return '🆕 New';
                           if (current > previous) return '📈 Up';
@@ -1140,7 +1047,7 @@ jobs:
                           active_issues: getTrend(currentData.active_issues, previousData.active_issues)
                       };
 
-
+                      // Generate workflow status table (placeholder outside table rows)
                       let workflowStatusTable = '';
                       Object.entries(workflowStats.workflowCategories).forEach(([category, workflows]) => {
                           if (workflows.length > 0) {
@@ -1154,7 +1061,7 @@ jobs:
                           workflowStatusTable = '| No workflows detected | ⚠️ None | - | - |';
                       }
 
-
+                      // Generate recent builds table (placeholder outside table rows)
                       let recentBuildsTable = '';
                       if (workflowStats.recentBuilds && workflowStats.recentBuilds.length > 0) {
                           recentBuildsTable = workflowStats.recentBuilds.slice(0, 10).map(build => {
@@ -1176,7 +1083,7 @@ jobs:
                           recentBuildsTable = '| No recent activity | - | - | - | - |';
                       }
 
-
+                      // Generate real-time update log
                       const updateLog = `
                       #### Recent Updates
 
@@ -1201,48 +1108,49 @@ jobs:
                       **Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
                       `;
 
-
+                      // Replace all placeholders (correct order: long ones first)
                       let updatedContent = dashboardContent
-                        .replace('SYSTEM_HEALTH_PLACEHOLDER', healthDisplay)
-                        .replace('UPDATE_NUMBER_PLACEHOLDER', updateCount)
-                        .replace('REALTIME_LOG_PLACEHOLDER', updateLog)
-                        .replace('WORKFLOW_STATUS_TABLE', workflowStatusTable)
-                        .replace('RECENT_BUILDS_TABLE', recentBuildsTable)
+                          .replace(/SYSTEM_HEALTH_PLACEHOLDER/g, healthDisplay)
+                          .replace(/UPDATE_NUMBER_PLACEHOLDER/g, updateCount)
+                          .replace(/REALTIME_LOG_PLACEHOLDER/g, updateLog)
+                          .replace(/WORKFLOW_STATUS_TABLE/g, workflowStatusTable)
+                          .replace(/RECENT_BUILDS_TABLE/g, recentBuildsTable)
+                          
+                          // Live tracking placeholders (long ones first)
+                          .replace(/SUCCESS_RATE_CURRENT/g, currentData.success_rate)
+                          .replace(/TOTAL_RUNS_CURRENT/g, currentData.total_runs)
+                          .replace(/FAILED_RUNS_CURRENT/g, currentData.failed_runs)
+                          .replace(/DOCKER_PULLS_CURRENT/g, currentData.docker_pulls.toLocaleString())
+                          .replace(/ACTIVE_ISSUES_CURRENT/g, currentData.active_issues)
+                          
+                          .replace(/PREV_SUCCESS_RATE/g, previousData.success_rate)
+                          .replace(/PREV_TOTAL_RUNS/g, previousData.total_runs)
+                          .replace(/PREV_FAILED_RUNS/g, previousData.failed_runs)
+                          .replace(/PREV_DOCKER_PULLS/g, previousData.docker_pulls.toLocaleString())
+                          .replace(/PREV_ACTIVE_ISSUES/g, previousData.active_issues)
+                          
+                          .replace(/TREND_SUCCESS_RATE/g, trends.success_rate)
+                          .replace(/TREND_TOTAL_RUNS/g, trends.total_runs)
+                          .replace(/TREND_FAILED_RUNS/g, trends.failed_runs)
+                          .replace(/TREND_DOCKER_PULLS/g, trends.docker_pulls)
+                          .replace(/TREND_ACTIVE_ISSUES/g, trends.active_issues)
+                          
+                          // Basic placeholders (short ones last)
+                          .replace(/SUCCESS_RATE/g, workflowStats.successRate || 0)
+                          .replace(/TOTAL_RUNS/g, workflowStats.totalRuns || 0)
+                          .replace(/FAILED_RUNS/g, workflowStats.failedRuns || 0)
+                          .replace(/ACTIVE_ISSUES/g, dashboardData.active_issues)
+                          .replace(/AVERAGE_DURATION/g, workflowStats.averageDuration || 0)
+                          .replace(/CONTAINER_PULLS/g, containerStats.pull_count.toLocaleString())
+                          .replace(/CONTAINER_STARS/g, containerStats.star_count)
+                          .replace(/CONTAINER_UPDATED/g, containerStats.last_updated);
 
-                        .replace('SUCCESS_RATE_CURRENT', currentData.success_rate)
-                        .replace('TOTAL_RUNS_CURRENT', currentData.total_runs)
-                        .replace('FAILED_RUNS_CURRENT', currentData.failed_runs)
-                        .replace('DOCKER_PULLS_CURRENT', currentData.docker_pulls.toLocaleString())
-                        .replace('ACTIVE_ISSUES_CURRENT', currentData.active_issues)
-                        
-                        .replace('PREV_SUCCESS_RATE', previousData.success_rate)
-                        .replace('PREV_TOTAL_RUNS', previousData.total_runs)
-                        .replace('PREV_FAILED_RUNS', previousData.failed_runs)
-                        .replace('PREV_DOCKER_PULLS', previousData.docker_pulls.toLocaleString())
-                        .replace('PREV_ACTIVE_ISSUES', previousData.active_issues)
-                        
-                        .replace('TREND_SUCCESS_RATE', trends.success_rate)
-                        .replace('TREND_TOTAL_RUNS', trends.total_runs)
-                        .replace('TREND_FAILED_RUNS', trends.failed_runs)
-                        .replace('TREND_DOCKER_PULLS', trends.docker_pulls)
-                        .replace('TREND_ACTIVE_ISSUES', trends.active_issues)
-                        
-                        .replace('SUCCESS_RATE', workflowStats.successRate || 0)
-                        .replace('TOTAL_RUNS', workflowStats.totalRuns || 0)
-                        .replace('FAILED_RUNS', workflowStats.failedRuns || 0)
-                        .replace('ACTIVE_ISSUES', dashboardData.active_issues)
-                        .replace('AVERAGE_DURATION', workflowStats.averageDuration || 0)
-                        .replace('CONTAINER_PULLS', containerStats.pull_count.toLocaleString())
-                        .replace('CONTAINER_STARS', containerStats.star_count)
-                        .replace('CONTAINER_UPDATED', containerStats.last_updated);
+                      console.log('All placeholders replaced successfully');
 
-
-                      console.log('✅ All placeholders replaced successfully');
-
-                      const title = `🤖 Automation Dashboard - ${{ env.PROJECT_DISPLAY_NAME || github.repository }}`;
+                      const title = '🤖 Automation Dashboard - ${{ env.PROJECT_DISPLAY_NAME || github.repository }}';
 
                       if (existingIssueNumber) {
-                          
+                          // Update existing issue
                           await github.rest.issues.update({
                               owner: context.repo.owner,
                               repo: context.repo.repo,
@@ -1251,31 +1159,35 @@ jobs:
                               body: updatedContent
                           });
 
+                          // Add real-time tracking comment
+                          const currentTime = new Date().toLocaleString('en-US', { 
+                              timeZone: 'Asia/Seoul',
+                              year: 'numeric',
+                              month: 'short', 
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit'
+                          });
                           
-                          const trackingComment = `## 🔄 Dashboard Update #${updateCount}
-
-                      **Update Time**: ${new Date().toLocaleString('en-US', { 
-                          timeZone: 'Asia/Seoul',
-                          year: 'numeric',
-                          month: 'short', 
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          second: '2-digit'
-                      })} KST
-
-                      **System Health**: ${healthDisplay}
-                      **Trigger**: ${{ github.event_name }} 
-                      **Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-                      ### 📊 Key Metrics
-                      - **Success Rate**: ${currentData.success_rate}% (${trends.success_rate.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new')})
-                      - **Total Runs**: ${currentData.total_runs} (${trends.total_runs.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new')})
-                      - **Failed Runs**: ${currentData.failed_runs} (${trends.failed_runs.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new')})
-                      - **Docker Pulls**: ${currentData.docker_pulls.toLocaleString()} (${trends.docker_pulls.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new')})
-
-                      ---
-                      *Dashboard content updated automatically*`;
+                          const trackingComment = [
+                              '## 🔄 Dashboard Update #' + updateCount,
+                              '',
+                              '**Update Time**: ' + currentTime + ' KST',
+                              '',
+                              '**System Health**: ' + healthDisplay,
+                              '**Trigger**: ${{ github.event_name }}',
+                              '**Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})',
+                              '',
+                              '### 📊 Key Metrics',
+                              '- **Success Rate**: ' + currentData.success_rate + '% (' + trends.success_rate.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new') + ')',
+                              '- **Total Runs**: ' + currentData.total_runs + ' (' + trends.total_runs.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new') + ')',
+                              '- **Failed Runs**: ' + currentData.failed_runs + ' (' + trends.failed_runs.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new') + ')',
+                              '- **Docker Pulls**: ' + currentData.docker_pulls.toLocaleString() + ' (' + trends.docker_pulls.replace('📈', '+').replace('📉', '-').replace('➖', '').replace('🆕', 'new') + ')',
+                              '',
+                              '---',
+                              '*Dashboard content updated automatically*'
+                          ].join('\n');
 
                           await github.rest.issues.createComment({
                               owner: context.repo.owner,
@@ -1284,9 +1196,9 @@ jobs:
                               body: trackingComment
                           });
 
-                          console.log(`✅ Updated dashboard issue #${existingIssueNumber} with tracking comment`);
+                          console.log('Updated dashboard issue #' + existingIssueNumber + ' with tracking comment');
                       } else {
-                          
+                          // Create new issue
                           const newIssue = await github.rest.issues.create({
                               owner: context.repo.owner,
                               repo: context.repo.repo,
@@ -1295,7 +1207,7 @@ jobs:
                               labels: ['automation-dashboard', 'pinned', 'enhancement', 'real-time-tracking']
                           });
 
-                          console.log(`✅ Created new dashboard issue #${newIssue.data.number} with real-time tracking`);
+                          console.log('Created new dashboard issue #' + newIssue.data.number + ' with real-time tracking');
                       }
 
     notify-health-issues:
@@ -1328,7 +1240,6 @@ jobs:
                           return null;
                       }
 
-            # 2. Health Alert 컨텐츠 생성
             - name: Generate health alert content
               id: generate_health_content
               run: |
@@ -1377,7 +1288,6 @@ jobs:
                   *⚙️ Last health check: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
                   EOF
 
-            # 3. ✅ 수정된 Health Alert 이슈 생성/업데이트 (중복 제거 및 상태 판정 개선)
             - name: Create or update health alert issue with dynamic analysis
               uses: actions/github-script@v7
               with:
@@ -1392,12 +1302,13 @@ jobs:
 
                       console.log('Processing health alert with dynamic component analysis...');
 
+                      // Data quality validation and deduplication function
                       function validateAndCleanBuilds(recentBuilds) {
-                          var cleanBuilds = [];
-                          var seenBuilds = new Set();
+                          let cleanBuilds = [];
+                          let seenBuilds = new Set();
                           
                           recentBuilds.forEach(function(build) {
-                              var buildKey = build.name + '_' + build.run_number + '_' + build.created_at;
+                              let buildKey = build.name + '_' + build.run_number + '_' + build.created_at;
                               if (!seenBuilds.has(buildKey)) {
                                   seenBuilds.add(buildKey);
                                   cleanBuilds.push(build);
@@ -1408,11 +1319,13 @@ jobs:
                           return cleanBuilds;
                       }
 
+                      // Enhanced workflow category health analysis function
                       function analyzeWorkflowCategoryHealth(categoryName, workflows, recentBuilds, overallHealth) {
                           console.log('Analyzing category: ' + categoryName + ' with ' + workflows.length + ' workflows');
                           
                           const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
                           
+                          // Find builds for this category
                           const categoryBuilds = recentBuilds.filter(function(build) {
                               return workflows.some(function(workflow) {
                                   return workflow.name === build.name;
@@ -1421,6 +1334,7 @@ jobs:
                           
                           console.log('Found ' + categoryBuilds.length + ' builds for ' + categoryName);
                           
+                          // Analyze recent status within 24 hours
                           const recentFailures = categoryBuilds.filter(function(build) {
                               return build.status === 'failure' && new Date(build.created_at) > twentyFourHoursAgo;
                           });
@@ -1433,9 +1347,9 @@ jobs:
                               return (build.status === 'in_progress' || build.status === 'queued');
                           });
 
-
-                          var failedWorkflowNames = [];
-                          var seenFailures = new Set();
+                          // Deduplicated failed workflow names
+                          let failedWorkflowNames = [];
+                          let seenFailures = new Set();
                           
                           recentFailures.forEach(function(build) {
                               if (!seenFailures.has(build.name)) {
@@ -1444,6 +1358,7 @@ jobs:
                               }
                           });
 
+                          // Enhanced status determination logic
                           if (recentFailures.length > Math.max(1, workflows.length * 0.3)) {
                               return {
                                   status: '🔴 Failed',
@@ -1459,8 +1374,8 @@ jobs:
                                   details: 'Failed: ' + failedWorkflowNames.join(', ')
                               };
                           } else if (inProgress.length > 0) {
-                              var runningNames = [];
-                              var seenRunning = new Set();
+                              let runningNames = [];
+                              let seenRunning = new Set();
                               inProgress.forEach(function(build) {
                                   if (!seenRunning.has(build.name)) {
                                       seenRunning.add(build.name);
@@ -1488,7 +1403,8 @@ jobs:
                                   details: 'Category is empty'
                               };
                           } else {
-                              var hasRecentActivity = categoryBuilds.length > 0;
+                              // "No activity" should show less severe status
+                              let hasRecentActivity = categoryBuilds.length > 0;
                               if (!hasRecentActivity) {
                                   return {
                                       status: '⚪ No Activity',
@@ -1498,13 +1414,14 @@ jobs:
                                   };
                               }
                               
-                              var statusMap = {
+                              // Has activity but no clear recent success/failure
+                              let statusMap = {
                                   'healthy': { status: '✅ Operational', action: 'Monitor', reason: 'System healthy' },
                                   'degraded': { status: '🟡 Watch', action: 'Check', reason: 'System degraded, monitoring needed' },
                                   'unhealthy': { status: '🟡 Unclear', action: 'Investigate', reason: 'System unhealthy, data unclear' }
                               };
                               
-                              var result = statusMap[overallHealth] || statusMap['unhealthy'];
+                              let result = statusMap[overallHealth] || statusMap['unhealthy'];
                               return {
                                   status: result.status,
                                   action: result.action,
@@ -1514,8 +1431,9 @@ jobs:
                           }
                       }
 
-                      var workflowCategories = {};
-                      var recentBuilds = [];
+                      // Safe data access
+                      let workflowCategories = {};
+                      let recentBuilds = [];
 
                       try {
                           workflowCategories = dashboardData.workflow_stats.workflowCategories || {};
@@ -1526,17 +1444,18 @@ jobs:
                           recentBuilds = [];
                       }
 
-                      var automationStatusTable = '';
-                      var categoryAnalysis = {};
+                      let automationStatusTable = '';
+                      let categoryAnalysis = {};
 
-                      for (var category in workflowCategories) {
+                      // Analyze each category
+                      for (let category in workflowCategories) {
                           if (workflowCategories.hasOwnProperty(category)) {
-                              var workflows = workflowCategories[category];
+                              let workflows = workflowCategories[category];
                               if (workflows.length > 0) {
-                                  var analysis = analyzeWorkflowCategoryHealth(category, workflows, recentBuilds, healthStatus);
+                                  let analysis = analyzeWorkflowCategoryHealth(category, workflows, recentBuilds, healthStatus);
                                   categoryAnalysis[category] = analysis;
                                   
-                                  var categoryDisplayName = category.charAt(0).toUpperCase() + category.slice(1) + ' Workflows';
+                                  let categoryDisplayName = category.charAt(0).toUpperCase() + category.slice(1) + ' Workflows';
                                   automationStatusTable += '| ' + categoryDisplayName + ' | ' + analysis.status + ' | ' + analysis.action + ' |\n';
                                   
                                   console.log(category + ': ' + analysis.status + ' (' + analysis.reason + ')');
@@ -1548,7 +1467,8 @@ jobs:
                           automationStatusTable = '| No workflow categories detected | ⚪ None | N/A |';
                       }
 
-                      var healthIssuesList = 'No specific issues detected.';
+                      // Health issues list generation
+                      let healthIssuesList = 'No specific issues detected.';
                       try {
                           if (dashboardData.system_health.issues && dashboardData.system_health.issues.length > 0) {
                               healthIssuesList = dashboardData.system_health.issues.map(function(issue) {
@@ -1559,7 +1479,8 @@ jobs:
                           console.log('Error processing health issues: ' + error.message);
                       }
 
-                      var notificationStatus = [
+                      // Notification status information
+                      let notificationStatus = [
                           '| Service | Status | Last Attempt |',
                           '|---------|--------|-------------|',
                           '| Slack | ' + (notificationConfig.slack_notifications ? '✅ Enabled' : '⚪ Disabled') + ' | This run |',
@@ -1568,10 +1489,11 @@ jobs:
                           '| GitHub Issue | ✅ Active | This run |'
                       ].join('\n');
 
-                      var healthStatusDisplay = healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy';
-                      var alertLevel = healthStatus === 'degraded' ? 'Warning' : 'Critical';
+                      let healthStatusDisplay = healthStatus === 'degraded' ? '🟡 Degraded' : '🔴 Unhealthy';
+                      let alertLevel = healthStatus === 'degraded' ? 'Warning' : 'Critical';
 
-                      var updatedContent = healthContent
+                      // Placeholder replacement
+                      let updatedContent = healthContent
                           .replace(/PLACEHOLDER_PROJECT_NAME/g, '${{ env.PROJECT_DISPLAY_NAME || github.repository }}')
                           .replace(/PLACEHOLDER_HEALTH_STATUS/g, healthStatusDisplay)
                           .replace(/PLACEHOLDER_LAST_UPDATED/g, new Date().toISOString())
@@ -1587,7 +1509,7 @@ jobs:
 
                       console.log('All placeholders replaced with dynamic component analysis');
 
-                      var title = '🚨 System Health Monitor - ${{ env.PROJECT_DISPLAY_NAME || github.repository }}';
+                      let title = '🚨 System Health Monitor - ${{ env.PROJECT_DISPLAY_NAME || github.repository }}';
 
                       if (existingIssueNumber) {
                           await github.rest.issues.update({
@@ -1599,7 +1521,8 @@ jobs:
                               state: 'open'
                           });
                           
-                          var currentTime = new Date().toLocaleString('en-US', { 
+                          // Detailed analysis results as comment
+                          let currentTime = new Date().toLocaleString('en-US', { 
                               timeZone: 'Asia/Seoul',
                               year: 'numeric',
                               month: 'short', 
@@ -1609,16 +1532,16 @@ jobs:
                               second: '2-digit'
                           });
                           
-                          var analysisDetails = [];
-                          for (var cat in categoryAnalysis) {
+                          let analysisDetails = [];
+                          for (let cat in categoryAnalysis) {
                               if (categoryAnalysis.hasOwnProperty(cat)) {
-                                  var analysis = categoryAnalysis[cat];
-                                  var catName = cat.charAt(0).toUpperCase() + cat.slice(1);
+                                  let analysis = categoryAnalysis[cat];
+                                  let catName = cat.charAt(0).toUpperCase() + cat.slice(1);
                                   analysisDetails.push('- **' + catName + '**: ' + analysis.status + ' - ' + analysis.details);
                               }
                           }
                           
-                          var detailedComment = [
+                          let detailedComment = [
                               '## 🔄 Health Status Update - ' + currentTime + ' KST',
                               '',
                               '**System Status**: ' + healthStatusDisplay,
@@ -1646,7 +1569,7 @@ jobs:
                           
                           console.log('Updated existing health alert issue #' + existingIssueNumber);
                       } else {
-                          var newIssue = await github.rest.issues.create({
+                          let newIssue = await github.rest.issues.create({
                               owner: context.repo.owner,
                               repo: context.repo.repo,
                               title: title,
@@ -1656,6 +1579,7 @@ jobs:
                           
                           console.log('Created new health alert issue #' + newIssue.data.number);
                       }
+
             - name: Send configurable notifications to multiple platforms
               if: ${{ fromJson(needs.load-configuration.outputs.notification_config).slack_notifications || fromJson(needs.load-configuration.outputs.notification_config).teams_notifications || fromJson(needs.load-configuration.outputs.notification_config).discord_notifications }}
               env:
@@ -1671,11 +1595,11 @@ jobs:
                   echo "::add-mask::$TEAMS_WEBHOOK_URL"
                   echo "::add-mask::$DISCORD_WEBHOOK_URL"
 
-                  echo "📢 Sending health alert notifications to configured platforms..."
+                  echo "Sending health alert notifications to configured platforms..."
 
                   # Slack notification
                   if [ "${{ fromJson(needs.load-configuration.outputs.notification_config).slack_notifications }}" = "true" ] && [ ! -z "$SLACK_WEBHOOK_URL" ]; then
-                      echo "📱 Sending Slack notification..."
+                      echo "Sending Slack notification..."
                       curl -X POST "$SLACK_WEBHOOK_URL" \
                           -H "Content-Type: application/json" \
                           -d "{
@@ -1696,12 +1620,12 @@ jobs:
                                       \"short\": true
                                   }]
                               }]
-                          }" && echo "✅ Slack notification sent"
+                          }" && echo "Slack notification sent"
                   fi
 
                   # Microsoft Teams notification
                   if [ "${{ fromJson(needs.load-configuration.outputs.notification_config).teams_notifications }}" = "true" ] && [ ! -z "$TEAMS_WEBHOOK_URL" ]; then
-                      echo "💼 Sending Microsoft Teams notification..."
+                      echo "Sending Microsoft Teams notification..."
                       curl -X POST "$TEAMS_WEBHOOK_URL" \
                           -H "Content-Type: application/json" \
                           -d '{
@@ -1727,12 +1651,12 @@ jobs:
                                       "uri": "${{ github.server_url }}/${{ github.repository }}/issues?q=is%3Aopen+label%3Aautomation-dashboard"
                                   }]
                               }]
-                          }' && echo "✅ Teams notification sent"
+                          }' && echo "Teams notification sent"
                   fi
 
                   # Discord notification
                   if [ "${{ fromJson(needs.load-configuration.outputs.notification_config).discord_notifications }}" = "true" ] && [ ! -z "$DISCORD_WEBHOOK_URL" ]; then
-                      echo "🎮 Sending Discord notification..."
+                      echo "Sending Discord notification..."
                       curl -X POST "$DISCORD_WEBHOOK_URL" \
                           -H "Content-Type: application/json" \
                           -d '{
@@ -1750,10 +1674,10 @@ jobs:
                                   },
                                   "timestamp": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
                               }]
-                          }' && echo "✅ Discord notification sent"
+                          }' && echo "Discord notification sent"
                   fi
 
-                  echo "📢 Notification delivery completed for all configured platforms"
+                  echo "Notification delivery completed for all configured platforms"
 
     close-health-alert-if-healthy:
         needs: [load-configuration, collect-metrics, update-dashboard]
@@ -1778,7 +1702,14 @@ jobs:
                                   owner: context.repo.owner,
                                   repo: context.repo.repo,
                                   issue_number: issue.number,
-                                  body: `## ✅ System Health Recovered!\n\n**Recovery Time**: ${new Date().toISOString()}\n**Status**: 🟢 All systems healthy\n\nAll automation components have returned to normal operation.\n\nThis health monitor will remain closed until new issues are detected.`
+                                  body: `## ✅ System Health Recovered!
+
+                      **Recovery Time**: ${new Date().toISOString()}
+                      **Status**: 🟢 All systems healthy
+
+                      All automation components have returned to normal operation.
+
+                      This health monitor will remain closed until new issues are detected.`
                               });
 
                               await github.rest.issues.update({
