@@ -1304,32 +1304,31 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            # Find existing health alert issue
             - name: Find existing health alert issue
               id: find_health_issue
               uses: actions/github-script@v7
               with:
                   script: |
                       const issues = await github.rest.issues.listForRepo({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        labels: 'automation-health-alert',
-                        state: 'open'
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          labels: 'automation-health-alert',
+                          state: 'open'
                       });
 
                       const healthIssue = issues.data.find(issue => 
-                        issue.title.includes('🚨 System Health Monitor')
+                          issue.title.includes('🚨 System Health Monitor')
                       );
 
                       if (healthIssue) {
-                        console.log(`Found existing health alert issue: #${healthIssue.number}`);
-                        return healthIssue.number;
+                          console.log('Found existing health alert issue: #' + healthIssue.number);
+                          return healthIssue.number;
                       } else {
-                        console.log('No existing health alert issue found');
-                        return null;
+                          console.log('No existing health alert issue found');
+                          return null;
                       }
 
-            # Generate health alert content
+            # 2. Health Alert 컨텐츠 생성
             - name: Generate health alert content
               id: generate_health_content
               run: |
@@ -1363,18 +1362,8 @@ jobs:
                   - [ ] Monitor system recovery
                   - [ ] Review [Automation Dashboard](../../issues?q=is%3Aopen+label%3Aautomation-dashboard) for details
 
-                  ### 📈 Health History:
-                  This issue tracks ongoing system health. It will be updated with each health check and automatically closed when all systems return to healthy status.
-
-                  ### 🔄 Auto-Resolution:
-                  ✅ This alert will automatically close when system health returns to **🟢 Healthy** status.
-
-                  ---
-
                   ### 🤖 Automation Components Status:
                   PLACEHOLDER_AUTOMATION_STATUS_TABLE
-
-                  ---
 
                   ### 🔔 Notification Status:
                   PLACEHOLDER_NOTIFICATION_STATUS
@@ -1388,7 +1377,7 @@ jobs:
                   *⚙️ Last health check: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})*
                   EOF
 
-            # Create or update health alert issue with dynamic component analysis
+            # 3. ✅ 수정된 Health Alert 이슈 생성/업데이트 (중복 제거 및 상태 판정 개선)
             - name: Create or update health alert issue with dynamic analysis
               uses: actions/github-script@v7
               with:
@@ -1403,12 +1392,27 @@ jobs:
 
                       console.log('Processing health alert with dynamic component analysis...');
 
+                      function validateAndCleanBuilds(recentBuilds) {
+                          var cleanBuilds = [];
+                          var seenBuilds = new Set();
+                          
+                          recentBuilds.forEach(function(build) {
+                              var buildKey = build.name + '_' + build.run_number + '_' + build.created_at;
+                              if (!seenBuilds.has(buildKey)) {
+                                  seenBuilds.add(buildKey);
+                                  cleanBuilds.push(build);
+                              }
+                          });
+                          
+                          console.log('Original builds: ' + recentBuilds.length + ', Clean builds: ' + cleanBuilds.length);
+                          return cleanBuilds;
+                      }
+
                       function analyzeWorkflowCategoryHealth(categoryName, workflows, recentBuilds, overallHealth) {
                           console.log('Analyzing category: ' + categoryName + ' with ' + workflows.length + ' workflows');
                           
                           const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
                           
-                          // Find builds for this category
                           const categoryBuilds = recentBuilds.filter(function(build) {
                               return workflows.some(function(workflow) {
                                   return workflow.name === build.name;
@@ -1417,7 +1421,6 @@ jobs:
                           
                           console.log('Found ' + categoryBuilds.length + ' builds for ' + categoryName);
                           
-                          // Analyze recent status within 24 hours
                           const recentFailures = categoryBuilds.filter(function(build) {
                               return build.status === 'failure' && new Date(build.created_at) > twentyFourHoursAgo;
                           });
@@ -1430,27 +1433,45 @@ jobs:
                               return (build.status === 'in_progress' || build.status === 'queued');
                           });
 
-                          // Dynamic status determination logic
+
+                          var failedWorkflowNames = [];
+                          var seenFailures = new Set();
+                          
+                          recentFailures.forEach(function(build) {
+                              if (!seenFailures.has(build.name)) {
+                                  seenFailures.add(build.name);
+                                  failedWorkflowNames.push(build.name);
+                              }
+                          });
+
                           if (recentFailures.length > Math.max(1, workflows.length * 0.3)) {
                               return {
                                   status: '🔴 Failed',
                                   action: 'Fix Required',
-                                  reason: recentFailures.length + '/' + workflows.length + ' workflows failed in 24h',
-                                  details: 'Affected: ' + recentFailures.map(function(f) { return f.name; }).join(', ')
+                                  reason: failedWorkflowNames.length + ' unique workflows failed in 24h',
+                                  details: 'Affected: ' + failedWorkflowNames.join(', ')
                               };
                           } else if (recentFailures.length > 0 && recentSuccesses.length === 0) {
                               return {
                                   status: '🟡 Degraded', 
                                   action: 'Review',
                                   reason: 'Recent failures detected',
-                                  details: 'Failed: ' + recentFailures.map(function(f) { return f.name; }).join(', ')
+                                  details: 'Failed: ' + failedWorkflowNames.join(', ')
                               };
                           } else if (inProgress.length > 0) {
+                              var runningNames = [];
+                              var seenRunning = new Set();
+                              inProgress.forEach(function(build) {
+                                  if (!seenRunning.has(build.name)) {
+                                      seenRunning.add(build.name);
+                                      runningNames.push(build.name);
+                                  }
+                              });
                               return {
                                   status: '🔄 Running',
                                   action: 'Monitor',
-                                  reason: inProgress.length + ' workflows in progress',
-                                  details: 'Running: ' + inProgress.map(function(p) { return p.name; }).join(', ')
+                                  reason: runningNames.length + ' workflows in progress',
+                                  details: 'Running: ' + runningNames.join(', ')
                               };
                           } else if (recentSuccesses.length > 0) {
                               return {
@@ -1467,11 +1488,20 @@ jobs:
                                   details: 'Category is empty'
                               };
                           } else {
-                              // Determine based on overall system status
+                              var hasRecentActivity = categoryBuilds.length > 0;
+                              if (!hasRecentActivity) {
+                                  return {
+                                      status: '⚪ No Activity',
+                                      action: 'Monitor',
+                                      reason: 'No recent activity detected',
+                                      details: 'No workflow runs in the last 24 hours'
+                                  };
+                              }
+                              
                               var statusMap = {
                                   'healthy': { status: '✅ Operational', action: 'Monitor', reason: 'System healthy' },
-                                  'degraded': { status: '🟡 Degraded', action: 'Review', reason: 'System degraded' },
-                                  'unhealthy': { status: '🔴 Critical', action: 'Urgent Fix', reason: 'System unhealthy' }
+                                  'degraded': { status: '🟡 Watch', action: 'Check', reason: 'System degraded, monitoring needed' },
+                                  'unhealthy': { status: '🟡 Unclear', action: 'Investigate', reason: 'System unhealthy, data unclear' }
                               };
                               
                               var result = statusMap[overallHealth] || statusMap['unhealthy'];
@@ -1479,7 +1509,7 @@ jobs:
                                   status: result.status,
                                   action: result.action,
                                   reason: result.reason,
-                                  details: 'No recent activity detected'
+                                  details: 'Some activity detected but no clear recent results'
                               };
                           }
                       }
@@ -1489,7 +1519,7 @@ jobs:
 
                       try {
                           workflowCategories = dashboardData.workflow_stats.workflowCategories || {};
-                          recentBuilds = dashboardData.workflow_stats.recentBuilds || [];
+                          recentBuilds = validateAndCleanBuilds(dashboardData.workflow_stats.recentBuilds || []);
                       } catch (error) {
                           console.log('Error accessing workflow data: ' + error.message);
                           workflowCategories = {};
@@ -1518,7 +1548,6 @@ jobs:
                           automationStatusTable = '| No workflow categories detected | ⚪ None | N/A |';
                       }
 
-                      // Health issues list generation
                       var healthIssuesList = 'No specific issues detected.';
                       try {
                           if (dashboardData.system_health.issues && dashboardData.system_health.issues.length > 0) {
@@ -1625,32 +1654,8 @@ jobs:
                               labels: ['automation-health-alert', 'alert', healthStatus, 'pinned']
                           });
                           
-                          var initComment = [
-                              '## 🚨 Health Alert Activated',
-                              '',
-                              '**Alert Created**: ' + new Date().toLocaleString('en-US', { timeZone: 'Asia/Seoul' }) + ' KST',
-                              '',
-                              'This health monitor will track system status and automatically update with each health check.',
-                              '',
-                              '**Monitoring Features**:',
-                              '- ✅ Dynamic component analysis',
-                              '- ✅ Real-time status updates',
-                              '- ✅ Automatic resolution',
-                              '- ✅ Multi-platform notifications',
-                              '',
-                              '🚨 **This alert will remain open until all systems return to healthy status.**'
-                          ].join('\n');
-                          
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: newIssue.data.number,
-                              body: initComment
-                          });
-                          
                           console.log('Created new health alert issue #' + newIssue.data.number);
                       }
-
             - name: Send configurable notifications to multiple platforms
               if: ${{ fromJson(needs.load-configuration.outputs.notification_config).slack_notifications || fromJson(needs.load-configuration.outputs.notification_config).teams_notifications || fromJson(needs.load-configuration.outputs.notification_config).discord_notifications }}
               env:
