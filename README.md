@@ -32,7 +32,6 @@ docker run -it --rm supersunho/fex-emu:ubuntu-24.04
 
 # Execute x86 command directly
 docker run --rm supersunho/fex-emu:ubuntu-24.04 FEXBash -c "uname -a"
-
 ```
      
 ### 💡 **Summary Of Image Tags**
@@ -64,7 +63,6 @@ Each image tag follows a structured naming pattern composed of three components:
 
 ```bash
 supersunho/fex-emu:<rootfs-os>-<rootfs-version>-<fex-version>
-
 ```
 
 **Components Explained:**
@@ -86,7 +84,6 @@ supersunho/fex-emu:<rootfs-os>-<rootfs-version>-<fex-version>
 supersunho/fex-emu:ubuntu-24.04-2506   # Ubuntu 24.04 + FEX version 2506
 supersunho/fex-emu:fedora-40-2506      # Fedora 40 + FEX version 2506
 supersunho/fex-emu:ubuntu-22.04-2505   # Ubuntu 22.04 + FEX version 2505
-
 ```
 
 
@@ -103,7 +100,6 @@ docker pull supersunho/fex-emu:ubuntu-22.04    # Ubuntu 22.04 LTS
 
 docker pull supersunho/fex-emu:fedora-40       # Fedora 40
 docker pull supersunho/fex-emu:fedora-38       # Fedora 38
-
 ```
 
 ## 💻 Usage Examples
@@ -114,7 +110,6 @@ docker pull supersunho/fex-emu:fedora-38       # Fedora 38
 docker run -it --rm supersunho/fex-emu:ubuntu-24.04
 
 # Inside container: now you can run x86 applications
-
 ```
 
 ### Run x86 Applications
@@ -124,8 +119,8 @@ docker run -it --rm supersunho/fex-emu:ubuntu-24.04
 
 docker run --rm supersunho/fex-emu:ubuntu-24.04 \
 FEXBash -c "ls /usr/bin | head -10"
-
 ```
+
 ## 🏗️ Architecture & Build Information
 
 - **Source**: Built from official [FEX-Emu project](https://github.com/FEX-Emu/FEX)
