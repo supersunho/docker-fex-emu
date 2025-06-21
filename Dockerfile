@@ -208,6 +208,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DCMAKE_RANLIB="$RANLIB_TOOL" \
         -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
         -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \ 
+        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lgcc -Wl,-Bdynamic" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
         -G Ninja .. && \
     echo "✅ CMake configuration completed for Ubuntu" && \
     \
@@ -333,6 +335,7 @@ RUN echo "📦 Copying FEX binaries to unified Ubuntu runtime..." && \
     echo "🚀 Ubuntu-optimized FEX ready for unified setup!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
+ENV LD_LIBRARY_PATH="/usr/local/fex/lib:$LD_LIBRARY_PATH"
 
 # Switch to fex user for RootFS setup
 USER fex
