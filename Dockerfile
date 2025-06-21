@@ -203,11 +203,14 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🎯 Optimizing for Ubuntu LTS stability and compatibility..." && \
     cmake \
         -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DUSE_LINKER=lld \
-        -DENABLE_LTO=True \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DUSE_LINKER=ld \
+        -DENABLE_LTO=False \
         -DBUILD_TESTS=False \
-        -DENABLE_ASSERTIONS=False \
+        -DENABLE_ASSERTIONS=True \
+        -DENABLE_JIT_OPTIMIZATION=False \
+        -DCMAKE_C_FLAGS="-march=armv8-a -mtune=generic" \      
+        -DCMAKE_CXX_FLAGS="-march=armv8-a -mtune=generic" \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
         -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
         $CCACHE_CMAKE_ARGS \
