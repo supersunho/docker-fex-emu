@@ -344,8 +344,8 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
     echo "  - Strategy: FEXRootFSFetcher + Manual fallback (UNIFIED)" && \
     \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
-    apt-get install -y apt-utils ca-certificates && \
-    update-ca-certificates && \ 
+    sudo apt-get install -y apt-utils ca-certificates && \
+    sudo update-ca-certificates && \ 
     echo "✅ CA certificates updated" && \
     # Setup FEX directories first
     mkdir -p /home/fex/.fex-emu/RootFS && \
