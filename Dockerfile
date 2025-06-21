@@ -103,7 +103,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         build-essential \   
         libgcc-s1 >/dev/null 2>&1 && \         
     \
-    echo "✅ All RootFS tools and dependencies installed successfully"
+    echo "✅ All RootFS tools and dependencies installed successfully" && \
+    \
     # Ubuntu cleanup
     echo "🧹 Cleaning up Ubuntu packages..." && \
     update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \ 
