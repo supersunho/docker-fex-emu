@@ -269,8 +269,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "✅ All RootFS tools and dependencies installed successfully" && \
     echo "🎯 Ubuntu RootFS preparer ready!" && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
-    apt-get update -qq >/dev/null 2>&1 && \
-    apt-get install -y apt-utils ca-certificates && \
+    apt-get install -qq -y apt-utils ca-certificates && \
     update-ca-certificates && \
     echo "✅ CA certificates updated"
 
@@ -525,6 +524,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         sudo curl wget jq \
         libstdc++6 libc6 file >/dev/null 2>&1 && \
     echo "✅ Ubuntu runtime packages installed successfully" && \
+    echo "🔒 Updating CA certificates for maximum compatibility..." && \
+    apt-get install -qq -y apt-utils ca-certificates && \
+    update-ca-certificates && \
+    echo "✅ CA certificates updated" && \
     echo "📊 Runtime package summary:" && \
     echo "  - System libraries: libstdc++6, libc6" && \
     echo "  - Utilities: sudo, curl, wget, jq, file" && \
