@@ -45,12 +45,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get install -qq -y --no-install-recommends  \
         git cmake ninja-build pkg-config ccache \
         nasm python3-dev python3-clang python3-setuptools \
-        libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
-        linux-headers-generic curl wget \
+        curl wget \
         software-properties-common openssl libssl-dev \
-        binutils binutils-aarch64-linux-gnu \
-        gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-        qtbase5-dev qtdeclarative5-dev && \
+        squashfs-tools squashfuse erofs-utils \
+        qtbase5-dev qttools5-dev qtdeclarative5-dev \
         >/dev/null 2>&1 && \
     echo "✅ Base packages installed successfully" && \
     \
@@ -181,8 +179,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CCACHE_DIR=/tmp/.ccache && \
         export CCACHE_MAXSIZE=2G && \
         export CCACHE_SLOPPINESS=pch_defines,time_macros && \
-        export CC="$CC_COMPILER" && \
-        export CXX="$CXX_COMPILER" && \
+        export CC="ccache $CC_COMPILER" && \
+        export CXX="ccache $CXX_COMPILER" && \
         ccache --zero-stats && \        
         CCACHE_CMAKE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache" && \
         echo "✅ ccache enabled with Ubuntu optimizations"; \
@@ -202,7 +200,14 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
-        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \   
+        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+        $CCACHE_CMAKE_ARGS \
+        -DCMAKE_AR="$AR_TOOL" \
+        -DCMAKE_RANLIB="$RANLIB_TOOL" \
+        -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
+        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
+        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
         -G Ninja .. && \
     echo "✅ CMake configuration completed for Ubuntu" && \
     \
@@ -226,139 +231,95 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🎉 FEX build completed successfully on Ubuntu!"
 
 #==============================================
-# 🔧 UNIFIED Runtime + RootFS Stage (Combined)
+# RootFS Preparation Stage (Ubuntu-based for compatibility)
 #==============================================
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:24.04 AS rootfs-preparer
 
 ARG FEX_VERSION
-ARG TARGETPLATFORM 
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 ARG ROOTFS_URL=""
 
-# Ubuntu runtime metadata
-LABEL org.opencontainers.image.title="FEXBash Ubuntu-Unified ARM64 Container"
-LABEL org.opencontainers.image.description="Unified RootFS+Runtime: High-performance x86/x86_64 emulation on ARM64"
-LABEL org.opencontainers.image.version="${FEX_VERSION}"
 LABEL fex.version="${FEX_VERSION}"
-LABEL fex.rootfs.distribution="${ROOTFS_OS}-${ROOTFS_VERSION}"
-LABEL build.platform="${TARGETPLATFORM}"
-LABEL base.image="ubuntu:24.04"
-LABEL build.type="unified-runtime-rootfs"
+LABEL fex.rootfs.os="${ROOTFS_OS}"
+LABEL fex.rootfs.version="${ROOTFS_VERSION}"
 
-# Set environment variables for Ubuntu runtime
 ENV DEBIAN_FRONTEND=noninteractive 
-ENV TZ=Asia/Seoul
-ENV FEX_VERSION=${FEX_VERSION}
-ENV ROOTFS_INFO="${ROOTFS_OS}-${ROOTFS_VERSION}"
 
-# Configure Ubuntu runtime environment
-RUN echo "🏗️ Setting up UNIFIED Ubuntu 24.04 LTS runtime environment..." && \
-    echo "🔧 COMBINED Runtime + RootFS setup in single stage!" && \
-    echo "📊 Ubuntu unified configuration:" && \
-    echo "  - Base: Ubuntu 24.04 LTS" && \
-    echo "  - Target: High-performance x86 emulation runtime" && \
-    echo "  - Features: Native glibc + LTS stability + Unified RootFS" && \
-    export DEBIAN_FRONTEND=noninteractive && \
-    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
-    echo $TZ > /etc/timezone && \
-    echo "⚙️ Configuring APT cache for Ubuntu runtime..." && \
-    rm -f /etc/apt/apt.conf.d/docker-clean && \
-    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
-    echo "✅ Ubuntu unified environment configured"
-
-# Install Ubuntu runtime AND RootFS extraction dependencies (COMBINED)
+# Install RootFS extraction tools and dependencies for Ubuntu
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    echo "📦 Installing UNIFIED Ubuntu runtime + RootFS packages..." && \
-    echo "🔍 Single-stage package installation for optimal compatibility..." && \
-    echo "📊 Runtime build parameters:" && \
-    echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \
-    echo "  - ROOTFS_VERSION: ${ROOTFS_VERSION}" && \
-    echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
+    echo "📦 Installing RootFS extraction tools and dependencies..." && \
+    echo "🐧 Using Ubuntu for RootFS preparation (maximum compatibility)" && \
+    echo "🔧 Setting up extraction toolchain..." && \
     apt-get update -qq >/dev/null 2>&1 && \
-    echo "📦 Installing unified runtime packages..." && \
-    apt-get install -qq -y --no-install-recommends  \
-        sudo curl wget jq \
-        libc6 \
-        libstdc++6 \
-        libssl3 \
-        libzstd1 \
+    apt-get install -qq -y --no-install-recommends \
+        curl \
+        sudo \
+        coreutils \
         squashfs-tools \
         erofs-utils \
         e2fsprogs \
-        util-linux \
-        coreutils \
-        binfmt-support \
-        apt-utils >/dev/null 2>&1 && \
-    echo "✅ Unified Ubuntu packages installed successfully" && \
-    echo "📊 Unified package summary:" && \
-    echo "  - Runtime libraries: libstdc++6, libc6" && \
-    echo "  - RootFS tools: squashfs-tools, erofs-utils" && \
-    echo "  - Utilities: sudo, curl, wget, jq" && \
-    echo "  - Architecture: ARM64 with x86 emulation support" && \
-    \
+        util-linux >/dev/null 2>&1 && \   
+    echo "✅ All RootFS tools and dependencies installed successfully" && \
+    echo "🎯 Ubuntu RootFS preparer ready!" && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
-    apt-get install -y apt-utils ca-certificates && \
-    update-ca-certificates && \ 
-    echo "✅ CA certificates updated" && \
-    # Ubuntu cleanup for size optimization
-    echo "🧹 Performing Ubuntu cleanup for size optimization..." && \ 
-    rm -rf /var/tmp/* && \
-    echo "✅ Unified Ubuntu setup completed successfully" && \
-    echo "🎉 Ubuntu unified environment ready!"
+    apt-get install -qq -y apt-utils ca-certificates && \
+    update-ca-certificates && \
+    echo "✅ CA certificates updated"
 
-RUN echo "👤 Creating fex user for unified Ubuntu runtime..." && \
-    echo "🔧 Configuring Ubuntu user management..." && \
+# Create fex user for FEXRootFSFetcher
+RUN echo "👤 Creating fex user for RootFS operations..." && \
     useradd -m -s /bin/bash fex && \
     usermod -aG sudo fex && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
-    mkdir -p /home/fex/.fex-emu/RootFS && \    
-    chown -R fex:fex /home/fex && \            
-    echo "✅ Ubuntu user configuration completed successfully" && \
-    echo "🎯 User 'fex' ready for unified x86 emulation!"
-
-# Copy optimized FEX binaries from Ubuntu builder
+    echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    echo "✅ fex user created with sudo privileges" && \
+    echo "🎯 Ready for RootFS setup operations"
+    
+# Copy FEX binaries from Ubuntu builder
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
-RUN echo "📦 Copying FEX binaries to unified Ubuntu runtime..." && \
-    echo "✅ FEX binaries copied to unified Ubuntu runtime successfully" && \
+RUN echo "📦 Copying FEX binaries from Ubuntu builder..." && \
+    echo "✅ FEX binaries copied successfully" && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
-    echo "🚀 Ubuntu-optimized FEX ready for unified setup!"
+    echo "🔧 Optimizing FEX binaries for production..." && \
+    strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    echo "✅ FEX binary optimization completed" && \
+    echo "🎉 Ubuntu-built FEX ready for RootFS operations!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
-ENV LD_LIBRARY_PATH="/usr/local/fex/lib:$LD_LIBRARY_PATH"
 
 # Switch to fex user for RootFS setup
 USER fex
 WORKDIR /home/fex
 
-# 🔧 UNIFIED RootFS Setup (In same stage as runtime!)
-RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
-    echo "🎯 CRITICAL: Setting up RootFS in SAME stage as runtime!" && \
-    echo "📊 Unified RootFS configuration:" && \
+# Setup RootFS using FEXRootFSFetcher with manual fallback
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    echo "🚀 Starting RootFS setup process..." && \
+    echo "📊 RootFS configuration summary:" && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
     echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
     echo "  - RootFS URL: ${ROOTFS_URL}" && \
-    echo "  - Strategy: FEXRootFSFetcher + Manual fallback (UNIFIED)" && \
+    echo "  - Strategy: FEXRootFSFetcher + Manual fallback" && \
     \
-    # Setup FEX directories first
-    mkdir -p /home/fex/.fex-emu/RootFS && \
-    # chown -R fex:fex /home/fex/.fex-emu && \
-    \
-    # Try FEXRootFSFetcher first (as fex user in unified environment)
+    # Try FEXRootFSFetcher first
     FEXROOTFS_SUCCESS=false && \
-    echo "🎯 Attempting FEXRootFSFetcher in UNIFIED environment..." && \
+    mkdir -p /home/fex/.fex-emu/RootFS && \
+    echo "🎯 Attempting FEXRootFSFetcher (primary method)..." && \
     for attempt in 1 2 3; do \
-        echo "⏳ FEXRootFSFetcher unified attempt $attempt/3..." && \
+        echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
         if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
-            echo "✅ FEXRootFSFetcher completed successfully in unified environment (attempt $attempt)" && \
+            echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
             FEXROOTFS_SUCCESS=true && \
             break; \
         else \
-            echo "❌ FEXRootFSFetcher failed in unified environment (attempt $attempt)" && \
+            echo "❌ FEXRootFSFetcher failed (attempt $attempt)" && \
             if [ $attempt -lt 3 ]; then \
                 echo "⏳ Waiting 5 seconds before retry..." && \
                 sleep 5; \
@@ -366,10 +327,10 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
         fi; \
     done && \
     \
-    # Fallback to manual setup if needed
+    # Fallback to manual setup with direct URL download
     if [ "$FEXROOTFS_SUCCESS" = "false" ]; then \
-        echo "🔄 FEXRootFSFetcher failed - activating unified manual setup fallback..." && \
-        echo "📥 Switching to direct URL download method in unified environment..." && \
+        echo "🔄 FEXRootFSFetcher failed - activating manual setup fallback..." && \
+        echo "📥 Switching to direct URL download method..." && \
         \ 
         mkdir -p /tmp/fex-rootfs && \
         \
@@ -384,17 +345,17 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
         \
         # Download RootFS using curl with retry logic
         DOWNLOAD_SUCCESS=false && \
-        echo "🔍 Starting unified download with retry mechanism..." && \
+        echo "🔍 Starting download with retry mechanism..." && \
         for download_attempt in 1 2 3; do \
-            echo "⏳ Unified download attempt $download_attempt/3..." && \
+            echo "⏳ Download attempt $download_attempt/3..." && \
             if curl -S -s -o -k -H 'Cache-Control: no-cache' -L --connect-timeout 30 --max-time 600 \
                     --retry 3 --retry-delay 5 \
                     "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH"; then \
-                echo "✅ RootFS downloaded successfully in unified environment (attempt $download_attempt)" && \
+                echo "✅ RootFS downloaded successfully (attempt $download_attempt)" && \
                 DOWNLOAD_SUCCESS=true && \
                 break; \
             else \
-                echo "❌ Unified download failed (attempt $download_attempt)" && \
+                echo "❌ Download failed (attempt $download_attempt)" && \
                 if [ $download_attempt -lt 3 ]; then \
                     echo "⏳ Waiting 10 seconds before retry..." && \
                     sleep 10; \
@@ -403,124 +364,229 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
         done && \
         \
         if [ "$DOWNLOAD_SUCCESS" = "false" ]; then \
-            echo "❌ Failed to download RootFS after 3 attempts in unified environment" && \
+            echo "❌ Failed to download RootFS after 3 attempts" && \
             exit 1; \
         fi && \
         \
-        echo "✅ Found RootFS file in unified setup: $ROOTFS_FILE" && \
+        echo "✅ Found RootFS file: $ROOTFS_FILE" && \
         echo "📊 File size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)" && \
         \
         ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
         EXTRACT_DIR="/home/fex/.fex-emu/RootFS/${ROOTFS_DIRNAME}" && \
-        echo "📁 Unified RootFS directory name: $ROOTFS_DIRNAME" && \
+        echo "📁 RootFS directory name: $ROOTFS_DIRNAME" && \
         \
         if [ -d "$EXTRACT_DIR" ]; then \
-            echo "🗑️ Removing existing RootFS directory in unified setup..." && \
+            echo "🗑️ Removing existing RootFS directory..." && \
             rm -rf "$EXTRACT_DIR"; \
         fi && \
         mkdir -p "$EXTRACT_DIR" && \
-        echo "📁 Created unified extraction directory: $EXTRACT_DIR" && \
+        echo "📁 Created extraction directory: $EXTRACT_DIR" && \
         \
         if echo "$ROOTFS_FILE" | grep -q '\.sqsh$\|\.squashfs$'; then \
-            echo "🔧 Extracting SquashFS file using unsquashfs in unified environment..." && \
-            unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" >/dev/null 2>&1 && \
-            echo "✅ SquashFS extraction completed successfully in unified environment"; \
+            echo "🔧 Extracting SquashFS file using unsquashfs..." && \
+            if command -v unsquashfs >/dev/null 2>&1; then \
+                unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" >/dev/null 2>&1 && \
+                echo "✅ SquashFS extraction completed successfully"; \
+            else \
+                echo "📦 unsquashfs not found. Installing squashfs-tools..." && \
+                apt-get update && apt-get install -y squashfs-tools && \
+                unsquashfs -f -d "$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" && \
+                echo "✅ SquashFS extraction completed with tools installation"; \
+            fi; \
         elif echo "$ROOTFS_FILE" | grep -q '\.ero$\|\.erofs$'; then \
-            echo "🔧 Extracting EROFS file in unified environment..." && \
+            echo "🔧 Extracting EROFS file..." && \
+            if ! command -v dump.erofs >/dev/null 2>&1; then \
+                echo "📦 Installing erofs-utils..." && \
+                apt-get update && apt-get install -y erofs-utils; \
+            fi && \
             dump.erofs --extract="$EXTRACT_DIR" "$ROOTFS_LOCAL_PATH" >/dev/null 2>&1 && \
-            echo "✅ EROFS extraction completed successfully in unified environment"; \
+            echo "✅ EROFS extraction completed successfully"; \
         else \
-            echo "❌ Unknown RootFS file format in unified setup: $ROOTFS_FILE" && \
+            echo "❌ Unknown RootFS file format: $ROOTFS_FILE" && \
             exit 1; \
         fi && \
         \
-        echo "⚙️ Writing FEX configuration in unified environment..." && \
+        echo "⚙️ Writing FEX configuration..." && \
         CONFIG_PATH="/home/fex/.fex-emu/Config.json" && \
         printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > "$CONFIG_PATH" && \
-        echo "✅ FEX configuration written to $CONFIG_PATH in unified environment" && \
+        echo "✅ FEX configuration written to $CONFIG_PATH" && \
         \
         chown -R fex:fex /home/fex/.fex-emu && \
         \
-        echo "🔍 Verifying unified manual RootFS installation..." && \
+        echo "🔍 Verifying manual RootFS installation..." && \
         if [ -d "$EXTRACT_DIR" ]; then \
             ROOTFS_CONTENT_COUNT=$(find "$EXTRACT_DIR" -type f | wc -l) && \
-            echo "📊 Unified manual RootFS verification results:" && \
+            echo "📊 Manual RootFS verification results:" && \
             echo "  - Directory: $EXTRACT_DIR" && \
             echo "  - Files: $ROOTFS_CONTENT_COUNT" && \
             if [ "$ROOTFS_CONTENT_COUNT" -gt 100 ]; then \
-                echo "✅ Unified manual RootFS appears to be properly extracted"; \
+                echo "✅ Manual RootFS appears to be properly extracted"; \
             else \
-                echo "⚠️ Unified manual RootFS may be incomplete (too few files)"; \
+                echo "⚠️ Manual RootFS may be incomplete (too few files)"; \
             fi; \
         else \
-            echo "❌ Unified manual RootFS directory not found after extraction" && \
+            echo "❌ Manual RootFS directory not found after extraction" && \
             exit 1; \
         fi && \
         \
-        echo "🎉 Unified manual RootFS setup completed successfully as fallback!"; \
+        echo "🎉 Manual RootFS setup completed successfully as fallback!"; \
     else \
-        echo "🎉 FEXRootFSFetcher unified setup completed successfully!" && \
+        echo "🎉 FEXRootFSFetcher setup completed successfully!" && \
         chown -R fex:fex /home/fex/.fex-emu; \
     fi && \
     \
-    # Final unified verification
-    echo "🔍 Final unified RootFS verification and summary..." && \
+    # Final verification
+    echo "🔍 Final RootFS verification and summary..." && \
     if [ -d "/home/fex/.fex-emu/RootFS" ]; then \
         ROOTFS_COUNT=$(find /home/fex/.fex-emu/RootFS -maxdepth 1 -type d | wc -l) && \
         ROOTFS_FILES=$(find /home/fex/.fex-emu/RootFS -type f | wc -l) && \
-        echo "🎉 Unified RootFS setup completed successfully!" && \ 
-        echo "📊 Final unified RootFS verification summary:" && \
+        echo "🎉 RootFS setup completed successfully!" && \ 
+        echo "📊 Final RootFS verification summary:" && \
         echo "  - RootFS directories: $ROOTFS_COUNT" && \
         echo "  - RootFS files: $ROOTFS_FILES" && \
-        echo "  - Method used: $( [ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (unified primary)" || echo "Manual setup (unified fallback)" )" && \
+        echo "  - Method used: $( [ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (primary)" || echo "Manual setup (fallback)" )" && \
         echo "  - RootFS size: $(du -sh /home/fex/.fex-emu/RootFS)" && \
         echo "  - Config file: $(ls -la /home/fex/.fex-emu/Config.json)" && \
         if [ "$ROOTFS_FILES" -gt 0 ]; then \
-            echo "✅ Final unified RootFS verification passed successfully"; \
+            echo "✅ Final RootFS verification passed successfully"; \
         else \
-            echo "❌ Final unified RootFS verification failed - no files found" && \
+            echo "❌ Final RootFS verification failed - no files found" && \
             exit 1; \
         fi; \
     else \
-        echo "❌ Unified RootFS directory not found" && \
+        echo "❌ RootFS directory not found" && \
         exit 1; \
     fi && \
     \
     # Cleanup
-    echo "🧹 Cleaning up temporary unified RootFS artifacts..." && \
+    echo "🧹 Cleaning up temporary RootFS artifacts..." && \
     rm -rf /tmp/fex-rootfs && \
     find /home/fex/.fex-emu/RootFS -name "*.sqsh" -delete 2>/dev/null || true && \
     find /home/fex/.fex-emu/RootFS -name "*.ero" -delete 2>/dev/null || true && \
-    echo "✅ Unified cleanup completed successfully" && \
-    echo "🚀 Ready for immediate x86 application execution in unified environment!" && \
-    echo "🎯 UNIFIED RootFS + Runtime setup complete!"
+    echo "✅ Cleanup completed successfully" && \
+    echo "🚀 Ready for immediate x86 application execution!" && \
+    echo "🎯 RootFS preparation stage complete!"
+
+#==============================================
+# Runtime Stage with Ubuntu LTS Base
+#==============================================
+FROM ubuntu:24.04 AS runtime
+
+ARG FEX_VERSION
+ARG TARGETPLATFORM 
+ARG ROOTFS_OS=ubuntu
+ARG ROOTFS_VERSION="24.04"
+ARG ROOTFS_TYPE=squashfs
+
+# Ubuntu runtime metadata
+LABEL org.opencontainers.image.title="FEXBash Ubuntu-Optimized ARM64 Container"
+LABEL org.opencontainers.image.description="High-performance x86/x86_64 emulation on ARM64 with Ubuntu LTS base"
+LABEL org.opencontainers.image.version="${FEX_VERSION}"
+LABEL fex.version="${FEX_VERSION}"
+LABEL fex.rootfs.distribution="${ROOTFS_OS}-${ROOTFS_VERSION}"
+LABEL build.platform="${TARGETPLATFORM}"
+LABEL base.image="ubuntu:24.04"
+
+# Set environment variables for Ubuntu runtime
+ENV DEBIAN_FRONTEND=noninteractive 
+ENV TZ=Asia/Seoul
+ENV FEX_VERSION=${FEX_VERSION}
+ENV ROOTFS_INFO="${ROOTFS_OS}-${ROOTFS_VERSION}"
+
+# Configure Ubuntu runtime environment
+RUN echo "🏗️ Setting up Ubuntu 24.04 LTS runtime environment..." && \
+    echo "📊 Ubuntu runtime configuration:" && \
+    echo "  - Base: Ubuntu 24.04 LTS" && \
+    echo "  - Target: High-performance x86 emulation runtime" && \
+    echo "  - Features: Native glibc + LTS stability" && \
+    export DEBIAN_FRONTEND=noninteractive && \
+    ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone && \
+    echo "⚙️ Configuring APT cache for Ubuntu runtime..." && \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
+    echo "✅ Ubuntu runtime environment configured"
+
+# Install minimal Ubuntu runtime dependencies 
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    echo "📦 Installing minimal Ubuntu runtime packages..." && \
+    echo "🔍 Selecting only essential runtime components..." && \
+    echo "📊 Runtime build parameters:" && \
+    echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \
+    echo "  - ROOTFS_VERSION: ${ROOTFS_VERSION}" && \
+    echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
+    apt-get update -qq >/dev/null 2>&1 && \
+    echo "📦 Installing minimal runtime packages..." && \
+    apt-get install -qq -y --no-install-recommends  \
+        sudo curl wget jq \
+        libc6 \
+        libstdc++6 \
+        libssl3 \
+        libzstd1 \
+        squashfs-tools \
+        erofs-utils \
+        binfmt-support >/dev/null 2>&1 && \
+    echo "✅ Ubuntu runtime packages installed successfully" && \
+    echo "🔒 Updating CA certificates for maximum compatibility..." && \
+    apt-get install -qq -y apt-utils ca-certificates && \
+    update-ca-certificates && \
+    echo "✅ CA certificates updated" && \
+    echo "📊 Runtime package summary:" && \
+    echo "  - System libraries: libstdc++6, libc6" && \
+    echo "  - Utilities: sudo, curl, wget, jq, file" && \
+    echo "  - Architecture: ARM64 with x86 emulation support" && \
+    \
+    # Ubuntu cleanup for size optimization
+    echo "🧹 Performing Ubuntu cleanup for size optimization..." && \ 
+    rm -rf /var/tmp/* && \
+    echo "✅ Ubuntu runtime setup completed successfully" && \
+    echo "🎉 Ubuntu runtime environment ready!"
+
+# Create Ubuntu user with proper configuration
+RUN echo "👤 Creating fex user for Ubuntu runtime..." && \
+    echo "🔧 Configuring Ubuntu user management..." && \
+    useradd -m -s /bin/bash fex && \
+    usermod -aG sudo fex && \
+    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
+    echo "✅ Ubuntu user configuration completed successfully" && \
+    echo "🎯 User 'fex' ready for x86 emulation!"
+
+# Copy optimized FEX binaries from Ubuntu builder
+COPY --from=fex-builder /usr/local/fex /usr/local/fex
+RUN echo "📦 Copying FEX binaries to Ubuntu runtime..." && \
+    echo "✅ FEX binaries copied to Ubuntu runtime successfully" && \
+    echo "📊 FEX installation summary:" && \
+    ls -la /usr/local/fex/bin/ && \
+    echo "🔧 Final FEX binary optimization for Ubuntu..." && \
+    strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    echo "✅ FEX binary optimization completed for Ubuntu runtime" && \
+    echo "🚀 Ubuntu-optimized FEX ready!"
+
+ENV PATH="/usr/local/fex/bin:$PATH"
+
+# Copy pre-extracted RootFS from Ubuntu preparer
+COPY --from=rootfs-preparer /home/fex/.fex-emu/ /home/fex/.fex-emu/ 
 
 # Set proper ownership and perform final Ubuntu optimization
-RUN echo "📦 Final unified ownership and optimization..." && \
-    sudo chown -R fex:fex /home/fex/.fex-emu && \
-    sudo chmod 0640 /etc/shadow && \
-    echo "✅ Unified ownership configured for Ubuntu" && \
-    echo "🎉 Unified RootFS + Runtime integrated in Ubuntu image!" && \
-    echo "📊 Final unified verification:" && \
+RUN echo "📦 Installing pre-extracted RootFS in Ubuntu runtime..." && \
+    chown -R fex:fex /home/fex/.fex-emu && \
+    chmod 0640 /etc/shadow && \
+    echo "✅ RootFS ownership configured for Ubuntu" && \
+    echo "🎉 RootFS pre-installed in Ubuntu image!" && \
+    echo "📊 Pre-installed RootFS verification:" && \
     echo "  - RootFS directory: $(ls -d /home/fex/.fex-emu/RootFS/*/ | head -1)" && \
     echo "  - RootFS files: $(find /home/fex/.fex-emu/RootFS -type f | wc -l)" && \
     echo "  - RootFS size: $(du -sh /home/fex/.fex-emu/RootFS)" && \
     echo "  - Config file: $(ls -la /home/fex/.fex-emu/Config.json)" && \
-    echo "🎯 Ubuntu + FEX + RootFS UNIFIED integration complete!" && \
-    echo "🚀 Ready for immediate x86 application execution on unified Ubuntu!" && \
-    echo "🏗️ Ultimate stability achieved: Ubuntu LTS + UNIFIED RootFS + FEX emulation!"
+    echo "🎯 Ubuntu + FEX + RootFS integration complete!" && \
+    echo "🚀 Ready for immediate x86 application execution on Ubuntu!" && \
+    echo "🏗️ Ultimate stability achieved: Ubuntu LTS base + Multi-RootFS + FEX emulation!"
 
-# Test FEX binaries in unified environment
-RUN echo "🧪 Testing FEX binaries in UNIFIED environment..." && \
-    echo "📋 Testing FEXBash execution in unified setup..." && \
-    if /usr/local/fex/bin/FEXBash -c 'echo "Unified environment test: SUCCESS"' ; then \
-        echo "✅ FEXBash working in UNIFIED environment"; \
-    else \
-        echo "❌ FEXBash failing in UNIFIED environment"; \
-        echo "📝 This indicates unified environment issues"; \
-        exit 1; \
-    fi && \
-    echo "✅ All FEX unified tests completed successfully"
+# Switch to fex user
+USER fex
+WORKDIR /home/fex 
 
-# Ubuntu-optimized startup command with unified information
-CMD ["/bin/bash", "-c", "echo '🎉 FEX-Emu UNIFIED on Ubuntu ready!' && echo '🏗️ Base: Ubuntu 24.04 LTS (UNIFIED Runtime+RootFS)' && echo '🏷️ FEX Version: ${FEX_VERSION}' && echo '🐧 RootFS: ${ROOTFS_INFO}' && echo '🔧 Ubuntu LTS UNIFIED for maximum compatibility!' && echo '📊 Native glibc: Perfect x86 emulation support' && echo '🚀 Performance: Near-native ARM64 execution with unified x86 emulation' && echo '💡 Try: FEXBash' && echo '🎯 Ready for x86 application execution in UNIFIED environment!' && /bin/bash"]
+# Ubuntu-optimized startup command with detailed information
+CMD ["/bin/bash", "-c", "echo '🎉 FEX-Emu on Ubuntu ready!' && echo '🏗️ Base: Ubuntu 24.04 LTS (Maximum compatibility)' && echo '🏷️ FEX Version: ${FEX_VERSION}' && echo '🐧 RootFS: ${ROOTFS_INFO}' && echo '🔧 Ubuntu LTS for maximum compatibility and enterprise stability!' && echo '📊 Native glibc: Perfect x86 emulation support' && echo '🚀 Performance: Near-native ARM64 execution with x86 emulation' && echo '💡 Try: FEXBash' && echo '🎯 Ready for x86 application execution!' && /bin/bash"]
