@@ -199,8 +199,6 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DENABLE_LTO=True \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
-        -DBUILD_THUNKS=FALSE \
-        -DBUILD_TOOLS=FALSE \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
         -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
         $CCACHE_CMAKE_ARGS \
@@ -522,7 +520,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "📦 Installing minimal runtime packages..." && \
     apt-get install -qq -y --no-install-recommends  \
         sudo curl wget jq \
-        libstdc++6 libc6 file >/dev/null 2>&1 && \
+        libc6 \
+        libstdc++6 \
+        libssl3 \
+        libzstd1 \
+        squashfs-tools \
+        erofs-utils \
+        binfmt-support >/dev/null 2>&1 && \
     echo "✅ Ubuntu runtime packages installed successfully" && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
     apt-get install -qq -y apt-utils ca-certificates && \
@@ -554,7 +558,7 @@ RUN echo "📦 Copying FEX binaries to Ubuntu runtime..." && \
     echo "✅ FEX binaries copied to Ubuntu runtime successfully" && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
-    echo "🔧 Final FEX binary optimization for Ubuntu..." && \
+    echo "🔧 Final FEX binary optimization for Ubuntu..."
     strip /usr/local/fex/bin/* 2>/dev/null || true && \
     find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
     echo "✅ FEX binary optimization completed for Ubuntu runtime" && \
