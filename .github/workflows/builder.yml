@@ -475,11 +475,11 @@ jobs:
               if: steps.check-images.outputs.build_fexbash == 'true'
               uses: actions/checkout@v4
 
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v3
-              with:
-                  platforms: linux/arm64
-                  cache-image: true
+            # - name: Set up QEMU
+            #   uses: docker/setup-qemu-action@v3
+            #   with:
+            #       platforms: linux/arm64
+            #       cache-image: true
             - name: Configure Docker Buildx with advanced settings
               id: setup-buildx
               if: steps.check-images.outputs.build_fexbash == 'true'
