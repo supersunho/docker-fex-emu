@@ -296,11 +296,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         util-linux \
         coreutils \
         binfmt-support \
-        apt-utils \
-        ca-certificates >/dev/null 2>&1 && \
+        apt-utils >/dev/null 2>&1 && \
     echo "✅ Unified Ubuntu packages installed successfully" && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
-    update-ca-certificates && \
+    apt-get install -qq -y apt-utils ca-certificates && \
+    update-ca-certificates && \ 
     echo "✅ CA certificates updated" && \
     echo "📊 Unified package summary:" && \
     echo "  - Runtime libraries: libstdc++6, libc6" && \
