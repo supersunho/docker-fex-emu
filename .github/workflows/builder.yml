@@ -478,7 +478,7 @@ jobs:
             - name: Set up QEMU
               uses: docker/setup-qemu-action@v3
               with:
-                  platforms: arm64
+                  platforms: linux/arm64
                   cache-image: true
             - name: Configure Docker Buildx with advanced settings
               id: setup-buildx
