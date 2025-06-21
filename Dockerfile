@@ -181,8 +181,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CCACHE_DIR=/tmp/.ccache && \
         export CCACHE_MAXSIZE=2G && \
         export CCACHE_SLOPPINESS=pch_defines,time_macros && \
-        export CC="ccache $CC_COMPILER" && \
-        export CXX="ccache $CXX_COMPILER" && \
+        export CC="$CC_COMPILER" && \
+        export CXX="$CXX_COMPILER" && \
         ccache --zero-stats && \        
         CCACHE_CMAKE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache" && \
         echo "✅ ccache enabled with Ubuntu optimizations"; \
@@ -202,14 +202,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
-        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
-        $CCACHE_CMAKE_ARGS \
-        -DCMAKE_AR="$AR_TOOL" \
-        -DCMAKE_RANLIB="$RANLIB_TOOL" \
-        -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
-        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \ 
-        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lgcc -Wl,-Bdynamic" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \   
         -G Ninja .. && \
     echo "✅ CMake configuration completed for Ubuntu" && \
     \
