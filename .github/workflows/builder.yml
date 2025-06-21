@@ -430,6 +430,7 @@ jobs:
         steps:
             - name: Disable AppArmor on the GitHub runner
               uses: cisagov/action-disable-apparmor@v1
+              continue-on-error: true
 
             - name: Display build target information
               run: |
