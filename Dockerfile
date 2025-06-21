@@ -298,10 +298,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         binfmt-support \
         apt-utils >/dev/null 2>&1 && \
     echo "✅ Unified Ubuntu packages installed successfully" && \
-    echo "🔒 Updating CA certificates for maximum compatibility..." && \
-    apt-get install -qq -y apt-utils ca-certificates && \
-    update-ca-certificates && \ 
-    echo "✅ CA certificates updated" && \
     echo "📊 Unified package summary:" && \
     echo "  - Runtime libraries: libstdc++6, libc6" && \
     echo "  - RootFS tools: squashfs-tools, erofs-utils" && \
@@ -333,6 +329,10 @@ RUN echo "📦 Copying FEX binaries to unified Ubuntu runtime..." && \
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 
+# Switch to fex user for RootFS setup
+USER fex
+WORKDIR /home/fex
+
 # 🔧 UNIFIED RootFS Setup (In same stage as runtime!)
 RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
     echo "🎯 CRITICAL: Setting up RootFS in SAME stage as runtime!" && \
@@ -343,6 +343,10 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
     echo "  - RootFS URL: ${ROOTFS_URL}" && \
     echo "  - Strategy: FEXRootFSFetcher + Manual fallback (UNIFIED)" && \
     \
+    echo "🔒 Updating CA certificates for maximum compatibility..." && \
+    apt-get install -y apt-utils ca-certificates && \
+    update-ca-certificates && \ 
+    echo "✅ CA certificates updated" && \
     # Setup FEX directories first
     mkdir -p /home/fex/.fex-emu/RootFS && \
     chown -R fex:fex /home/fex/.fex-emu && \
@@ -352,7 +356,7 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
     echo "🎯 Attempting FEXRootFSFetcher in UNIFIED environment..." && \
     for attempt in 1 2 3; do \
         echo "⏳ FEXRootFSFetcher unified attempt $attempt/3..." && \
-        if timeout 300 sudo -u fex FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+        if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
             echo "✅ FEXRootFSFetcher completed successfully in unified environment (attempt $attempt)" && \
             FEXROOTFS_SUCCESS=true && \
             break; \
@@ -508,10 +512,6 @@ RUN echo "📦 Final unified ownership and optimization..." && \
     echo "🎯 Ubuntu + FEX + RootFS UNIFIED integration complete!" && \
     echo "🚀 Ready for immediate x86 application execution on unified Ubuntu!" && \
     echo "🏗️ Ultimate stability achieved: Ubuntu LTS + UNIFIED RootFS + FEX emulation!"
-
-# Switch to fex user
-USER fex
-WORKDIR /home/fex 
 
 # Test FEX binaries in unified environment
 RUN echo "🧪 Testing FEX binaries in UNIFIED environment..." && \
