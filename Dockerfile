@@ -350,7 +350,7 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
     \
     # Setup FEX directories first
     mkdir -p /home/fex/.fex-emu/RootFS && \
-    chown -R fex:fex /home/fex/.fex-emu && \
+    # chown -R fex:fex /home/fex/.fex-emu && \
     \
     # Try FEXRootFSFetcher first (as fex user in unified environment)
     FEXROOTFS_SUCCESS=false && \
