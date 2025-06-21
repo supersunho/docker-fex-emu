@@ -304,18 +304,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "  - Utilities: sudo, curl, wget, jq" && \
     echo "  - Architecture: ARM64 with x86 emulation support" && \
     \
+    echo "🔒 Updating CA certificates for maximum compatibility..." && \
+    apt-get install -y apt-utils ca-certificates && \
+    update-ca-certificates && \ 
+    echo "✅ CA certificates updated" && \
     # Ubuntu cleanup for size optimization
     echo "🧹 Performing Ubuntu cleanup for size optimization..." && \ 
     rm -rf /var/tmp/* && \
     echo "✅ Unified Ubuntu setup completed successfully" && \
     echo "🎉 Ubuntu unified environment ready!"
 
-# Create Ubuntu user with proper configuration
 RUN echo "👤 Creating fex user for unified Ubuntu runtime..." && \
     echo "🔧 Configuring Ubuntu user management..." && \
     useradd -m -s /bin/bash fex && \
     usermod -aG sudo fex && \
     echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
+    mkdir -p /home/fex/.fex-emu/RootFS && \    
+    chown -R fex:fex /home/fex && \            
     echo "✅ Ubuntu user configuration completed successfully" && \
     echo "🎯 User 'fex' ready for unified x86 emulation!"
 
@@ -343,10 +348,6 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
     echo "  - RootFS URL: ${ROOTFS_URL}" && \
     echo "  - Strategy: FEXRootFSFetcher + Manual fallback (UNIFIED)" && \
     \
-    echo "🔒 Updating CA certificates for maximum compatibility..." && \
-    sudo apt-get install -y apt-utils ca-certificates && \
-    sudo update-ca-certificates && \ 
-    echo "✅ CA certificates updated" && \
     # Setup FEX directories first
     mkdir -p /home/fex/.fex-emu/RootFS && \
     chown -R fex:fex /home/fex/.fex-emu && \
@@ -356,7 +357,7 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
     echo "🎯 Attempting FEXRootFSFetcher in UNIFIED environment..." && \
     for attempt in 1 2 3; do \
         echo "⏳ FEXRootFSFetcher unified attempt $attempt/3..." && \
-        if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+        if FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
             echo "✅ FEXRootFSFetcher completed successfully in unified environment (attempt $attempt)" && \
             FEXROOTFS_SUCCESS=true && \
             break; \
