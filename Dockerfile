@@ -4,7 +4,7 @@ ARG BASE_IMAGE=ubuntu:24.04
 #==============================================
 # Build Stage - Ubuntu LTS Base
 #==============================================
-FROM --platformlinux/arm64 ubuntu:24.04 AS fex-builder
+FROM --platform=linux/arm64 ubuntu:24.04 AS fex-builder
 
 ARG TARGETPLATFORM 
 ARG ROOTFS_OS=ubuntu
@@ -231,7 +231,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
 #==============================================
 # RootFS Preparation Stage (Ubuntu-based for compatibility)
 #==============================================
-FROM --platformlinux/arm64 ubuntu:24.04 AS rootfs-preparer
+FROM --platform=linux/arm64 ubuntu:24.04 AS rootfs-preparer
 
 ARG FEX_VERSION
 ARG ROOTFS_OS=ubuntu
@@ -468,7 +468,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 #==============================================
 # Runtime Stage with Ubuntu LTS Base
 #==============================================
-FROM --platformlinux/arm64 ubuntu:24.04 AS runtime
+FROM --platform=linux/arm64 ubuntu:24.04 AS runtime
 
 ARG FEX_VERSION
 ARG TARGETPLATFORM 
