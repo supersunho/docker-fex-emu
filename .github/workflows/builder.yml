@@ -74,7 +74,7 @@ env:
     LLVM_VERSION: "18"
     DOCKER_BUILDKIT: 1
     BUILDKIT_PROGRESS: plain
-    CACHE_VERSION: v2
+    CACHE_VERSION: v3
     DOCKERHUB_REPO: supersunho/fex-emu
 
 # Default permissions (least privilege)
