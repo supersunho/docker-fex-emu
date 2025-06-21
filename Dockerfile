@@ -586,5 +586,31 @@ RUN echo "📦 Installing pre-extracted RootFS in Ubuntu runtime..." && \
 USER fex
 WORKDIR /home/fex 
 
+RUN echo "🧪 Testing FEX binaries before optimization..." && \
+    echo "📋 Testing FEXBash execution..." && \
+    if /usr/local/fex/bin/FEXBash -c 'echo "Pre-optimization test: SUCCESS"' ; then \
+        echo "✅ FEXBash working BEFORE optimization"; \
+    else \
+        echo "❌ FEXBash failing BEFORE optimization"; \
+        echo "📝 This indicates build/compilation issues"; \
+        exit 1; \
+    fi && \
+    \
+    echo "🔧 Optimizing FEX binaries for production..." && \
+    strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    \
+    echo "🧪 Testing FEX binaries after optimization..." && \
+    if /usr/local/fex/bin/FEXBash -c 'echo "Post-optimization test: SUCCESS"' ; then \
+        echo "✅ FEXBash working AFTER optimization"; \
+    else \
+        echo "❌ FEXBash failing AFTER optimization"; \
+        echo "📝 This indicates strip/optimization broke the binary"; \
+        exit 1; \
+    fi && \
+    \
+    echo "✅ All FEX binary tests completed successfully"
+ 
+
 # Ubuntu-optimized startup command with detailed information
 CMD ["/bin/bash", "-c", "echo '🎉 FEX-Emu on Ubuntu ready!' && echo '🏗️ Base: Ubuntu 24.04 LTS (Maximum compatibility)' && echo '🏷️ FEX Version: ${FEX_VERSION}' && echo '🐧 RootFS: ${ROOTFS_INFO}' && echo '🔧 Ubuntu LTS for maximum compatibility and enterprise stability!' && echo '📊 Native glibc: Perfect x86 emulation support' && echo '🚀 Performance: Near-native ARM64 execution with x86 emulation' && echo '💡 Try: FEXBash' && echo '🎯 Ready for x86 application execution!' && /bin/bash"]
