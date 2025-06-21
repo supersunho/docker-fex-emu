@@ -353,7 +353,7 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
     echo "🎯 Attempting FEXRootFSFetcher in UNIFIED environment..." && \
     for attempt in 1 2 3; do \
         echo "⏳ FEXRootFSFetcher unified attempt $attempt/3..." && \
-        if FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+        if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
             echo "✅ FEXRootFSFetcher completed successfully in unified environment (attempt $attempt)" && \
             FEXROOTFS_SUCCESS=true && \
             break; \
