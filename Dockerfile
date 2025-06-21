@@ -95,7 +95,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "🔍 Verifying LLVM ${LLVM_VERSION} installation..." && \
     clang-${LLVM_VERSION} --version && \
     echo "✅ LLVM ${LLVM_VERSION} verification completed" && \
+    \  
+    echo "🎯 Installing critical FEX JIT dependencies..." && \
+    apt-get install -qq -y \
+        libunwind-dev \     
+        libc6-dev \         
+        build-essential \   
+        libgcc-s1 >/dev/null 2>&1 && \         
     \
+    echo "✅ All RootFS tools and dependencies installed successfully"
     # Ubuntu cleanup
     echo "🧹 Cleaning up Ubuntu packages..." && \
     update-alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \ 
@@ -264,8 +272,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         erofs-utils \
         e2fsprogs \
         util-linux >/dev/null 2>&1 && \   
-    echo "✅ All RootFS tools and dependencies installed successfully" && \
-    echo "🎯 Ubuntu RootFS preparer ready!" && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
     apt-get install -qq -y apt-utils ca-certificates && \
     update-ca-certificates && \
