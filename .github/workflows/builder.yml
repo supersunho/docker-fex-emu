@@ -561,7 +561,7 @@ jobs:
 
             # Version-aware FEX source cloning
             - name: Clone FEX source for target version
-              if: steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-source.outputs.cache-hit != 'true'
+              if: github.event.inputs.force_rebuild == 'true' || (steps.check-images.outputs.build_fexbash == 'true' && steps.cache-fex-source.outputs.cache-hit != 'true')
               run: |
                   rm -rf /tmp/fex-source
 
@@ -569,14 +569,14 @@ jobs:
 
                   if [ "$TARGET_VERSION" = "latest" ] || [ -z "$TARGET_VERSION" ]; then
                     echo "🔍 Cloning latest FEX main branch..."
-                    git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
+                    git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
                   else
                     echo "🎯 Cloning FEX for specific version: $TARGET_VERSION"
                     # Attempt to checkout specific tag
-                    git clone --depth 1 --recurse-submodules --shallow-submodules --branch "$TARGET_VERSION" https://github.com/FEX-Emu/FEX.git /tmp/fex-source 2>/dev/null || \
+                    git clone --recurse-submodules --branch "$TARGET_VERSION" https://github.com/FEX-Emu/FEX.git /tmp/fex-source 2>/dev/null || \
                     {
                       echo "⚠️ Tag $TARGET_VERSION not found, falling back to main branch"
-                      git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
+                      git clone --recurse-submodules https://github.com/FEX-Emu/FEX.git /tmp/fex-source
                     }
                   fi
 
