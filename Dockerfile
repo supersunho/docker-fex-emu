@@ -4,7 +4,7 @@ ARG BASE_IMAGE=ubuntu:24.04
 #==============================================
 # Build Stage - Ubuntu LTS Base
 #==============================================
-FROM --platform=linux/arm64 ubuntu:24.04 AS fex-builder
+FROM --platformlinux/arm64 ubuntu:24.04 AS fex-builder
 
 ARG TARGETPLATFORM 
 ARG ROOTFS_OS=ubuntu
@@ -231,7 +231,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
 #==============================================
 # RootFS Preparation Stage (Ubuntu-based for compatibility)
 #==============================================
-FROM --platform=linux/arm64 ubuntu:24.04 AS rootfs-preparer
+FROM --platformlinux/arm64 ubuntu:24.04 AS rootfs-preparer
 
 ARG FEX_VERSION
 ARG ROOTFS_OS=ubuntu
@@ -283,10 +283,10 @@ RUN echo "📦 Copying FEX binaries from Ubuntu builder..." && \
     echo "✅ FEX binaries copied successfully" && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
-    echo "🔧 Optimizing FEX binaries for production..." && \
-    strip /usr/local/fex/bin/* 2>/dev/null || true && \
-    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
-    echo "✅ FEX binary optimization completed" && \
+    # echo "🔧 Optimizing FEX binaries for production..." && \
+    # strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    # find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    # echo "✅ FEX binary optimization completed" && \
     echo "🎉 Ubuntu-built FEX ready for RootFS operations!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
@@ -468,7 +468,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 #==============================================
 # Runtime Stage with Ubuntu LTS Base
 #==============================================
-FROM --platform=linux/arm64 ubuntu:24.04 AS runtime
+FROM --platformlinux/arm64 ubuntu:24.04 AS runtime
 
 ARG FEX_VERSION
 ARG TARGETPLATFORM 
@@ -556,10 +556,10 @@ RUN echo "📦 Copying FEX binaries to Ubuntu runtime..." && \
     echo "✅ FEX binaries copied to Ubuntu runtime successfully" && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
-    echo "🔧 Final FEX binary optimization for Ubuntu..." && \
-    strip /usr/local/fex/bin/* 2>/dev/null || true && \
-    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
-    echo "✅ FEX binary optimization completed for Ubuntu runtime" && \
+    # echo "🔧 Final FEX binary optimization for Ubuntu..." && \
+    # strip /usr/local/fex/bin/* 2>/dev/null || true && \
+    # find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
+    # echo "✅ FEX binary optimization completed for Ubuntu runtime" && \
     echo "🚀 Ubuntu-optimized FEX ready!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
