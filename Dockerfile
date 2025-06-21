@@ -501,8 +501,8 @@ RUN echo "🚀 Starting UNIFIED RootFS setup process..." && \
 
 # Set proper ownership and perform final Ubuntu optimization
 RUN echo "📦 Final unified ownership and optimization..." && \
-    chown -R fex:fex /home/fex/.fex-emu && \
-    chmod 0640 /etc/shadow && \
+    sudo chown -R fex:fex /home/fex/.fex-emu && \
+    sudo chmod 0640 /etc/shadow && \
     echo "✅ Unified ownership configured for Ubuntu" && \
     echo "🎉 Unified RootFS + Runtime integrated in Ubuntu image!" && \
     echo "📊 Final unified verification:" && \
