@@ -558,7 +558,7 @@ RUN echo "📦 Copying FEX binaries to Ubuntu runtime..." && \
     echo "✅ FEX binaries copied to Ubuntu runtime successfully" && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
-    echo "🔧 Final FEX binary optimization for Ubuntu..."
+    echo "🔧 Final FEX binary optimization for Ubuntu..." && \
     strip /usr/local/fex/bin/* 2>/dev/null || true && \
     find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
     echo "✅ FEX binary optimization completed for Ubuntu runtime" && \
