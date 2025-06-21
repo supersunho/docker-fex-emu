@@ -31,7 +31,11 @@ on:
                     - "fedora-all"
                     - "full-matrix"
                     - "custom"
-
+            custom_dockerfile:
+                description: "Custom dockerfile"
+                required: false
+                default: "Dockerfile"
+                type: string
             custom_distros:
                 description: "Custom distributions (comma-separated)"
                 required: false
@@ -589,7 +593,7 @@ jobs:
               uses: docker/build-push-action@v5
               with:
                   context: .
-                  file: ./Dockerfile
+                  file: ./${{github.event.inputs.custom_dockerfile}}
                   platforms: linux/arm64
                   push: ${{ github.event_name != 'pull_request' }}
                   tags: |
