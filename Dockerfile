@@ -45,10 +45,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get install -qq -y --no-install-recommends  \
         git cmake ninja-build pkg-config ccache \
         nasm python3-dev python3-clang python3-setuptools \
-        curl wget \
+        libcap-dev libglfw3-dev libepoxy-dev libsdl2-dev \
+        linux-headers-generic curl wget \
         software-properties-common openssl libssl-dev \
-        squashfs-tools squashfuse erofs-utils \
-        qtbase5-dev qttools5-dev qtdeclarative5-dev \
+        binutils binutils-aarch64-linux-gnu \
+        gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+        qtbase5-dev qtdeclarative5-dev && \
         >/dev/null 2>&1 && \
     echo "✅ Base packages installed successfully" && \
     \
@@ -205,9 +207,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DCMAKE_AR="$AR_TOOL" \
         -DCMAKE_RANLIB="$RANLIB_TOOL" \
         -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
-        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
-        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \ 
         -G Ninja .. && \
     echo "✅ CMake configuration completed for Ubuntu" && \
     \
