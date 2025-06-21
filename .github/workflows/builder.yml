@@ -475,12 +475,20 @@ jobs:
               if: steps.check-images.outputs.build_fexbash == 'true'
               uses: actions/checkout@v4
 
+            - name: Set up QEMU
+              uses: docker/setup-qemu-action@v3
+              with:
+                  platforms: arm64
+                  cache-image: true
             - name: Configure Docker Buildx with advanced settings
               id: setup-buildx
               if: steps.check-images.outputs.build_fexbash == 'true'
               uses: docker/setup-buildx-action@v3
               with:
+                  driver: docker-container
+                  use: true
                   install: true
+                  platforms: linux/arm64
                   driver-opts: |
                       network=host
                       image=moby/buildkit:buildx-stable-1
