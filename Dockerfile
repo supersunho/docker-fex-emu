@@ -240,7 +240,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🎉 FEX build completed successfully on Ubuntu!"
 
 #==============================================
-# 🔧 SHARED RootFS Preparation Stage
+# RootFS Preparation Stage (Root privileges)
 #==============================================
 FROM ubuntu:24.04 AS rootfs-preparer
 
@@ -263,7 +263,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
     echo "📦 Installing RootFS extraction tools and dependencies..." && \
-    echo "🐧 Using Ubuntu for SHARED RootFS preparation (maximum compatibility)" && \
+    echo "🐧 Using Ubuntu for RootFS preparation (maximum compatibility)" && \
     echo "🔧 Setting up extraction toolchain..." && \
     apt-get update -qq >/dev/null 2>&1 && \
     apt-get install -qq -y --no-install-recommends \
@@ -279,20 +279,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     update-ca-certificates && \
     echo "✅ CA certificates updated"
 
-# 🔧 Create shared RootFS directory
+# Create shared RootFS directory (as root)
 RUN echo "📁 Creating shared RootFS directory structure..." && \
     mkdir -p /opt/fex-rootfs && \
     chmod 755 /opt/fex-rootfs && \
-    echo "✅ Shared RootFS directory created: /opt/fex-rootfs"
+    echo "✅ RootFS directory created: /opt/fex-rootfs"
 
-# Create fex user for FEXRootFSFetcher
-RUN echo "👤 Creating fex user for SHARED RootFS operations..." && \
-    useradd -m -s /bin/bash fex && \
-    usermod -aG sudo fex && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
-    echo "✅ fex user created with sudo privileges" && \
-    echo "🎯 Ready for SHARED RootFS setup operations"
-    
 # Copy FEX binaries from Ubuntu builder
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
 RUN echo "📦 Copying FEX binaries from Ubuntu builder..." && \
@@ -303,33 +295,40 @@ RUN echo "📦 Copying FEX binaries from Ubuntu builder..." && \
     strip /usr/local/fex/bin/* 2>/dev/null || true && \
     find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
     echo "✅ FEX binary optimization completed" && \
-    echo "🎉 Ubuntu-built FEX ready for SHARED RootFS operations!"
+    echo "🎉 Ubuntu-built FEX ready for RootFS operations!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 
-# Switch to fex user for RootFS setup
-USER fex
-WORKDIR /home/fex
+# Create temporary fex user for FEXRootFSFetcher (but stay as root)
+RUN echo "👤 Creating temporary fex user for RootFS operations..." && \
+    useradd -m -s /bin/bash fex && \
+    usermod -aG sudo fex && \
+    echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
+    echo "✅ fex user created with sudo privileges"
 
-# 🔧 SHARED RootFS setup (keeping existing logic, installing to shared directory)
+# RootFS setup (as root with privilege escalation capabilities)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    echo "🚀 Starting SHARED RootFS setup process..." && \
-    echo "📊 SHARED RootFS configuration summary:" && \
+    echo "🚀 Starting RootFS setup process as root..." && \
+    echo "📊 RootFS configuration summary:" && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
     echo "  - RootFS Type: ${ROOTFS_TYPE}" && \
     echo "  - RootFS URL: ${ROOTFS_URL}" && \
-    echo "  - Strategy: FEXRootFSFetcher + Manual fallback to SHARED directory" && \
-    echo "  - SHARED Location: /opt/fex-rootfs/" && \
+    echo "  - Strategy: FEXRootFSFetcher + Manual fallback to shared directory" && \
+    echo "  - Location: /opt/fex-rootfs/" && \
+    echo "  - Running as: root (for proper permissions)" && \
     \
-    # Try FEXRootFSFetcher first (keeping existing logic)
-    FEXROOTFS_SUCCESS=false && \
+    # Prepare fex user home for RootFS operations
     mkdir -p /home/fex/.fex-emu/RootFS && \
+    chown -R fex:fex /home/fex && \
+    \
+    # Try FEXRootFSFetcher first (as fex user but with root oversight)
+    FEXROOTFS_SUCCESS=false && \
     echo "🎯 Attempting FEXRootFSFetcher (primary method)..." && \
     for attempt in 1 2 3; do \
         echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
-        if timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+        if sudo -u fex timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
             echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
             FEXROOTFS_SUCCESS=true && \
             break; \
@@ -342,7 +341,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         fi; \
     done && \
     \
-    # Fallback to manual setup with direct URL download (keeping existing logic)
+    # Fallback to manual setup with direct URL download
     if [ "$FEXROOTFS_SUCCESS" = "false" ]; then \
         echo "🔄 FEXRootFSFetcher failed - activating manual setup fallback..." && \
         echo "📥 Switching to direct URL download method..." && \
@@ -358,7 +357,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         ROOTFS_FILE=$(basename "$ROOTFS_URL") && \
         ROOTFS_LOCAL_PATH="/tmp/fex-rootfs/$ROOTFS_FILE" && \
         \
-        # Download RootFS using curl with retry logic (keeping existing logic)
+        # Download RootFS using curl with retry logic
         DOWNLOAD_SUCCESS=false && \
         echo "🔍 Starting download with retry mechanism..." && \
         for download_attempt in 1 2 3; do \
@@ -450,12 +449,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         chown -R fex:fex /home/fex/.fex-emu; \
     fi && \
     \
-    # 🔧 Move user-specific RootFS to shared directory
+    # Move user-specific RootFS to shared directory (as root - no permission issues)
     echo "📁 Moving RootFS to shared directory: /opt/fex-rootfs/..." && \
     if [ -d "/home/fex/.fex-emu/RootFS" ]; then \
-        sudo cp -r /home/fex/.fex-emu/RootFS/* /opt/fex-rootfs/ && \
-        sudo chown -R root:root /opt/fex-rootfs && \
-        sudo chmod -R 755 /opt/fex-rootfs && \
+        cp -r /home/fex/.fex-emu/RootFS/* /opt/fex-rootfs/ && \
+        chown -R root:root /opt/fex-rootfs && \
+        chmod -R 755 /opt/fex-rootfs && \
         echo "✅ RootFS successfully moved to shared directory"; \
     else \
         echo "❌ No RootFS found to move to shared directory" && \
@@ -463,36 +462,36 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     fi && \
     \
     # Final verification
-    echo "🔍 Final SHARED RootFS verification and summary..." && \
+    echo "🔍 Final RootFS verification and summary..." && \
     if [ -d "/opt/fex-rootfs" ]; then \
         ROOTFS_COUNT=$(find /opt/fex-rootfs -maxdepth 1 -type d | wc -l) && \
         ROOTFS_FILES=$(find /opt/fex-rootfs -type f | wc -l) && \
-        echo "🎉 SHARED RootFS setup completed successfully!" && \ 
-        echo "📊 Final SHARED RootFS verification summary:" && \
-        echo "  - SHARED RootFS directories: $ROOTFS_COUNT" && \
-        echo "  - SHARED RootFS files: $ROOTFS_FILES" && \
+        echo "🎉 RootFS setup completed successfully!" && \ 
+        echo "📊 Final RootFS verification summary:" && \
+        echo "  - RootFS directories: $ROOTFS_COUNT" && \
+        echo "  - RootFS files: $ROOTFS_FILES" && \
         echo "  - Method used: $( [ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (primary)" || echo "Manual setup (fallback)" )" && \
-        echo "  - SHARED RootFS size: $(du -sh /opt/fex-rootfs)" && \
-        echo "  - SHARED Location: /opt/fex-rootfs/" && \
+        echo "  - RootFS size: $(du -sh /opt/fex-rootfs)" && \
+        echo "  - Location: /opt/fex-rootfs/" && \
         if [ "$ROOTFS_FILES" -gt 0 ]; then \
-            echo "✅ Final SHARED RootFS verification passed successfully"; \
+            echo "✅ Final RootFS verification passed successfully"; \
         else \
-            echo "❌ Final SHARED RootFS verification failed - no files found" && \
+            echo "❌ Final RootFS verification failed - no files found" && \
             exit 1; \
         fi; \
     else \
-        echo "❌ SHARED RootFS directory not found" && \
+        echo "❌ RootFS directory not found" && \
         exit 1; \
     fi && \
     \
-    # Cleanup
+    # Cleanup (as root - no permission issues)
     echo "🧹 Cleaning up temporary RootFS artifacts..." && \
     rm -rf /tmp/fex-rootfs && \
     find /opt/fex-rootfs -name "*.sqsh" -delete 2>/dev/null || true && \
     find /opt/fex-rootfs -name "*.ero" -delete 2>/dev/null || true && \
     echo "✅ Cleanup completed successfully" && \
-    echo "🚀 Ready for immediate x86 application execution with SHARED RootFS!" && \
-    echo "🎯 SHARED RootFS preparation stage complete!"
+    echo "🚀 Ready for immediate x86 application execution with RootFS!" && \
+    echo "🎯 RootFS preparation stage complete!"
 
 #==============================================
 # Runtime Stage with Ubuntu LTS Base
@@ -505,8 +504,8 @@ ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
 
-# 🔧 Shared RootFS related metadata
-LABEL org.opencontainers.image.title="FEXBash Ubuntu-Optimized ARM64 Container with Shared RootFS"
+# RootFS related metadata
+LABEL org.opencontainers.image.title="FEXBash Ubuntu-Optimized ARM64 Container with RootFS"
 LABEL org.opencontainers.image.description="High-performance x86/x86_64 emulation on ARM64 with Ubuntu LTS base and shared RootFS"
 LABEL org.opencontainers.image.version="${FEX_VERSION}"
 LABEL fex.version="${FEX_VERSION}"
@@ -524,12 +523,12 @@ ENV ROOTFS_INFO="${ROOTFS_OS}-${ROOTFS_VERSION}"
 ENV FEX_SHARED_ROOTFS="/opt/fex-rootfs"
 
 # Configure Ubuntu runtime environment
-RUN echo "🏗️ Setting up Ubuntu 24.04 LTS runtime environment with SHARED RootFS..." && \
+RUN echo "🏗️ Setting up Ubuntu 24.04 LTS runtime environment with RootFS..." && \
     echo "📊 Ubuntu runtime configuration:" && \
     echo "  - Base: Ubuntu 24.04 LTS" && \
     echo "  - Target: High-performance x86 emulation runtime" && \
-    echo "  - Features: Native glibc + LTS stability + SHARED RootFS" && \
-    echo "  - SHARED RootFS: /opt/fex-rootfs" && \
+    echo "  - Features: Native glibc + LTS stability + RootFS" && \
+    echo "  - RootFS: /opt/fex-rootfs" && \
     export DEBIAN_FRONTEND=noninteractive && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone && \
@@ -547,7 +546,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \
     echo "  - ROOTFS_VERSION: ${ROOTFS_VERSION}" && \
     echo "  - ROOTFS_TYPE: ${ROOTFS_TYPE}" && \
-    echo "  - SHARED RootFS: /opt/fex-rootfs" && \
+    echo "  - RootFS: /opt/fex-rootfs" && \
     apt-get update -qq >/dev/null 2>&1 && \
     echo "📦 Installing minimal runtime packages..." && \
     apt-get install -qq -y --no-install-recommends  \
@@ -568,22 +567,13 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "  - System libraries: libstdc++6, libc6" && \
     echo "  - Utilities: sudo, curl, wget, jq, file" && \
     echo "  - Architecture: ARM64 with x86 emulation support" && \
-    echo "  - SHARED RootFS: Enabled" && \
+    echo "  - RootFS: Enabled" && \
     \
     # Ubuntu cleanup for size optimization
     echo "🧹 Performing Ubuntu cleanup for size optimization..." && \ 
     rm -rf /var/tmp/* && \
     echo "✅ Ubuntu runtime setup completed successfully" && \
     echo "🎉 Ubuntu runtime environment ready!"
-
-# Create Ubuntu user with proper configuration
-RUN echo "👤 Creating fex user for Ubuntu runtime with SHARED RootFS..." && \
-    echo "🔧 Configuring Ubuntu user management..." && \
-    useradd -m -s /bin/bash fex && \
-    usermod -aG sudo fex && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
-    echo "✅ Ubuntu user configuration completed successfully" && \
-    echo "🎯 User 'fex' ready for x86 emulation with SHARED RootFS!"
 
 # Copy optimized FEX binaries from Ubuntu builder
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
@@ -599,52 +589,53 @@ RUN echo "📦 Copying FEX binaries to Ubuntu runtime..." && \
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 
-# 🔧 Copy SHARED RootFS and configuration
+# Copy RootFS and configuration (as root)
 COPY --from=rootfs-preparer /opt/fex-rootfs /opt/fex-rootfs
 
-# 🔧 Set user-specific Config.json to use shared RootFS path
-RUN echo "📦 Installing SHARED RootFS in Ubuntu runtime..." && \
+# Set up RootFS configuration (as root - no permission issues)
+RUN echo "📦 Installing RootFS in Ubuntu runtime..." && \
     chown -R root:root /opt/fex-rootfs && \
     chmod -R 755 /opt/fex-rootfs && \
-    echo "✅ SHARED RootFS ownership configured for Ubuntu" && \
+    echo "✅ RootFS ownership configured for Ubuntu" && \
     \
-    echo "👤 Setting up user configuration for SHARED RootFS..." && \
-    mkdir -p /home/fex/.fex-emu && \
+    echo "📋 Creating template configuration for new users..." && \
+    mkdir -p /etc/skel/.fex-emu && \
     ROOTFS_DIRNAME=$(ls /opt/fex-rootfs/ | head -1) && \
     echo "📁 Detected RootFS directory: $ROOTFS_DIRNAME" && \
     if [ -n "$ROOTFS_DIRNAME" ]; then \
-        echo "{\"Config\":{\"RootFS\":\"/opt/fex-rootfs/$ROOTFS_DIRNAME\"}}" > /home/fex/.fex-emu/Config.json && \
-        echo "✅ User configuration set to use SHARED RootFS: /opt/fex-rootfs/$ROOTFS_DIRNAME"; \
+        echo "{\"Config\":{\"RootFS\":\"/opt/fex-rootfs/$ROOTFS_DIRNAME\"}}" > /etc/skel/.fex-emu/Config.json && \
+        echo "✅ Template configuration created for new users: /opt/fex-rootfs/$ROOTFS_DIRNAME"; \
     else \
         echo "❌ No RootFS directory found in shared location" && \
         exit 1; \
     fi && \
-    chown -R fex:fex /home/fex/.fex-emu && \
     \
-    echo "🎉 SHARED RootFS pre-installed in Ubuntu image!" && \
-    echo "📊 SHARED RootFS verification:" && \
-    echo "  - SHARED RootFS directory: /opt/fex-rootfs/$ROOTFS_DIRNAME" && \
-    echo "  - SHARED RootFS files: $(find /opt/fex-rootfs -type f | wc -l)" && \
-    echo "  - SHARED RootFS size: $(du -sh /opt/fex-rootfs)" && \
-    echo "  - Config file: $(cat /home/fex/.fex-emu/Config.json)" && \
-    echo "🎯 Ubuntu + FEX + SHARED RootFS integration complete!" && \
+    echo "🎉 RootFS pre-installed in Ubuntu image!" && \
+    echo "📊 RootFS verification:" && \
+    echo "  - RootFS directory: /opt/fex-rootfs/$ROOTFS_DIRNAME" && \
+    echo "  - RootFS files: $(find /opt/fex-rootfs -type f | wc -l)" && \
+    echo "  - RootFS size: $(du -sh /opt/fex-rootfs)" && \
+    echo "  - Template config: /etc/skel/.fex-emu/Config.json" && \
+    echo "🎯 Ubuntu + FEX + RootFS integration complete!" && \
     echo "🚀 Ready for immediate x86 application execution on Ubuntu!" && \
-    echo "🏗️ Ultimate stability achieved: Ubuntu LTS + SHARED RootFS + FEX emulation!"
+    echo "🏗️ Ultimate stability achieved: Ubuntu LTS + RootFS + FEX emulation!" && \
+    echo "🎯 New users will automatically use RootFS!"
 
-# 🔧 Create template configuration for new users
-RUN echo "📋 Creating template configuration for new users..." && \
-    mkdir -p /etc/skel/.fex-emu && \
-    ROOTFS_DIRNAME=$(ls /opt/fex-rootfs/ | head -1) && \
-    echo "{\"Config\":{\"RootFS\":\"/opt/fex-rootfs/$ROOTFS_DIRNAME\"}}" > /etc/skel/.fex-emu/Config.json && \
-    echo "✅ Template configuration created for new users" && \
-    echo "🎯 New users will automatically use SHARED RootFS!"
+# Create default fex user (finally, as the last step)
+RUN echo "👤 Creating default fex user for Ubuntu runtime..." && \
+    echo "🔧 Configuring Ubuntu user management..." && \
+    useradd -m -s /bin/bash fex && \
+    usermod -aG sudo fex && \
+    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
+    echo "✅ Ubuntu user configuration completed successfully" && \
+    echo "🎯 User 'fex' ready for x86 emulation with RootFS!"
 
-# Switch to fex user
+# Switch to fex user (final step)
 USER fex
 WORKDIR /home/fex 
 
-# 🔧 Verify SHARED RootFS configuration status
-RUN echo "🔍 Verifying SHARED RootFS configuration for user..." && \
+# Verify RootFS configuration status for fex user
+RUN echo "🔍 Verifying RootFS configuration for user..." && \
     if [ -f "/home/fex/.fex-emu/Config.json" ]; then \
         echo "✅ User configuration found: $(cat /home/fex/.fex-emu/Config.json)"; \
     else \
@@ -652,12 +643,12 @@ RUN echo "🔍 Verifying SHARED RootFS configuration for user..." && \
         exit 1; \
     fi && \
     if [ -d "/opt/fex-rootfs" ]; then \
-        echo "✅ SHARED RootFS directory accessible: $(ls -la /opt/fex-rootfs/ | head -3)"; \
+        echo "✅ RootFS directory accessible: $(ls -la /opt/fex-rootfs/ | head -3)"; \
     else \
-        echo "❌ SHARED RootFS directory not accessible" && \
+        echo "❌ RootFS directory not accessible" && \
         exit 1; \
     fi && \
-    echo "🎉 SHARED RootFS verification completed successfully!"
+    echo "🎉 RootFS verification completed successfully!"
 
-# 🔧 Ubuntu-optimized startup command with SHARED RootFS information
-CMD ["/bin/bash", "-c", "echo '🎉 FEX-Emu on Ubuntu with SHARED RootFS ready!' && echo '🏗️ Base: Ubuntu 24.04 LTS (Maximum compatibility)' && echo '🏷️ FEX Version: ${FEX_VERSION}' && echo '🐧 RootFS: ${ROOTFS_INFO} (SHARED)' && echo '📁 SHARED RootFS Location: /opt/fex-rootfs' && echo '🔧 Ubuntu LTS for maximum compatibility and enterprise stability!' && echo '📊 Native glibc: Perfect x86 emulation support' && echo '🚀 Performance: Near-native ARM64 execution with x86 emulation' && echo '👥 Multi-user: All users share the same RootFS' && echo '💡 Try: FEXBash' && echo '🎯 Ready for x86 application execution!' && /bin/bash"]
+# Ubuntu-optimized startup command with RootFS information
+CMD ["/bin/bash", "-c", "echo '🎉 FEX-Emu on Ubuntu with RootFS ready!' && echo '🏗️ Base: Ubuntu 24.04 LTS (Maximum compatibility)' && echo '🏷️ FEX Version: ${FEX_VERSION}' && echo '🐧 RootFS: ${ROOTFS_INFO} (Shared)' && echo '📁 RootFS Location: /opt/fex-rootfs' && echo '🔧 Ubuntu LTS for maximum compatibility and enterprise stability!' && echo '📊 Native glibc: Perfect x86 emulation support' && echo '🚀 Performance: Near-native ARM64 execution with x86 emulation' && echo '👥 Multi-user: All users share the same RootFS' && echo '💡 Try: FEXBash' && echo '🎯 Ready for x86 application execution!' && /bin/bash"]
