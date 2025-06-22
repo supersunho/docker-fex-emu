@@ -1,0 +1,149 @@
+name: GHCR Package Cleanup
+
+on:
+    workflow_dispatch:
+        inputs:
+            cleanup_mode:
+                description: "정리 모드 선택"
+                required: true
+                default: "selective"
+                type: choice
+                options:
+                    - "selective"
+                    - "delete_all"
+                    - "by_pattern"
+                    - "keep_latest"
+
+            tag_pattern:
+                description: "삭제할 태그 패턴 (예: dev-*, pr-*, feature-*)"
+                required: false
+                default: "dev-*,pr-*"
+                type: string
+
+            exclude_tags:
+                description: "제외할 태그들 (쉼표로 구분)"
+                required: false
+                default: "main,latest,stable"
+                type: string
+
+            keep_n_tagged:
+                description: "보존할 태그된 이미지 수"
+                required: false
+                default: "5"
+                type: string
+
+            keep_n_untagged:
+                description: "보존할 태그 없는 이미지 수"
+                required: false
+                default: "2"
+                type: string
+
+            delete_untagged:
+                description: "태그 없는 이미지 삭제"
+                required: true
+                default: true
+                type: boolean
+
+            dry_run:
+                description: "드라이런 모드 (실제 삭제하지 않음)"
+                required: true
+                default: true
+                type: boolean
+
+            package_name:
+                description: "패키지 이름 (기본값: 저장소 이름)"
+                required: false
+                type: string
+
+jobs:
+    cleanup-ghcr:
+        runs-on: ubuntu-latest
+        permissions:
+            packages: write
+            contents: read
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: 입력 값 확인
+              run: |
+                  echo "🧹 GHCR 패키지 정리 시작"
+                  echo "정리 모드: ${{ github.event.inputs.cleanup_mode }}"
+                  echo "태그 패턴: ${{ github.event.inputs.tag_pattern }}"
+                  echo "제외 태그: ${{ github.event.inputs.exclude_tags }}"
+                  echo "보존할 태그된 이미지: ${{ github.event.inputs.keep_n_tagged }}"
+                  echo "보존할 태그 없는 이미지: ${{ github.event.inputs.keep_n_untagged }}"
+                  echo "태그 없는 이미지 삭제: ${{ github.event.inputs.delete_untagged }}"
+                  echo "드라이런 모드: ${{ github.event.inputs.dry_run }}"
+                  echo "패키지 이름: ${{ github.event.inputs.package_name || github.repository }}"
+
+            - name: 선택적 정리 모드
+              if: github.event.inputs.cleanup_mode == 'selective'
+              uses: dataaxiom/ghcr-cleanup-action@v1
+              with:
+                  dry-run: ${{ github.event.inputs.dry_run }}
+                  delete-tags: ${{ github.event.inputs.tag_pattern }}
+                  delete-untagged: ${{ github.event.inputs.delete_untagged }}
+                  keep-n-tagged: ${{ github.event.inputs.keep_n_tagged }}
+                  keep-n-untagged: ${{ github.event.inputs.keep_n_untagged }}
+                  exclude-tags: ${{ github.event.inputs.exclude_tags }}
+                  package: ${{ github.event.inputs.package_name || github.repository }}
+
+            - name: 전체 삭제 모드
+              if: github.event.inputs.cleanup_mode == 'delete_all'
+              uses: dataaxiom/ghcr-cleanup-action@v1
+              with:
+                  dry-run: ${{ github.event.inputs.dry_run }}
+                  delete-tags: "*"
+                  delete-untagged: true
+                  package: ${{ github.event.inputs.package_name || github.repository }}
+
+            - name: 패턴 기반 삭제 모드
+              if: github.event.inputs.cleanup_mode == 'by_pattern'
+              uses: jenskeiner/ghcr-container-repository-cleanup-action@main
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  include-tags: ${{ github.event.inputs.tag_pattern }}
+                  exclude-tags: ${{ github.event.inputs.exclude_tags }}
+                  dry-run: ${{ github.event.inputs.dry_run }}
+                  owner: ${{ github.repository_owner }}
+                  repository: ${{ github.event.inputs.package_name || github.event.repository.name }}
+
+            - name: 최신 버전 유지 모드
+              if: github.event.inputs.cleanup_mode == 'keep_latest'
+              uses: cresh-io/action-ghcr-batch-delete-versions@v1
+              with:
+                  github-access-token: ${{ secrets.GITHUB_TOKEN }}
+                  org: ${{ github.repository_owner }}
+                  package_name: ${{ github.event.inputs.package_name || github.event.repository.name }}
+                  package_type: "container"
+                  dry-run: ${{ github.event.inputs.dry_run }}
+                  selector: |
+                      type=tagCount;operator=greaterThan;value=${{ github.event.inputs.keep_n_tagged }}
+                  excluder: |
+                      type=tags;operator=in;value=${{ github.event.inputs.exclude_tags }}
+
+            - name: 정리 결과 요약
+              run: |
+                  echo "✅ GHCR 패키지 정리 완료"
+                  echo "사용된 모드: ${{ github.event.inputs.cleanup_mode }}"
+                  if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+                    echo "⚠️ 드라이런 모드로 실행됨 - 실제 삭제되지 않음"
+                    echo "실제 삭제를 원하면 'dry_run'을 false로 설정하세요"
+                  else
+                    echo "🗑️ 실제 삭제가 수행됨"
+                  fi
+
+            # - name: Slack 알림 (선택사항)
+            #   if: always()
+            #   uses: 8398a7/action-slack@v3
+            #   with:
+            #       status: ${{ job.status }}
+            #       channel: "#deployments"
+            #       text: |
+            #           GHCR 패키지 정리 ${{ job.status }}
+            #           모드: ${{ github.event.inputs.cleanup_mode }}
+            #           드라이런: ${{ github.event.inputs.dry_run }}
+            #   env:
+            #       SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
