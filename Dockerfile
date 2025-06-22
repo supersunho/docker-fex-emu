@@ -323,12 +323,23 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     mkdir -p /home/fex/.fex-emu/RootFS && \
     chown -R fex:fex /home/fex && \
     \
+    # 🔧 Define dynamic paths based on execution user
+    FEX_USER="fex" && \
+    FEX_USER_HOME="/home/$FEX_USER" && \
+    FEX_ROOTFS_DIR="$FEX_USER_HOME/.fex-emu/RootFS" && \
+    FEX_CONFIG_PATH="$FEX_USER_HOME/.fex-emu/Config.json" && \
+    echo "📁 Dynamic paths configured:" && \
+    echo "  - FEX User: $FEX_USER" && \
+    echo "  - FEX User Home: $FEX_USER_HOME" && \
+    echo "  - FEX RootFS Directory: $FEX_ROOTFS_DIR" && \
+    echo "  - FEX Config Path: $FEX_CONFIG_PATH" && \
+    \
     # Try FEXRootFSFetcher first (as fex user but with root oversight)
     FEXROOTFS_SUCCESS=false && \
     echo "🎯 Attempting FEXRootFSFetcher (primary method)..." && \
     for attempt in 1 2 3; do \
         echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
-        if sudo -u fex timeout 300 FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty 2>/dev/null; then \
+        if sudo -u $FEX_USER timeout 300 bash -c "cd $FEX_USER_HOME && FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty" 2>/dev/null; then \
             echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
             FEXROOTFS_SUCCESS=true && \
             break; \
@@ -341,7 +352,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         fi; \
     done && \
     \
-    # Fallback to manual setup with direct URL download
+    # Fallback to manual setup with dynamic paths
     if [ "$FEXROOTFS_SUCCESS" = "false" ]; then \
         echo "🔄 FEXRootFSFetcher failed - activating manual setup fallback..." && \
         echo "📥 Switching to direct URL download method..." && \
@@ -357,23 +368,32 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         ROOTFS_FILE=$(basename "$ROOTFS_URL") && \
         ROOTFS_LOCAL_PATH="/tmp/fex-rootfs/$ROOTFS_FILE" && \
         \
-        # Download RootFS using curl with retry logic
+        # 🔧 Fixed curl command (remove syntax errors)
         DOWNLOAD_SUCCESS=false && \
-        echo "🔍 Starting download with retry mechanism..." && \
+        echo "🔍 Starting download with corrected curl command..." && \
         for download_attempt in 1 2 3; do \
             echo "⏳ Download attempt $download_attempt/3..." && \
-            if curl -S -s -o -k -H 'Cache-Control: no-cache' -L --connect-timeout 30 --max-time 600 \
+            if curl -L -k -S -H 'Cache-Control: no-cache' \
+                    --connect-timeout 30 --max-time 600 \
                     --retry 3 --retry-delay 5 \
-                    "$ROOTFS_URL" -o "$ROOTFS_LOCAL_PATH"; then \
-                echo "✅ RootFS downloaded successfully (attempt $download_attempt)" && \
-                DOWNLOAD_SUCCESS=true && \
-                break; \
-            else \
-                echo "❌ Download failed (attempt $download_attempt)" && \
-                if [ $download_attempt -lt 3 ]; then \
-                    echo "⏳ Waiting 10 seconds before retry..." && \
-                    sleep 10; \
+                    -o "$ROOTFS_LOCAL_PATH" \
+                    "$ROOTFS_URL"; then \
+                # Verify downloaded file exists and has content
+                if [ -f "$ROOTFS_LOCAL_PATH" ] && [ -s "$ROOTFS_LOCAL_PATH" ]; then \
+                    echo "✅ RootFS downloaded successfully (attempt $download_attempt)" && \
+                    echo "📊 File verification: $(ls -lh "$ROOTFS_LOCAL_PATH")" && \
+                    DOWNLOAD_SUCCESS=true && \
+                    break; \
+                else \
+                    echo "❌ Downloaded file is missing or empty" && \
+                    rm -f "$ROOTFS_LOCAL_PATH"; \
                 fi; \
+            else \
+                echo "❌ Download failed (attempt $download_attempt)"; \
+            fi && \
+            if [ $download_attempt -lt 3 ]; then \
+                echo "⏳ Waiting 10 seconds before retry..." && \
+                sleep 10; \
             fi; \
         done && \
         \
@@ -385,9 +405,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "✅ Found RootFS file: $ROOTFS_FILE" && \
         echo "📊 File size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)" && \
         \
+        # 🔧 Use dynamic paths instead of hardcoded ones
         ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
-        EXTRACT_DIR="/home/fex/.fex-emu/RootFS/${ROOTFS_DIRNAME}" && \
+        EXTRACT_DIR="$FEX_ROOTFS_DIR/${ROOTFS_DIRNAME}" && \
         echo "📁 RootFS directory name: $ROOTFS_DIRNAME" && \
+        echo "📁 Dynamic extraction directory: $EXTRACT_DIR" && \
         \
         if [ -d "$EXTRACT_DIR" ]; then \
             echo "🗑️ Removing existing RootFS directory..." && \
@@ -421,11 +443,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         fi && \
         \
         echo "⚙️ Writing FEX configuration..." && \
-        CONFIG_PATH="/home/fex/.fex-emu/Config.json" && \
-        printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > "$CONFIG_PATH" && \
-        echo "✅ FEX configuration written to $CONFIG_PATH" && \
+        printf '{"Config":{"RootFS":"%s"},"ThunksDB":{}}' "$ROOTFS_DIRNAME" > "$FEX_CONFIG_PATH" && \
+        echo "✅ FEX configuration written to $FEX_CONFIG_PATH" && \
         \
-        chown -R fex:fex /home/fex/.fex-emu && \
+        chown -R $FEX_USER:$FEX_USER $FEX_USER_HOME/.fex-emu && \
         \
         echo "🔍 Verifying manual RootFS installation..." && \
         if [ -d "$EXTRACT_DIR" ]; then \
@@ -446,22 +467,27 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "🎉 Manual RootFS setup completed successfully as fallback!"; \
     else \
         echo "🎉 FEXRootFSFetcher setup completed successfully!" && \
-        chown -R fex:fex /home/fex/.fex-emu; \
+        chown -R $FEX_USER:$FEX_USER $FEX_USER_HOME/.fex-emu; \
     fi && \
     \
-    # Move user-specific RootFS to shared directory (as root - no permission issues)
+    # 🔧 Move user-specific RootFS to shared directory using dynamic paths
     echo "📁 Moving RootFS to shared directory: /opt/fex-rootfs/..." && \
-    if [ -d "/home/fex/.fex-emu/RootFS" ]; then \
-        cp -r /home/fex/.fex-emu/RootFS/* /opt/fex-rootfs/ && \
+    echo "🔍 Checking source directory: $FEX_ROOTFS_DIR" && \
+    if [ -d "$FEX_ROOTFS_DIR" ] && [ "$(ls -A "$FEX_ROOTFS_DIR" 2>/dev/null)" ]; then \
+        echo "📊 Source directory contents: $(ls -la "$FEX_ROOTFS_DIR/")" && \
+        cp -r "$FEX_ROOTFS_DIR"/* /opt/fex-rootfs/ && \
         chown -R root:root /opt/fex-rootfs && \
         chmod -R 755 /opt/fex-rootfs && \
         echo "✅ RootFS successfully moved to shared directory"; \
     else \
         echo "❌ No RootFS found to move to shared directory" && \
+        echo "🔍 Debug: Checking alternative locations..." && \
+        find /home -name "*.sqsh" -o -name "Ubuntu_*" -type d 2>/dev/null || true && \
+        find /root -name "*.sqsh" -o -name "Ubuntu_*" -type d 2>/dev/null || true && \
         exit 1; \
     fi && \
     \
-    # Final verification
+    # Final verification with improved debugging
     echo "🔍 Final RootFS verification and summary..." && \
     if [ -d "/opt/fex-rootfs" ]; then \
         ROOTFS_COUNT=$(find /opt/fex-rootfs -maxdepth 1 -type d | wc -l) && \
@@ -471,8 +497,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "  - RootFS directories: $ROOTFS_COUNT" && \
         echo "  - RootFS files: $ROOTFS_FILES" && \
         echo "  - Method used: $( [ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (primary)" || echo "Manual setup (fallback)" )" && \
-        echo "  - RootFS size: $(du -sh /opt/fex-rootfs)" && \
+        echo "  - RootFS size: $(du -sh /opt/fex-rootfs 2>/dev/null || echo 'Unknown')" && \
         echo "  - Location: /opt/fex-rootfs/" && \
+        echo "  - Contents: $(ls -la /opt/fex-rootfs/ 2>/dev/null || echo 'Directory empty or not accessible')" && \
         if [ "$ROOTFS_FILES" -gt 0 ]; then \
             echo "✅ Final RootFS verification passed successfully"; \
         else \
