@@ -92,15 +92,13 @@ jobs:
 
             - name: 전체 삭제 모드
               if: github.event.inputs.cleanup_mode == 'delete_all'
-              uses: cresh-io/action-ghcr-batch-delete-versions@v1
+              uses: actions/delete-package-versions@v4
               with:
-                  github-access-token: ${{ secrets.GITHUB_TOKEN }}
-                  org: ${{ github.repository_owner }}
-                  package_name: ${{ github.event.inputs.package_name || github.event.repository.name }}
-                  package_type: "container"
-                  dry-run: ${{ github.event.inputs.dry_run }}
-                  selector: |
-                      type=tagCount;operator=greaterThan;value=-1
+                  package-name: ${{ github.event.inputs.package_name || github.event.repository.name }}
+                  package-type: "container"
+                  min-versions-to-keep: 0
+                  num-old-versions-to-delete: 1000
+                  token: ${{ secrets.PAT_TOKEN }}
 
             - name: 패턴 기반 삭제 모드
               if: github.event.inputs.cleanup_mode == 'by_pattern'
