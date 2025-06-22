@@ -94,6 +94,7 @@ jobs:
               if: github.event.inputs.cleanup_mode == 'delete_all'
               uses: dataaxiom/ghcr-cleanup-action@v1
               with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
                   dry-run: ${{ github.event.inputs.dry_run }}
                   delete-tags: "*"
                   delete-untagged: true
