@@ -265,11 +265,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "✅ CA certificates updated"
 
 # ── get source ───────────────────────────────────────────────────────
-RUN cd tmp && curl -sSL https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.gz \
+RUN curl -sSL https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.gz \
         -o glibc.tar.gz && \
     tar xf glibc.tar.gz && \
-    mkdir -p /tmp/build && \
-    cd    /tmp/build && \
+    mkdir -p /build && \
+    cd    /build && \
     CFLAGS="${GLIBC_CFLAGS}" \
     CXXFLAGS="${GLIBC_CFLAGS}" \
     /glibc-${GLIBC_VERSION}/configure \
