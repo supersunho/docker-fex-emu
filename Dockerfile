@@ -280,7 +280,7 @@ RUN curl -sSL https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.gz \
         --host=aarch64-linux-gnu     \
         --build=aarch64-linux-gnu && \
     make -j"$(nproc)" && \
-    make install DESTDIR=/tmp/glibc-non-lse && \
+    make install DESTDIR=/tmp/glibc-non-lse && ls -al /tmp/glibc-non-lse && \
     echo "✅ glibc non-LSE built & installed to /tmp/glibc-non-lse"
 
 
@@ -557,7 +557,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     fi;
 
 # ── glibc non-LSE overlay ───────────────────────────────────────────
-COPY --from=glibc-builder /tmp/glibc-non-lse/ /
+COPY --from=glibc-builder /tmp/glibc-non-lse /
 RUN ldconfig && echo "✅ glibc non-LSE libraries now active in RootFS" && \
     \
     # Cleanup (as root - no permission issues)
