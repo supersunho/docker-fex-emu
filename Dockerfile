@@ -242,6 +242,40 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🎉 FEX build completed successfully on Ubuntu!"
 
 #==============================================
+# glibc build
+#==============================================
+FROM ubuntu:24.04 AS glibc-builder
+
+ARG GLIBC_VERSION=2.39
+ARG GLIBC_CFLAGS="-march=armv8-a -mtune=generic -mbranch-protection=none"
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+        build-essential gcc-12 g++-12 make git wget curl \
+        flex bison texinfo python3 gawk && \
+    rm -rf /var/lib/apt/lists/*
+
+# ── get source ───────────────────────────────────────────────────────
+RUN curl -sSL https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.gz \
+        -o glibc.tar.gz && \
+    tar xf glibc.tar.gz && \
+    mkdir /build && \
+    cd    /build && \
+    CFLAGS="${GLIBC_CFLAGS}" \
+    CXXFLAGS="${GLIBC_CFLAGS}" \
+    /glibc-${GLIBC_VERSION}/configure \
+        --prefix=/usr               \
+        --disable-werror            \
+        --host=aarch64-linux-gnu    \
+        --build=aarch64-linux-gnu && \
+    make -j"$(nproc)" && \
+    make install DESTDIR=/tmp/glibc-non-lse && \
+    echo "✅ glibc non-LSE built & installed to /tmp/glibc-non-lse"
+
+
+#==============================================
 # RootFS Preparation Stage (Root privileges)
 #==============================================
 FROM ubuntu:24.04 AS rootfs-preparer
@@ -511,7 +545,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     else \
         echo "❌ RootFS directory not found" && \
         exit 1; \
-    fi && \
+    fi;
+
+# ── glibc non-LSE overlay ───────────────────────────────────────────
+COPY --from=glibc-builder /tmp/glibc-non-lse/ /
+RUN ldconfig && echo "✅ glibc non-LSE libraries now active in RootFS" && \
     \
     # Cleanup (as root - no permission issues)
     echo "🧹 Cleaning up temporary RootFS artifacts..." && \
