@@ -257,7 +257,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt-get install -y --no-install-recommends \
         build-essential gcc-12 g++-12 make git wget curl \
         flex bison texinfo python3 gawk && \
-    rm -rf /var/lib/apt/lists/*
+    echo "🔒 Updating CA certificates for maximum compatibility..." && \
+    apt-get install -qq -y apt-utils ca-certificates && \
+    update-ca-certificates && \
+    echo "✅ CA certificates updated"
 
 # ── get source ───────────────────────────────────────────────────────
 RUN curl -sSL https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.gz \
