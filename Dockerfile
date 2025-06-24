@@ -201,6 +201,13 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     # Ubuntu-optimized CMake configuration
     echo "⚙️ Running CMake configuration for Ubuntu..." && \
     echo "🎯 Optimizing for Ubuntu LTS stability and compatibility..." && \
+    export BASE_FLAGS="-O2 -march=armv8-a -mtune=generic \
+                -mno-outline-atomics \
+                -mbranch-protection=none \
+                -U_FORTIFY_SOURCE -fno-stack-protector" && \
+    export EXTRA_C_FLAGS="$BASE_FLAGS" && \
+    export EXTRA_CXX_FLAGS="$BASE_FLAGS" && \
+    export EXTRA_ASM_FLAGS="$BASE_FLAGS -Wa,-mbranch-protection=none" && \
     cmake \
         -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
         -DCMAKE_BUILD_TYPE=Release \
@@ -209,16 +216,17 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
-        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
-        -DCMAKE_C_FLAGS="-mcpu=neoverse-n1 -mbranch-protection=none" \
-        -DCMAKE_CXX_FLAGS="-mcpu=neoverse-n1 -mbranch-protection=none" \
+        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \ 
         $CCACHE_CMAKE_ARGS \
         -DCMAKE_AR="$AR_TOOL" \
         -DCMAKE_RANLIB="$RANLIB_TOOL" \
         -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
-        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
-        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \ 
+        -DCMAKE_C_FLAGS="$EXTRA_C_FLAGS" \
+        -DCMAKE_CXX_FLAGS="$EXTRA_CXX_FLAGS" \
+        -DCMAKE_ASM_FLAGS="$EXTRA_ASM_FLAGS" \
+        -DCMAKE_EXE_LINKER_FLAGS="$BASE_FLAGS" \
+        -DCMAKE_SHARED_LINKER_FLAGS="$BASE_FLAGS" \
         -G Ninja .. && \
     echo "✅ CMake configuration completed for Ubuntu" && \
     \
