@@ -247,16 +247,18 @@ RUN --mount=type=cache,target=/tmp/.ccache \
 FROM ubuntu:24.04 AS glibc-builder
 
 ARG GLIBC_VERSION=2.39
-ARG GLIBC_CFLAGS="-O2 -march=armv8-a -mtune=generic -mno-outline-atomics -mbranch-protection=none"
+ARG GLIBC_CFLAGS="-O2 -march=armv8-a -mtune=generic \
+                   -mno-outline-atomics -mbranch-protection=none \
+                   -U_FORTIFY_SOURCE -fno-stack-protector"
 
 ENV DEBIAN_FRONTEND=noninteractive 
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update -qq && \
+    apt-get update -qq >/dev/null 2>&1 && \
     apt-get install -y --no-install-recommends \
         build-essential gcc-12 g++-12 make git wget curl \
-        flex bison texinfo python3 gawk && \
+        flex bison texinfo python3 gawk >/dev/null 2>&1 && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
     apt-get install -qq -y apt-utils ca-certificates && \
     update-ca-certificates && \
