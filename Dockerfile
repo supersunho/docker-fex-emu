@@ -247,7 +247,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
 FROM ubuntu:24.04 AS glibc-builder
 
 ARG GLIBC_VERSION=2.39
-ARG GLIBC_CFLAGS="-march=armv8-a -mtune=generic -mbranch-protection=none"
+ARG GLIBC_CFLAGS="-O2 -march=armv8-a -mtune=generic -mno-outline-atomics -mbranch-protection=none"
 
 ENV DEBIAN_FRONTEND=noninteractive 
 
