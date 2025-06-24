@@ -255,7 +255,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
 FROM ubuntu:24.04 AS glibc-builder
 
 ARG GLIBC_VERSION=2.39
-ARG GLIBC_CFLAGS="-O2 -march=armv8-a -mtune=generic \
+ARG GLIBC_CFLAGS="-O2 -march=armv8-a+simd -mtune=generic \
                    -mno-outline-atomics -mbranch-protection=none \
                    -U_FORTIFY_SOURCE -fno-stack-protector"
 
