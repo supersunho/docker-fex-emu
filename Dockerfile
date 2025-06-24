@@ -273,9 +273,10 @@ RUN curl -sSL https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.gz \
     CFLAGS="${GLIBC_CFLAGS}" \
     CXXFLAGS="${GLIBC_CFLAGS}" \
     /glibc-${GLIBC_VERSION}/configure \
-        --prefix=/usr               \
-        --disable-werror            \
-        --host=aarch64-linux-gnu    \
+        --prefix=/usr                \
+        --disable-werror             \
+        --disable-nls                \
+        --host=aarch64-linux-gnu     \
         --build=aarch64-linux-gnu && \
     make -j"$(nproc)" && \
     make install DESTDIR=/tmp/glibc-non-lse && \
