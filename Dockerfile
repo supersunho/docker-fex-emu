@@ -202,7 +202,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "⚙️ Running CMake configuration for Ubuntu..." && \
     echo "🎯 Optimizing for Ubuntu LTS stability and compatibility..." && \
     export BASE_FLAGS="-O2 -march=armv8-a -mtune=generic \
-                -mno-outline-atomics \
+                -mno-outline-atomics -mno-sve -mno-sve2 \
                 -mbranch-protection=none \
                 -U_FORTIFY_SOURCE -fno-stack-protector" && \
     export EXTRA_C_FLAGS="$BASE_FLAGS" && \
