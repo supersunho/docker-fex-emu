@@ -201,13 +201,6 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     # Ubuntu-optimized CMake configuration
     echo "⚙️ Running CMake configuration for Ubuntu..." && \
     echo "🎯 Optimizing for Ubuntu LTS stability and compatibility..." && \
-    export BASE_FLAGS="-O2 -march=armv8-a+simd -mtune=generic \
-                -mno-outline-atomics \
-                -mbranch-protection=none \
-                -U_FORTIFY_SOURCE -fno-stack-protector" && \
-    export EXTRA_C_FLAGS="$BASE_FLAGS" && \
-    export EXTRA_CXX_FLAGS="$BASE_FLAGS" && \
-    export EXTRA_ASM_FLAGS="$BASE_FLAGS -Wa,-mbranch-protection=none" && \
     cmake \
         -DCMAKE_INSTALL_PREFIX=/usr/local/fex \
         -DCMAKE_BUILD_TYPE=Release \
@@ -216,17 +209,14 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DBUILD_TESTS=False \
         -DENABLE_ASSERTIONS=False \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
-        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \ 
+        -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
         $CCACHE_CMAKE_ARGS \
         -DCMAKE_AR="$AR_TOOL" \
         -DCMAKE_RANLIB="$RANLIB_TOOL" \
         -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
-        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \ 
-        -DCMAKE_C_FLAGS="$EXTRA_C_FLAGS" \
-        -DCMAKE_CXX_FLAGS="$EXTRA_CXX_FLAGS" \
-        -DCMAKE_ASM_FLAGS="$EXTRA_ASM_FLAGS" \
-        -DCMAKE_EXE_LINKER_FLAGS="$BASE_FLAGS" \
-        -DCMAKE_SHARED_LINKER_FLAGS="$BASE_FLAGS" \
+        -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
+        -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
         -G Ninja .. && \
     echo "✅ CMake configuration completed for Ubuntu" && \
     \
@@ -248,49 +238,6 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🧹 Cleaning up Ubuntu build artifacts..." && \
     rm -rf /tmp/fex-source /tmp/ccache-info && \
     echo "🎉 FEX build completed successfully on Ubuntu!"
-
-#==============================================
-# glibc build
-#==============================================
-FROM ubuntu:24.04 AS glibc-builder
-
-ARG GLIBC_VERSION=2.39
-ARG GLIBC_CFLAGS="-O2 -march=armv8-a+simd -mtune=generic \
-                   -mno-outline-atomics -mbranch-protection=none \
-                   -U_FORTIFY_SOURCE -fno-stack-protector"
-
-ENV DEBIAN_FRONTEND=noninteractive 
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update -qq >/dev/null 2>&1 && \
-    apt-get install -y --no-install-recommends \
-        build-essential gcc-12 g++-12 make git wget curl \
-        flex bison texinfo python3 gawk >/dev/null 2>&1 && \
-    echo "🔒 Updating CA certificates for maximum compatibility..." && \
-    apt-get install -qq -y apt-utils ca-certificates && \
-    update-ca-certificates && \
-    echo "✅ CA certificates updated"
-
-# ── get source ───────────────────────────────────────────────────────
-RUN curl -sSL https://ftp.gnu.org/gnu/glibc/glibc-${GLIBC_VERSION}.tar.gz \
-        -o glibc.tar.gz && \
-    tar xf glibc.tar.gz && \
-    mkdir -p /build && \
-    cd    /build && \
-    CFLAGS="${GLIBC_CFLAGS}" \
-    CXXFLAGS="${GLIBC_CFLAGS}" \
-    /glibc-${GLIBC_VERSION}/configure \
-        --prefix=/usr                \
-        --libdir=/usr/lib            \
-        --disable-werror             \
-        --disable-nls                \
-        --host=aarch64-linux-gnu     \
-        --build=aarch64-linux-gnu && \
-    make -j"$(nproc)" && \
-    make install DESTDIR=/tmp/glibc-non-lse && ls -al /tmp/glibc-non-lse && \
-    echo "✅ glibc non-LSE built & installed to /tmp/glibc-non-lse"
-
 
 #==============================================
 # RootFS Preparation Stage (Root privileges)
@@ -562,11 +509,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     else \
         echo "❌ RootFS directory not found" && \
         exit 1; \
-    fi;
-
-# ── glibc non-LSE overlay ───────────────────────────────────────────
-COPY --from=glibc-builder /tmp/glibc-non-lse/usr/ /usr/
-RUN ldconfig && echo "✅ glibc non-LSE libraries now active in RootFS" && \
+    fi && \
     \
     # Cleanup (as root - no permission issues)
     echo "🧹 Cleaning up temporary RootFS artifacts..." && \
