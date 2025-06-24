@@ -557,7 +557,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     fi;
 
 # ── glibc non-LSE overlay ───────────────────────────────────────────
-COPY --from=glibc-builder /tmp/glibc-non-lse /
+COPY --from=glibc-builder /tmp/glibc-non-lse/usr/ /usr/
 RUN ldconfig && echo "✅ glibc non-LSE libraries now active in RootFS" && \
     \
     # Cleanup (as root - no permission issues)
