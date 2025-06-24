@@ -1,9 +1,9 @@
 name: FEXBash Builder
 
 on:
-    # Daily automatic builds (Latest candidates only)
-    schedule:
-        - cron: "0 0 * * *"
+    # # Daily automatic builds (Latest candidates only)
+    # schedule:
+    #     - cron: "0 0 * * *"
 
     # Manual trigger (Selective builds)
     workflow_dispatch:
