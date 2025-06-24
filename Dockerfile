@@ -210,6 +210,8 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DENABLE_ASSERTIONS=False \
         -DCMAKE_C_COMPILER="$CC_COMPILER" \
         -DCMAKE_CXX_COMPILER="$CXX_COMPILER" \
+        -DCMAKE_C_FLAGS="-march=armv8-a -mtune=generic -mbranch-protection=none" \
+        -DCMAKE_CXX_FLAGS="-march=armv8-a -mtune=generic -mbranch-protection=none" \
         $CCACHE_CMAKE_ARGS \
         -DCMAKE_AR="$AR_TOOL" \
         -DCMAKE_RANLIB="$RANLIB_TOOL" \
