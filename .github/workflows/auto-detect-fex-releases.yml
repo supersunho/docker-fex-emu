@@ -204,9 +204,8 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   inputs: |
                       {
+                          "runner": "self-hosted-arm64",
                           "build_scope": "${{ steps.build-scope.outputs.build_scope }}",
                           "version": "${{ needs.check-fex-release.outputs.new_version }}",
-                          "force_rebuild": "${{ steps.build-scope.outputs.force_rebuild }}",
-                          "trigger_reason": "auto_fex_release",
-                          "tracking_issue": "${{ steps.create-issue.outputs.issue_number }}"
+                          "force_rebuild": "${{ steps.build-scope.outputs.force_rebuild }}"
                       }
