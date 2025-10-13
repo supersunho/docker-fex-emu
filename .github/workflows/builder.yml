@@ -831,6 +831,8 @@ jobs:
         permissions:
             contents: write
         steps:
+            - name: 🕐 Set current date
+              run: echo "BUILD_DATE=$(date '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_ENV
             - name: Create comprehensive GitHub Release for Ubuntu-based builds
               uses: softprops/action-gh-release@v1
               with:
@@ -839,7 +841,7 @@ jobs:
                   body: |
                       # 🚀 FEX-Emu Ubuntu-Optimized ARM64 Container Release ${{ needs.prepare-and-generate.outputs.version }}
 
-                      **Build Date**: $(date '+%Y-%m-%d %H:%M:%S UTC')  
+                      **Build Date**: ${{ env.BUILD_DATE }} 
                       **FEX Version**: ${{ needs.prepare-and-generate.outputs.fex_semantic }}  
                       **Base Architecture**: Ubuntu 24.04 LTS for maximum compatibility  
                       **Build Strategy**: Version-isolated caching with optimized Ubuntu foundation  
