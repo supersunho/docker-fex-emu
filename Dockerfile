@@ -356,7 +356,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     if [ "$FEXROOTFS_SUCCESS" = "false" ]; then \
         echo "🔄 FEXRootFSFetcher failed - activating manual setup fallback..." && \
         echo "📥 Switching to direct URL download method..." && \
-        \ 
+        \
         mkdir -p /tmp/fex-rootfs && \
         \
         if [ -z "$ROOTFS_URL" ]; then \
@@ -365,8 +365,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         fi && \
         \
         echo "📥 Downloading RootFS from official URL: $ROOTFS_URL" && \
-        ROOTFS_FILE=$(basename "$ROOTFS_URL") && \
-        ROOTFS_LOCAL_PATH="/tmp/fex-rootfs/$ROOTFS_FILE" && \
+            ROOTFS_FILE=$(basename "$ROOTFS_URL") && \
+            ROOTFS_LOCAL_PATH="/tmp/fex-rootfs/$ROOTFS_FILE" && \
         \
         # 🔧 Fixed curl command (remove syntax errors)
         DOWNLOAD_SUCCESS=false && \
@@ -469,6 +469,85 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "🎉 FEXRootFSFetcher setup completed successfully!" && \
         chown -R $FEX_USER:$FEX_USER $FEX_USER_HOME/.fex-emu; \
     fi && \
+    \
+    # 🔧 Move user-specific RootFS to shared directory using dynamic paths
+    echo "📁 Moving RootFS to shared directory: /opt/fex-rootfs/..." && \
+    echo "🔍 Checking source directory: $FEX_ROOTFS_DIR" && \
+    if [ -d "$FEX_ROOTFS_DIR" ] && [ "$(ls -A "$FEX_ROOTFS_DIR" 2>/dev/null)" ]; then \
+        echo "📊 Source directory contents: $(ls -la "$FEX_ROOTFS_DIR/")" && \
+        cp -r "$FEX_ROOTFS_DIR"/* /opt/fex-rootfs/ && \
+        chown -R root:root /opt/fex-rootfs && \
+        chmod -R 755 /opt/fex-rootfs && \
+        echo "✅ RootFS successfully moved to shared directory"; \
+    else \
+        echo "❌ No RootFS found to move to shared directory" && \
+        echo "🔍 Debug: Checking alternative locations..." && \
+        find /home -name "*.sqsh" -o -name "Ubuntu_*" -type d 2>/dev/null || true && \
+        find /root -name "*.sqsh" -o -name "Ubuntu_*" -type d 2>/dev/null || true && \
+        exit 1; \
+    fi && \
+    \
+    # Final verification with improved debugging
+    echo "🔍 Final RootFS verification and summary..." && \
+    if [ -d "/opt/fex-rootfs" ]; then \
+        ROOTFS_COUNT=$(find /opt/fex-rootfs -maxdepth 1 -type d | wc -l) && \
+        ROOTFS_FILES=$(find /opt/fex-rootfs -type f | wc -l) && \
+        echo "🎉 RootFS setup completed successfully!" && \
+        echo "📊 Final RootFS verification summary:" && \
+        echo "  - RootFS directories: $ROOTFS_COUNT" && \
+        echo "  - RootFS files: $ROOTFS_FILES" && \
+        echo "  - Method used: $( [ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (primary)" || echo "Manual setup (fallback)" )" && \
+        echo "  - RootFS size: $(du -sh /opt/fex-rootfs 2>/dev/null || echo 'Unknown')" && \
+        echo "  - Location: /opt/fex-rootfs/" && \
+        echo "  - Contents: $(ls -la /opt/fex-rootfs/ 2>/dev/null || echo 'Directory empty or not accessible')" && \
+        if [ "$ROOTFS_FILES" -gt 0 ]; then \
+            echo "✅ Final RootFS verification passed successfully"; \
+        else \
+            echo "❌ Final RootFS verification failed - no files found" && \
+            exit 1; \
+        fi; \
+    else \
+        echo "❌ RootFS directory not found" && \
+        exit 1; \
+    fi && \
+    \
+    # Cleanup (as root - no permission issues)
+    echo "🧹 Cleaning up temporary RootFS artifacts..." && \
+    rm -rf /tmp/fex-rootfs && \
+    find /opt/fex-rootfs -name "*.sqsh" -delete 2>/dev/null || true && \
+    find /opt/fex-rootfs -name "*.ero" -delete 2>/dev/null || true && \
+    echo "✅ Cleanup completed successfully" && \
+    echo "🚀 Ready for immediate x86 application execution with RootFS!" && \
+    echo "🎯 RootFS preparation stage complete!" && \
+    \
+    # 🔧 Set FEX_ROOTFS_PATH environment variable for runtime
+    echo "🔧 Setting FEX_ROOTFS_PATH environment variable..." && \
+    echo "export FEX_ROOTFS_PATH=/opt/fex-rootfs" >> /etc/environment && \
+    echo "✅ FEX_ROOTFS_PATH environment variable set" && \
+    \
+    # 🔧 Create a symbolic link to the RootFS in the default FEX location
+    echo "🔗 Creating symbolic link to RootFS in default FEX location..." && \
+    FEX_USER_HOME="/home/fex" && \
+    FEX_ROOTFS_DIR="$FEX_USER_HOME/.fex-emu/RootFS" && \
+    mkdir -p "$FEX_ROOTFS_DIR" && \
+    # Find the actual RootFS directory name (e.g., Ubuntu_24_04)
+    ACTUAL_ROOTFS_DIR=$(ls -1 /opt/fex-rootfs | head -n 1) && \
+    if [ -n "$ACTUAL_ROOTFS_DIR" ]; then \
+        ln -s "/opt/fex-rootfs/$ACTUAL_ROOTFS_DIR" "$FEX_ROOTFS_DIR/$ACTUAL_ROOTFS_DIR" && \
+        echo "✅ Symbolic link created: $FEX_ROOTFS_DIR/$ACTUAL_ROOTFS_DIR -> /opt/fex-rootfs/$ACTUAL_ROOTFS_DIR"; \
+    else \
+        echo "❌ No RootFS directory found in /opt/fex-rootfs to create symbolic link" && \
+        exit 1; \
+    fi && \
+    \
+    # 🔧 Write FEX configuration file to point to the shared RootFS
+    echo "⚙️ Writing FEX configuration file to point to shared RootFS..." && \
+    FEX_CONFIG_PATH="$FEX_USER_HOME/.fex-emu/Config.json" && \
+    mkdir -p "$(dirname "$FEX_CONFIG_PATH")" && \
+    printf '{"Config":{"RootFS":"/opt/fex-rootfs/%s"},"ThunksDB":{}}' "$ACTUAL_ROOTFS_DIR" > "$FEX_CONFIG_PATH" && \
+    chown -R $FEX_USER:$FEX_USER "$FEX_USER_HOME/.fex-emu" && \
+    echo "✅ FEX configuration file written to $FEX_CONFIG_PATH" && \
+    echo "🎯 FEX configuration updated to use shared RootFS!" && \
     \
     # 🔧 Move user-specific RootFS to shared directory using dynamic paths
     echo "📁 Moving RootFS to shared directory: /opt/fex-rootfs/..." && \
