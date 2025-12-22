@@ -84,6 +84,7 @@ env:
 # Default permissions (least privilege)
 permissions:
     contents: read
+    issues: write
 
 jobs:
     # Combined job for better efficiency
@@ -988,7 +989,8 @@ jobs:
 
     # Build summary with Ubuntu-specific information
     build-summary:
-        needs: [prepare-and-generate, build-arm, merge-manifests, create-release]
+        needs:
+            [prepare-and-generate, build-arm, merge-manifests, create-release]
         if: always()
         runs-on: ${{ github.event.inputs.runner == 'self-hosted-arm64' && fromJSON('["self-hosted", "linux", "arm64"]') || github.event.inputs.runner }}
         steps:
