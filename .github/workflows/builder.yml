@@ -11,13 +11,8 @@ on:
             runner:
                 description: "Choose runner type"
                 type: choice
-                default: "ubuntu-24.04-arm"
+                default: "self-hosted-arm64"
                 options:
-                    - "ubuntu-24.04"
-                    - "ubuntu-22.04"
-                    - "ubuntu-24.04-arm"
-                    - "ubuntu-22.04-arm"
-                    - "ubuntu-latest"
                     - "self-hosted-arm64"
 
             build_scope:
@@ -84,7 +79,7 @@ env:
 # Default permissions (least privilege)
 permissions:
     contents: read
-    issues: write
+    packages: write
 
 jobs:
     # Combined job for better efficiency
@@ -252,7 +247,7 @@ jobs:
                           }
                       ')
                       ;;
-
+                      
                       "fedora-all")
                       echo "🎩 Building all supported Fedora versions with Ubuntu 24.04 base"
                       MATRIX=$(echo "$ROOTFS_DATA" | jq -c '
@@ -993,6 +988,8 @@ jobs:
             [prepare-and-generate, build-arm, merge-manifests, create-release]
         if: always()
         runs-on: ${{ github.event.inputs.runner == 'self-hosted-arm64' && fromJSON('["self-hosted", "linux", "arm64"]') || github.event.inputs.runner }}
+        permissions:
+            contents: read
         steps:
             - name: Generate comprehensive Ubuntu-optimized build analytics and summary
               run: |
@@ -1048,7 +1045,7 @@ jobs:
                   echo "| **Force Rebuild** | \`${{ github.event.inputs.force_rebuild || 'false' }}\` | Ignore existing images |" >> $GITHUB_STEP_SUMMARY
                   echo "| **Verify Build** | \`${{ github.event.inputs.verify_build || 'false' }}\` | Run comprehensive verification tests |" >> $GITHUB_STEP_SUMMARY
                   echo "| **Cache Cleared** | \`${{ github.event.inputs.clear_cache || 'false' }}\` | Fresh build without cache |" >> $GITHUB_STEP_SUMMARY
-                  echo "| **Runner Type** | \`${{ github.event.inputs.runner || 'ubuntu-24.04-arm' }}\` | GitHub Actions runner selection |" >> $GITHUB_STEP_SUMMARY
+                  echo "| **Runner Type** | \`${{ github.event.inputs.runner || 'self-hosted-arm64' }}\` | GitHub Actions runner selection |" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
 
                   # Job execution results 
