@@ -156,6 +156,18 @@ jobs:
           echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
           echo "fex_version=$FEX_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Check Dockerfile exists
+        run: |
+          echo "Checking for Dockerfile.${{ github.event.inputs.base_image }}"
+          if [ -f "./Dockerfile.${{ github.event.inputs.base_image }}" ]; then
+            echo "✅ Dockerfile found: ./Dockerfile.${{ github.event.inputs.base_image }}"
+            ls -la "./Dockerfile.${{ github.event.inputs.base_image }}"
+          else
+            echo "❌ Dockerfile not found: ./Dockerfile.${{ github.event.inputs.base_image }}"
+            ls -la
+            exit 1
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
         with:
@@ -177,7 +189,8 @@ jobs:
             ${{ env.DOCKERHUB_REPO }}:${{ matrix.os }}-${{ matrix.version }}
           cache-from: type=gha,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
           cache-to: type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
-          builder: ${{ steps.buildx.outputs.name }}
+          builder: ${{ steps.setup-buildx.outputs.name }}
+          build-opts: --load
           build-args: |
             TARGETPLATFORM=linux/arm64
             BASE_IMAGE=${{ github.event.inputs.base_image == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
