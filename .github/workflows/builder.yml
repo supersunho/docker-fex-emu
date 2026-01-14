@@ -156,6 +156,12 @@ jobs:
           echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
           echo "fex_version=$FEX_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+          driver-opts: image=moby/buildkit:master,network=host
+
       - name: Build and push
         if: steps.check-image.outputs.exists == 'false' || github.event.inputs.force_rebuild == 'true'
         uses: docker/build-push-action@v5
@@ -171,6 +177,7 @@ jobs:
             ${{ env.DOCKERHUB_REPO }}:${{ matrix.os }}-${{ matrix.version }}
           cache-from: type=gha,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
           cache-to: type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
+          builder: ${{ steps.buildx.outputs.name }}
           build-args: |
             TARGETPLATFORM=linux/arm64
             BASE_IMAGE=${{ github.event.inputs.base_image == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
