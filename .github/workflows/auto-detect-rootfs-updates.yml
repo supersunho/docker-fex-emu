@@ -1,176 +1,106 @@
 name: Auto-detect RootFS Updates
 
+permissions:
+  contents: read
+  issues: write
+
 on:
-    schedule:
-        - cron: "0 6,18 * * *"
-    workflow_dispatch:
-        inputs:
-            force_check:
-                description: "Force check for RootFS updates"
-                required: false
-                default: false
-                type: boolean
-            skip_build:
-                description: "Skip automatic build trigger"
-                required: false
-                default: false
-                type: boolean
+  schedule:
+    - cron: "0 6,18 * * *"
+  workflow_dispatch:
+    inputs:
+      force_check:
+        description: "Force check"
+        type: boolean
+        default: false
+      skip_build:
+        description: "Skip build"
+        type: boolean
+        default: false
 
 jobs:
-    check-rootfs-updates:
-        runs-on: ubuntu-latest
-        outputs:
-            rootfs_changed: ${{ steps.compare_rootfs.outputs.rootfs_changed }}
-            force_triggered: ${{ steps.compare_rootfs.outputs.force_triggered }}
+  check-rootfs:
+    runs-on: ubuntu-latest
+    outputs:
+      rootfs_changed: ${{ steps.compare.outputs.changed }}
+    steps:
+      - name: Download previous RootFS data
+        uses: dawidd6/action-download-artifact@v11
+        with:
+          name: rootfs-data-snapshot
+          workflow_conclusion: success
+          if_no_artifact_found: warn
+        continue-on-error: true
 
-        steps:
-            - name: Download previous RootFS data
-              uses: dawidd6/action-download-artifact@v11
-              with:
-                  name: rootfs-data-snapshot
-                  workflow_conclusion: success
-                  if_no_artifact_found: warn
+      - name: Fetch current RootFS data
+        id: fetch-rootfs
+        run: |
+          curl -s https://rootfs.fex-emu.gg/RootFS_links.json > current_rootfs.json
+          CURRENT_HASH=$(sha256sum current_rootfs.json | cut -d' ' -f1)
+          echo "current_hash=$CURRENT_HASH" >> $GITHUB_OUTPUT
 
-            - name: Fetch current RootFS data
-              id: fetch_rootfs
-              run: |
-                  echo "🔍 Fetching current RootFS data..."
-                  curl -s https://rootfs.fex-emu.gg/RootFS_links.json > current_rootfs.json
-                  CURRENT_HASH=$(sha256sum current_rootfs.json | cut -d' ' -f1)
-                  echo "current_hash=$CURRENT_HASH" >> $GITHUB_OUTPUT
+      - name: Compare with previous
+        id: compare
+        run: |
+          CURRENT_HASH="${{ steps.fetch-rootfs.outputs.current_hash }}"
+          PREVIOUS_HASH=""
+          
+          if [ -f "rootfs_hash" ]; then
+            PREVIOUS_HASH=$(cat rootfs_hash)
+          fi
+          
+          FORCE_CHECK="${{ github.event.inputs.force_check }}"
+          CHANGED="false"
+          
+          if [ "$FORCE_CHECK" = "true" ] || [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
+            CHANGED="true"
+          fi
+          
+          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+          echo "Previous: $PREVIOUS_HASH, Current: $CURRENT_HASH, Changed: $CHANGED"
 
-            - name: Compare with previous data (with force_check logic)
-              id: compare_rootfs
-              run: |
-                  echo "🔍 Checking RootFS status with force_check logic..."
+      - name: Save current data
+        run: |
+          echo "${{ steps.fetch-rootfs.outputs.current_hash }}" > rootfs_hash
+          cp current_rootfs.json previous_rootfs.json
 
-                  PREVIOUS_HASH=$(cat rootfs_hash 2>/dev/null || echo "NONE")
-                  CURRENT_HASH="${{ steps.fetch_rootfs.outputs.current_hash }}"
-                  FORCE_CHECK="${{ github.event.inputs.force_check }}"
+      - name: Upload RootFS data
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootfs-data-snapshot
+          path: |
+            rootfs_hash
+            previous_rootfs.json
+          retention-days: 30
 
-                  echo "📊 RootFS comparison:"
-                  echo "  - Previous hash: $PREVIOUS_HASH"
-                  echo "  - Current hash: $CURRENT_HASH"
-                  echo "  - Force check: $FORCE_CHECK"
+  trigger-build:
+    needs: check-rootfs
+    if: needs.check-rootfs.outputs.rootfs_changed == 'true' && github.event.inputs.skip_build != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create tracking issue
+        id: create-issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔄 RootFS Update Detected - Auto-Rebuild Triggered`,
+              body: `RootFS data changed. Starting rebuild...`,
+              labels: ['automation', 'rootfs-update']
+            });
+            
+            core.setOutput('issue_number', issue.data.number);
+            return issue.data.number;
 
-                  if [ "$FORCE_CHECK" = "true" ]; then
-                    echo "🔄 Force check enabled - will trigger build regardless"
-                    echo "rootfs_changed=true" >> $GITHUB_OUTPUT
-                    echo "force_triggered=true" >> $GITHUB_OUTPUT
-                    echo "trigger_reason=force_check_rootfs" >> $GITHUB_OUTPUT
-                  elif [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
-                    echo "🆕 RootFS data has changed!"
-                    echo "rootfs_changed=true" >> $GITHUB_OUTPUT
-                    echo "force_triggered=false" >> $GITHUB_OUTPUT
-                    echo "trigger_reason=rootfs_data_changed" >> $GITHUB_OUTPUT
-                    
-                    # Analyze changes
-                    if [ -f "previous_rootfs.json" ]; then
-                      echo "🔍 Analyzing changes..."
-                      diff previous_rootfs.json current_rootfs.json > rootfs_changes.txt || true
-                    fi
-                  else
-                    echo "✅ No changes in RootFS data and force check not enabled"
-                    echo "rootfs_changed=false" >> $GITHUB_OUTPUT
-                    echo "force_triggered=false" >> $GITHUB_OUTPUT
-                    echo "trigger_reason=no_change" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Save current data
-              run: |
-                  echo "${{ steps.fetch_rootfs.outputs.current_hash }}" > rootfs_hash
-                  cp current_rootfs.json previous_rootfs.json
-
-            - name: Upload RootFS data snapshot
-              uses: actions/upload-artifact@v4
-              with:
-                  name: rootfs-data-snapshot
-                  path: |
-                      rootfs_hash
-                      previous_rootfs.json
-                      rootfs_changes.txt
-                  retention-days: 30
-
-    trigger-selective-rebuild:
-        needs: check-rootfs-updates
-        if: needs.check-rootfs-updates.outputs.rootfs_changed == 'true' && github.event.inputs.skip_build != 'true'
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Determine build scope for RootFS changes
-              id: build-scope
-              run: |
-                  FORCE_TRIGGERED="${{ needs.check-rootfs-updates.outputs.force_triggered }}"
-
-                  if [ "$FORCE_TRIGGERED" = "true" ]; then
-                    echo "🔄 Force triggered - rebuilding all images"
-                    echo "build_scope=full-matrix" >> $GITHUB_OUTPUT
-                  else
-                    echo "🎯 RootFS changed - selective rebuild"
-                    echo "build_scope=latest-only" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Create GitHub issue for RootFS update
-              id: create-issue
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const forceTriggered = '${{ needs.check-rootfs-updates.outputs.force_triggered }}';
-                      const buildScope = '${{ steps.build_scope.outputs.build-scope }}';
-                      const triggerType = forceTriggered === 'true' ? 'Manual Force Check' : 'RootFS Data Changed';
-
-                      const issueBody = `
-                      ## 🔄 RootFS Update Processing
-
-                      **Update Type**: ${triggerType}
-                      **Build Scope**: \`${buildScope}\`
-                      **Detection Time**: ${new Date().toISOString()}
-                      **Workflow Run**: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
-
-                      ### 📋 Automated Actions Taken:
-                      - ✅ RootFS changes detected
-                      - ✅ Container rebuild workflow triggered
-                      - ✅ Build scope: ${buildScope}
-
-                      ### 🎯 Expected Updates:
-                      - [ ] Affected RootFS images rebuilt
-                      - [ ] Updated Docker Hub deployments
-                      - [ ] Registry manifest updates
-
-                      ### 🔍 Build Progress:
-                      Monitor the [build workflow](${{ github.server_url }}/${{ github.repository }}/actions) for real-time progress.
-
-                      ---
-                      *This issue was automatically created by the RootFS update detection system* 🤖
-                      `;
-
-                      const issue = await github.rest.issues.create({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        title: `🔄 RootFS Update Detected - Auto-Rebuild Triggered`,
-                        body: issueBody,
-                        labels: [
-                          'automation', 
-                          'rootfs-update', 
-                          'build-trigger',
-                          forceTriggered === 'true' ? 'manual-trigger' : 'auto-detected'
-                        ]
-                      });
-
-                      console.log(`Created tracking issue: #${issue.data.number}`);
-                      core.setOutput('issue_number', issue.data.number);
-                      core.setOutput('issue_url', issue.data.html_url);
-
-                      return issue.data.number;
-            - name: Trigger selective rebuild
-              uses: benc-uk/workflow-dispatch@v1
-              with:
-                  workflow: builder.yml
-                  inputs: |
-                      {
-                        "build_scope": "${{ steps.build-scope.outputs.build_scope }}",
-                        "version": "latest", 
-                        "force_rebuild": "true",
-                        "trigger_reason": "rootfs_update",
-                        "tracking_issue": "${{ steps.create-issue.outputs.issue_number }}"
-                      }
+      - name: Trigger build
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: builder.yml
+          inputs: |
+            {
+              "build_scope": "latest-only",
+              "version": "latest",
+              "force_rebuild": "true"
+            }
