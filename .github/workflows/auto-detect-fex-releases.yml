@@ -1,105 +1,105 @@
 name: Auto-detect FEX Releases
 
 permissions:
-  contents: read
-  issues: write
+    contents: read
+    issues: write
 
 on:
-  schedule:
-    - cron: "0 0 * * *"
-  workflow_dispatch:
-    inputs:
-      force_check:
-        description: "Force check"
-        type: boolean
-        default: false
-      skip_build:
-        description: "Skip build"
-        type: boolean
-        default: false
+    # schedule:
+    #   - cron: "0 0 * * *"
+    workflow_dispatch:
+        inputs:
+            force_check:
+                description: "Force check"
+                type: boolean
+                default: false
+            skip_build:
+                description: "Skip build"
+                type: boolean
+                default: false
 
 jobs:
-  check-release:
-    runs-on: ubuntu-latest
-    outputs:
-      new_release_found: ${{ steps.compare.outputs.changed }}
-      new_version: ${{ steps.get-release.outputs.version }}
-    steps:
-      - name: Download previous release info
-        uses: dawidd6/action-download-artifact@v11
-        with:
-          name: fex-release-info
-          workflow_conclusion: success
-          if_no_artifact_found: warn
-        continue-on-error: true
+    check-release:
+        runs-on: ubuntu-latest
+        outputs:
+            new_release_found: ${{ steps.compare.outputs.changed }}
+            new_version: ${{ steps.get-release.outputs.version }}
+        steps:
+            - name: Download previous release info
+              uses: dawidd6/action-download-artifact@v11
+              with:
+                  name: fex-release-info
+                  workflow_conclusion: success
+                  if_no_artifact_found: warn
+              continue-on-error: true
 
-      - name: Get latest FEX release
-        id: get-release
-        run: |
-          VERSION=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/releases/latest | jq -r '.tag_name')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Current release: $VERSION"
+            - name: Get latest FEX release
+              id: get-release
+              run: |
+                  VERSION=$(curl -s https://api.github.com/repos/FEX-Emu/FEX/releases/latest | jq -r '.tag_name')
+                  echo "version=$VERSION" >> $GITHUB_OUTPUT
+                  echo "Current release: $VERSION"
 
-      - name: Compare with previous
-        id: compare
-        run: |
-          CURRENT_VERSION="${{ steps.get-release.outputs.version }}"
-          PREVIOUS_VERSION=""
-          
-          if [ -f "fex-release-info" ]; then
-            PREVIOUS_VERSION=$(cat fex-release-info)
-          fi
-          
-          FORCE_CHECK="${{ github.event.inputs.force_check }}"
-          CHANGED="false"
-          
-          if [ "$FORCE_CHECK" = "true" ] || [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
-            CHANGED="true"
-          fi
-          
-          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
-          echo "Previous: $PREVIOUS_VERSION, Current: $CURRENT_VERSION, Changed: $CHANGED"
+            - name: Compare with previous
+              id: compare
+              run: |
+                  CURRENT_VERSION="${{ steps.get-release.outputs.version }}"
+                  PREVIOUS_VERSION=""
 
-      - name: Save current release info
-        run: |
-          echo "${{ steps.get-release.outputs.version }}" > fex-release-info
+                  if [ -f "fex-release-info" ]; then
+                    PREVIOUS_VERSION=$(cat fex-release-info)
+                  fi
 
-      - name: Upload release info
-        uses: actions/upload-artifact@v4
-        with:
-          name: fex-release-info
-          path: fex-release-info
-          retention-days: 90
+                  FORCE_CHECK="${{ github.event.inputs.force_check }}"
+                  CHANGED="false"
 
-  trigger-build:
-    needs: check-release
-    if: needs.check-release.outputs.new_release_found == 'true' && github.event.inputs.skip_build != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create tracking issue
-        id: create-issue
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const version = '${{ needs.check-release.outputs.new_version }}';
-            const issue = await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `🚀 FEX Release ${version} - Auto-Build Triggered`,
-              body: `FEX release ${version} detected. Starting build...`,
-              labels: ['automation', 'fex-release']
-            });
-            
-            core.setOutput('issue_number', issue.data.number);
-            return issue.data.number;
+                  if [ "$FORCE_CHECK" = "true" ] || [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+                    CHANGED="true"
+                  fi
 
-      - name: Trigger build
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: builder.yml
-          token: ${{ secrets.GITHUB_TOKEN }}
-          inputs: |
-            {
-              "version": "${{ needs.check-release.outputs.new_version }}",
-              "force_rebuild": "true"
-            }
+                  echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+                  echo "Previous: $PREVIOUS_VERSION, Current: $CURRENT_VERSION, Changed: $CHANGED"
+
+            - name: Save current release info
+              run: |
+                  echo "${{ steps.get-release.outputs.version }}" > fex-release-info
+
+            - name: Upload release info
+              uses: actions/upload-artifact@v4
+              with:
+                  name: fex-release-info
+                  path: fex-release-info
+                  retention-days: 90
+
+    trigger-build:
+        needs: check-release
+        if: needs.check-release.outputs.new_release_found == 'true' && github.event.inputs.skip_build != 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Create tracking issue
+              id: create-issue
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const version = '${{ needs.check-release.outputs.new_version }}';
+                      const issue = await github.rest.issues.create({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        title: `🚀 FEX Release ${version} - Auto-Build Triggered`,
+                        body: `FEX release ${version} detected. Starting build...`,
+                        labels: ['automation', 'fex-release']
+                      });
+
+                      core.setOutput('issue_number', issue.data.number);
+                      return issue.data.number;
+
+            - name: Trigger build
+              uses: benc-uk/workflow-dispatch@v1
+              with:
+                  workflow: builder.yml
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  inputs: |
+                      {
+                        "version": "${{ needs.check-release.outputs.new_version }}",
+                        "force_rebuild": "true"
+                      }
