@@ -3,6 +3,7 @@ name: Auto-detect RootFS Updates
 permissions:
   contents: read
   issues: write
+  actions: write
 
 on:
   schedule:
