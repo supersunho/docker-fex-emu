@@ -226,7 +226,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
-        if: steps.check-image.outputs.exists == 'false' || github.event.inputs.force_rebuild == 'true'
+        if: steps.check-image.outputs.exists == 'false' || github.event.inputs.force_rebuild == true
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -241,7 +241,6 @@ jobs:
           cache-from: type=gha,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
           cache-to: type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
           builder: ${{ steps.setup-buildx.outputs.name }}
-          build-opts: --load
           build-args: |
             TARGETPLATFORM=linux/arm64
             BASE_IMAGE=${{ github.event.inputs.base_image == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
