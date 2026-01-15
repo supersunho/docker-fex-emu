@@ -31,7 +31,7 @@ on:
         type: string
         default: "latest"
       force_rebuild:
-        description: "Force rebuild"
+        description: "Force rebuild even if image exists in registries (GHCR/Docker Hub)"
         type: boolean
         default: false
       verify_build:
@@ -164,12 +164,30 @@ jobs:
           RELEASE_TAG="${{ matrix.os }}-${{ matrix.version }}-${FEX_VERSION}"
           
           # Check if image exists in GHCR
+          GHCR_EXISTS=false
           if docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${RELEASE_TAG} >/dev/null 2>&1; then
-            echo "Image $RELEASE_TAG already exists"
-            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Image $RELEASE_TAG exists in GHCR"
+            GHCR_EXISTS=true
           else
-            echo "Image $RELEASE_TAG does not exist"
+            echo "Image $RELEASE_TAG does not exist in GHCR"
+          fi
+          
+          # Check if image exists in Docker Hub
+          DOCKERHUB_EXISTS=false
+          if docker manifest inspect ${{ env.DOCKERHUB_REPO }}:${RELEASE_TAG} >/dev/null 2>&1; then
+            echo "Image $RELEASE_TAG exists in Docker Hub"
+            DOCKERHUB_EXISTS=true
+          else
+            echo "Image $RELEASE_TAG does not exist in Docker Hub"
+          fi
+          
+          # Set exists output based on both registries
+          if [ "$GHCR_EXISTS" = "true" ] || [ "$DOCKERHUB_EXISTS" = "true" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Image exists in at least one registry (GHCR or Docker Hub)"
+          else
             echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Image does not exist in any registry"
           fi
           
           echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
