@@ -1,4 +1,4 @@
-# 🚀 FEXBash Base Images for ARM64 (FEX-2507)
+# 🚀 FEXBash Base Images for ARM64 (FEX-2601)
 
 <p>
   <img src="https://img.shields.io/github/stars/supersunho/docker-fex-emu?style=for-the-badge&logo=github&color=gold" alt="GitHub Stars"/>
