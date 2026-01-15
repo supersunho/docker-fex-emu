@@ -1,273 +1,201 @@
 name: FEXBash Builder
 
 on:
-  workflow_dispatch:
-    inputs:
-      runner:
-        description: "Runner type"
-        type: choice
-        default: "self-hosted-arm64"
-        options:
-          - "self-hosted-arm64"
-          - "ubuntu-latest"
-      base_image:
-        description: "Base image"
-        type: choice
-        default: "ubuntu"
-        options:
-          - "ubuntu"
-          - "fedora"
-      build_scope:
-        description: "Build scope"
-        type: choice
-        default: "latest-only"
-        options:
-          - "latest-only"
-          - "ubuntu-all"
-          - "fedora-all"
-          - "full-matrix"
-      version:
-        description: "FEX version"
-        type: string
-        default: "latest"
-      force_rebuild:
-        description: "Force rebuild even if image exists in registries (GHCR/Docker Hub)"
-        type: boolean
-        default: false
-      verify_build:
-        description: "Verify build"
-        type: boolean
-        default: false
+    workflow_dispatch:
+        inputs:
+            runner:
+                description: "Runner type"
+                type: choice
+                default: "self-hosted-arm64"
+                options:
+                    - "self-hosted-arm64"
+                    - "ubuntu-latest"
+            base_image:
+                description: "Base image"
+                type: choice
+                default: "ubuntu"
+                options:
+                    - "ubuntu"
+                    - "fedora"
+            build_scope:
+                description: "Build scope"
+                type: choice
+                default: "latest-only"
+                options:
+                    - "latest-only"
+                    - "ubuntu-all"
+                    - "fedora-all"
+                    - "full-matrix"
+            version:
+                description: "FEX version"
+                type: string
+                default: "latest"
+            force_rebuild:
+                description: "Force rebuild and re-release even if image exists"
+                type: boolean
+                default: false
+            verify_build:
+                description: "Verify build"
+                type: boolean
+                default: false
 
 permissions:
-  contents: read
-  packages: write
-  actions: read
+    contents: read
+    packages: write
+    actions: read
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-  LLVM_VERSION: "18"
-  DOCKER_BUILDKIT: 1
-  CACHE_VERSION: v3
-  DOCKERHUB_REPO: supersunho/fex-emu
+    REGISTRY: ghcr.io
+    IMAGE_NAME: ${{ github.repository }}
+    LLVM_VERSION: "18"
+    DOCKER_BUILDKIT: 1
+    CACHE_VERSION: v3
+    DOCKERHUB_REPO: supersunho/fex-emu
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.build_scope || 'latest-only' }}-${{ github.event.inputs.version || 'latest' }}
-  cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.event.inputs.build_scope || 'latest-only' }}-${{ github.event.inputs.version || 'latest' }}
+    cancel-in-progress: true
 
 jobs:
-  prepare-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.generate-matrix.outputs.matrix }}
-      has-builds: ${{ steps.generate-matrix.outputs.has-builds }}
-    steps:
-      - name: Generate build matrix
-        id: generate-matrix
-        run: |
-          # Fetch RootFS data
-          ROOTFS_DATA=$(curl -s https://rootfs.fex-emu.gg/RootFS_links.json)
-          
-          # Define build scope
-          BUILD_SCOPE="${{ github.event.inputs.build_scope || 'latest-only' }}"
-          
-          # Generate matrix based on scope
-          case "$BUILD_SCOPE" in
-            "latest-only")
-              # Get latest Ubuntu and Fedora
-              UBUNTU_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | gsub("[^0-9.]"; "") | split(".") | map(tonumber)) | last')
-              FEDORA_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | tonumber) | last')
-              
-              MATRIX_JSON="{\"include\": ["
-              NEED_COMMA=false
-              
-              if [ -n "$UBUNTU_ENTRY" ]; then
-                UBUNTU_OS=$(echo "$UBUNTU_ENTRY" | jq -r '.value.DistroMatch')
-                UBUNTU_VERSION=$(echo "$UBUNTU_ENTRY" | jq -r '.value.DistroVersion')
-                UBUNTU_URL=$(echo "$UBUNTU_ENTRY" | jq -r '.value.URL')
-                UBUNTU_HASH=$(echo "$UBUNTU_ENTRY" | jq -r '.value.Hash')
-                UBUNTU_TYPE=$(echo "$UBUNTU_ENTRY" | jq -r '.value.Type')
-                
-                MATRIX_JSON="${MATRIX_JSON}{\"os\": \"$UBUNTU_OS\", \"version\": \"$UBUNTU_VERSION\", \"url\": \"$UBUNTU_URL\", \"hash\": \"$UBUNTU_HASH\", \"type\": \"$UBUNTU_TYPE\"}"
-                NEED_COMMA=true
-              fi
-              
-              if [ -n "$FEDORA_ENTRY" ]; then
-                if [ "$NEED_COMMA" = true ]; then
-                  MATRIX_JSON="${MATRIX_JSON},"
-                fi
-                
-                FEDORA_OS=$(echo "$FEDORA_ENTRY" | jq -r '.value.DistroMatch')
-                FEDORA_VERSION=$(echo "$FEDORA_ENTRY" | jq -r '.value.DistroVersion')
-                FEDORA_URL=$(echo "$FEDORA_ENTRY" | jq -r '.value.URL')
-                FEDORA_HASH=$(echo "$FEDORA_ENTRY" | jq -r '.value.Hash')
-                FEDORA_TYPE=$(echo "$FEDORA_ENTRY" | jq -r '.value.Type')
-                
-                MATRIX_JSON="${MATRIX_JSON}{\"os\": \"$FEDORA_OS\", \"version\": \"$FEDORA_VERSION\", \"url\": \"$FEDORA_URL\", \"hash\": \"$FEDORA_HASH\", \"type\": \"$FEDORA_TYPE\"}"
-              fi
-              
-              MATRIX_JSON="${MATRIX_JSON}]}"
-              ;;
-            "ubuntu-all")
-              # All Ubuntu versions
-              UBUNTU_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") | "{\\"os\\": \\"ubuntu\\", \\"version\\": \\""+.value.DistroVersion+"\\", \\"url\\": \\""+.value.URL+"\\", \\"hash\\": \\""+.value.Hash+"\\", \\"type\\": \\""+.value.Type+"\\"},"')
-              MATRIX_JSON="{\"include\": [$(echo "$UBUNTU_ENTRIES" | sed '$ s/,$//')]}"
-              ;;
-            "fedora-all")
-              # All Fedora versions
-              FEDORA_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs") | "{\\"os\\": \\"fedora\\", \\"version\\": \\""+.value.DistroVersion+"\\", \\"url\\": \\""+.value.URL+"\\", \\"hash\\": \\""+.value.Hash+"\\", \\"type\\": \\""+.value.Type+"\\"},"')
-              MATRIX_JSON="{\"include\": [$(echo "$FEDORA_ENTRIES" | sed '$ s/,$//')]}"
-              ;;
-            "full-matrix")
-              # All supported versions
-              ALL_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.Type == "squashfs" and (.value.DistroMatch == "ubuntu" or .value.DistroMatch == "fedora")) | "{\\"os\\": \\""+.value.DistroMatch+"\\", \\"version\\": \\""+.value.DistroVersion+"\\", \\"url\\": \\""+.value.URL+"\\", \\"hash\\": \\""+.value.Hash+"\\", \\"type\\": \\""+.value.Type+"\\"},"')
-              MATRIX_JSON="{\"include\": [$(echo "$ALL_ENTRIES" | sed '$ s/,$//')]}"
-              ;;
-            *)
-              MATRIX_JSON="{\"include\": []}"
-              ;;
-          esac
-          
-          # Output the matrix
-          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
-          
-          # Check if we have builds
-          HAS_BUILDS=$(echo "$MATRIX_JSON" | jq -e '.include | length > 0' 2>/dev/null || echo "false")
-          echo "has-builds=$HAS_BUILDS" >> $GITHUB_OUTPUT
-          
-          # Print for debugging
-          echo "Generated matrix: $MATRIX_JSON"
-          echo "Has builds: $HAS_BUILDS"
+    prepare-matrix:
+        runs-on: ubuntu-latest
+        outputs:
+            matrix: ${{ steps.generate-matrix.outputs.matrix }}
+            has-builds: ${{ steps.generate-matrix.outputs.has-builds }}
+        steps:
+            - name: Generate build matrix
+              id: generate-matrix
+              run: |
+                  ROOTFS_DATA=$(curl -s https://rootfs.fex-emu.gg/RootFS_links.json)
+                  BUILD_SCOPE="${{ github.event.inputs.build_scope || 'latest-only' }}"
 
-  build:
-    needs: prepare-matrix
-    if: needs.prepare-matrix.outputs.has-builds == 'true'
-    runs-on: ${{ github.event.inputs.runner || 'self-hosted-arm64' }}
-    strategy:
-      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
-      fail-fast: false
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+                  case "$BUILD_SCOPE" in
+                    "latest-only")
+                      UBUNTU_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | gsub("[^0-9.]"; "") | split(".") | map(tonumber)) | last')
+                      FEDORA_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | tonumber) | last')
+                      
+                      MATRIX_JSON="{\"include\": ["
+                      NEED_COMMA=false
+                      if [ -n "$UBUNTU_ENTRY" ]; then
+                        MATRIX_JSON="${MATRIX_JSON}$(echo "$UBUNTU_ENTRY" | jq -c '{os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}')"
+                        NEED_COMMA=true
+                      fi
+                      if [ -n "$FEDORA_ENTRY" ]; then
+                        [ "$NEED_COMMA" = true ] && MATRIX_JSON="${MATRIX_JSON},"
+                        MATRIX_JSON="${MATRIX_JSON}$(echo "$FEDORA_ENTRY" | jq -c '{os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}')"
+                      fi
+                      MATRIX_JSON="${MATRIX_JSON}]}"
+                      ;;
+                    "ubuntu-all")
+                      UBUNTU_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}' | jq -cs '{"include": .}')
+                      MATRIX_JSON="$UBUNTU_ENTRIES"
+                      ;;
+                    "fedora-all")
+                      FEDORA_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs") | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}' | jq -cs '{"include": .}')
+                      MATRIX_JSON="$FEDORA_ENTRIES"
+                      ;;
+                    "full-matrix")
+                      ALL_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.Type == "squashfs" and (.value.DistroMatch == "ubuntu" or .value.DistroMatch == "fedora")) | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}' | jq -cs '{"include": .}')
+                      MATRIX_JSON="$ALL_ENTRIES"
+                      ;;
+                  esac
 
-      - name: Check existing image
-        id: check-image
-        run: |
-          VERSION="${{ github.event.inputs.version || 'latest' }}"
-          FEX_VERSION=${VERSION#FEX-}
-          FEX_VERSION=${FEX_VERSION#v}
-          if [ "$FEX_VERSION" = "latest" ]; then
-            FEX_VERSION="latest"
-          fi
-          
-          RELEASE_TAG="${{ matrix.os }}-${{ matrix.version }}-${FEX_VERSION}"
-          
-          # Check if image exists in GHCR
-          GHCR_EXISTS=false
-          if docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${RELEASE_TAG} >/dev/null 2>&1; then
-            echo "Image $RELEASE_TAG exists in GHCR"
-            GHCR_EXISTS=true
-          else
-            echo "Image $RELEASE_TAG does not exist in GHCR"
-          fi
-          
-          # Check if image exists in Docker Hub
-          DOCKERHUB_EXISTS=false
-          if docker manifest inspect ${{ env.DOCKERHUB_REPO }}:${RELEASE_TAG} >/dev/null 2>&1; then
-            echo "Image $RELEASE_TAG exists in Docker Hub"
-            DOCKERHUB_EXISTS=true
-          else
-            echo "Image $RELEASE_TAG does not exist in Docker Hub"
-          fi
-          
-          # Set exists output based on both registries
-          if [ "$GHCR_EXISTS" = "true" ] || [ "$DOCKERHUB_EXISTS" = "true" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Image exists in at least one registry (GHCR or Docker Hub)"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Image does not exist in any registry"
-          fi
-          
-          echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
-          echo "fex_version=$FEX_VERSION" >> $GITHUB_OUTPUT
+                  echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+                  HAS_BUILDS=$(echo "$MATRIX_JSON" | jq -e '.include | length > 0' 2>/dev/null || echo "false")
+                  echo "has-builds=$HAS_BUILDS" >> $GITHUB_OUTPUT
 
-      - name: Check Dockerfile exists
-        run: |
-          echo "Checking for Dockerfile.${{ github.event.inputs.base_image }}"
-          if [ -f "./Dockerfile.${{ github.event.inputs.base_image }}" ]; then
-            echo "✅ Dockerfile found: ./Dockerfile.${{ github.event.inputs.base_image }}"
-            ls -la "./Dockerfile.${{ github.event.inputs.base_image }}"
-          else
-            echo "❌ Dockerfile not found: ./Dockerfile.${{ github.event.inputs.base_image }}"
-            ls -la
-            exit 1
-          fi
+    build:
+        needs: prepare-matrix
+        if: needs.prepare-matrix.outputs.has-builds == 'true'
+        runs-on: ${{ github.event.inputs.runner || 'self-hosted-arm64' }}
+        strategy:
+            matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+            fail-fast: false
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        id: setup-buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker-container
-          driver-opts: image=moby/buildkit:master,network=host
+            - name: Check existing image
+              id: check-image
+              run: |
+                  VERSION="${{ github.event.inputs.version || 'latest' }}"
+                  FEX_VERSION=${VERSION#FEX-}
+                  FEX_VERSION=${FEX_VERSION#v}
+                  [ "$FEX_VERSION" = "latest" ] && FEX_VERSION="latest"
 
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
+                  RELEASE_TAG="${{ matrix.os }}-${{ matrix.version }}-${FEX_VERSION}"
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # GHCR 및 Docker Hub 존재 여부 확인
+                  EXISTS=false
+                  docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${RELEASE_TAG} >/dev/null 2>&1 && EXISTS=true
+                  docker manifest inspect ${{ env.DOCKERHUB_REPO }}:${RELEASE_TAG} >/dev/null 2>&1 && EXISTS=true
 
-      - name: Build and push
-        if: steps.check-image.outputs.exists == 'false' || github.event.inputs.force_rebuild == 'true'
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile.${{ github.event.inputs.base_image }}
-          platforms: linux/arm64
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.check-image.outputs.release_tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.os }}-${{ matrix.version }}
-            ${{ env.DOCKERHUB_REPO }}:${{ steps.check-image.outputs.release_tag }}
-            ${{ env.DOCKERHUB_REPO }}:${{ matrix.os }}-${{ matrix.version }}
-          cache-from: type=gha,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
-          cache-to: type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
-          builder: ${{ steps.setup-buildx.outputs.name }}
-          build-args: |
-            TARGETPLATFORM=linux/arm64
-            BASE_IMAGE=${{ github.event.inputs.base_image == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
-            ROOTFS_OS=${{ matrix.os }}
-            ROOTFS_VERSION=${{ matrix.version }}
-            ROOTFS_URL=${{ matrix.url }}
-            LLVM_VERSION=${{ env.LLVM_VERSION }}
-            FEX_VERSION=${{ steps.check-image.outputs.fex_version }}
+                  echo "exists=$EXISTS" >> $GITHUB_OUTPUT
+                  echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+                  echo "fex_version=$FEX_VERSION" >> $GITHUB_OUTPUT
 
-  verify:
-    needs: build
-    if: github.event.inputs.verify_build == 'true'
-    runs-on: ${{ github.event.inputs.runner || 'self-hosted-arm64' }}
-    strategy:
-      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
-    steps:
-      - name: Verify image
-        run: |
-          VERSION="${{ github.event.inputs.version || 'latest' }}"
-          FEX_VERSION=${VERSION#FEX-}
-          FEX_VERSION=${FEX_VERSION#v}
-          if [ "$FEX_VERSION" = "latest" ]; then
-            FEX_VERSION="latest"
-          fi
-          
-          RELEASE_TAG="${{ matrix.os }}-${{ matrix.version }}-${FEX_VERSION}"
-          
-          # Test basic functionality
-          docker run --rm --platform linux/arm64 ${{ env.DOCKERHUB_REPO }}:$RELEASE_TAG FEXBash -c "echo 'FEX verification successful'"
+            - name: Set up Docker Buildx
+              id: setup-buildx
+              uses: docker/setup-buildx-action@v3
+              with:
+                  driver: docker-container
+                  driver-opts: image=moby/buildkit:master,network=host
+
+            - name: Login to Registries
+              uses: docker/login-action@v3
+              with:
+                  registry: ${{ env.REGISTRY }}
+                  username: ${{ github.actor }}
+                  password: ${{ github.token }}
+
+            - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Build and push (Release)
+              # 이미지가 없거나, 강제 재빌드 옵션이 켜져 있을 때 실행
+              if: steps.check-image.outputs.exists == 'false' || github.event.inputs.force_rebuild == 'true'
+              uses: docker/build-push-action@v5
+              with:
+                  context: .
+                  file: ./Dockerfile.${{ github.event.inputs.base_image }}
+                  platforms: linux/arm64
+                  push: true
+                  # 강제 재빌드 시 캐시를 사용하지 않고 새로 빌드하여 릴리즈 보장
+                  no-cache: ${{ github.event.inputs.force_rebuild == 'true' }}
+                  tags: |
+                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.check-image.outputs.release_tag }}
+                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.os }}-${{ matrix.version }}
+                      ${{ env.DOCKERHUB_REPO }}:${{ steps.check-image.outputs.release_tag }}
+                      ${{ env.DOCKERHUB_REPO }}:${{ matrix.os }}-${{ matrix.version }}
+                  cache-from: type=gha,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
+                  cache-to: type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
+                  build-args: |
+                      TARGETPLATFORM=linux/arm64
+                      BASE_IMAGE=${{ github.event.inputs.base_image == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
+                      ROOTFS_OS=${{ matrix.os }}
+                      ROOTFS_VERSION=${{ matrix.version }}
+                      ROOTFS_URL=${{ matrix.url }}
+                      LLVM_VERSION=${{ env.LLVM_VERSION }}
+                      FEX_VERSION=${{ steps.check-image.outputs.fex_version }}
+
+    verify:
+        needs: build
+        # 빌드가 성공했거나, 이미 이미지가 있어서 skip된 경우에도 검증을 원하면 condition 수정 가능
+        if: github.event.inputs.verify_build == 'true'
+        runs-on: ${{ github.event.inputs.runner || 'self-hosted-arm64' }}
+        strategy:
+            matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+        steps:
+            - name: Verify image
+              run: |
+                  VERSION="${{ github.event.inputs.version || 'latest' }}"
+                  FEX_VERSION=${VERSION#FEX-}
+                  FEX_VERSION=${FEX_VERSION#v}
+                  [ "$FEX_VERSION" = "latest" ] && FEX_VERSION="latest"
+                  RELEASE_TAG="${{ matrix.os }}-${{ matrix.version }}-${FEX_VERSION}"
+
+                  docker pull ${{ env.DOCKERHUB_REPO }}:$RELEASE_TAG
+                  docker run --rm --platform linux/arm64 ${{ env.DOCKERHUB_REPO }}:$RELEASE_TAG FEXBash -c "echo 'FEX verification successful for $RELEASE_TAG'"
