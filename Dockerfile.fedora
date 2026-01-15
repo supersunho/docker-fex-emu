@@ -2,11 +2,24 @@ ARG FEX_VERSION
 ARG BASE_IMAGE=fedora:40
 
 #==============================================
+# Sources Stage - Clone FEX with submodules
+#==============================================
+FROM alpine:latest AS fex-sources
+
+ARG FEX_VERSION
+
+# Install git and clone FEX with submodules
+RUN apk add --no-cache git && \
+    echo "🔍 Cloning FEX source with submodules..." && \
+    git clone --recursive --depth 1 --branch ${FEX_VERSION} https://github.com/FEX-Emu/FEX /tmp/fex-source && \
+    echo "✅ FEX source with submodules cloned successfully"
+
+#==============================================
 # Build Stage - Fedora Base
 #==============================================
 FROM fedora:40 AS fex-builder
 
-ARG TARGETPLATFORM 
+ARG TARGETPLATFORM
 ARG ROOTFS_OS=fedora
 ARG ROOTFS_VERSION="40"
 ARG LLVM_VERSION=18
@@ -61,7 +74,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "🔍 Verifying LLVM ${LLVM_VERSION} installation..." && \
     clang-${LLVM_VERSION} --version && \
     echo "✅ LLVM ${LLVM_VERSION} verification completed" && \
-    \  
+    \
     echo "🎯 Installing critical FEX JIT dependencies..." && \
     dnf install -y -q \
         libunwind-devel \
@@ -100,8 +113,20 @@ RUN echo "📦 Setting up ccache for Fedora build..." && \
 
 ENV PATH="/usr/local/bin/:$PATH"
 
-# Copy FEX source from build context and build with Fedora  
-COPY --from=fex-sources / /tmp/fex-source  
+# Copy FEX source from build context and build with Fedora
+COPY --from=fex-sources / /tmp/fex-source
+# Patch CMakeLists.txt files to conditionally include unittests when BUILD_TESTS=True
+# This addresses the issue where add_subdirectory(unittests) is called unconditionally
+# causing the build to fail when tests are disabled but the unittests directory exists
+RUN echo "🔍 Patching CMakeLists.txt files to conditionally include unittests..." && \
+    # Patch root CMakeLists.txt to conditionally include unittests
+    sed -i 's/add_subdirectory(unittests)/if(BUILD_TESTS)\n  add_subdirectory(unittests)\nendif()/' /tmp/fex-source/CMakeLists.txt && \
+    if grep -q "add_subdirectory(unittests)" /tmp/fex-source/FEXCore/CMakeLists.txt 2>/dev/null; then \
+        sed -i 's/add_subdirectory(unittests)/if(BUILD_TESTS)\n  add_subdirectory(unittests)\nendif()/' /tmp/fex-source/FEXCore/CMakeLists.txt; \
+    fi && \
+    echo "✅ CMakeLists.txt files patched successfully" && \
+    \
+    \
 RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🏗️ Starting FEX build process on Fedora..." && \
     echo "🏷️ Building FEX version: ${FEX_VERSION}" && \

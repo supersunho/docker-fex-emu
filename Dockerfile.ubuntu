@@ -135,13 +135,21 @@ ENV PATH="/usr/local/bin/:$PATH"
 
 # Clone FEX source code from GitHub or copy from build context
 RUN echo "📥 Getting FEX source code..." && \
+    # Validate FEX_VERSION is not empty
+    if [ -z "${FEX_VERSION}" ]; then \
+        echo "❌ ERROR: FEX_VERSION is not set. Please provide a valid FEX version." && \
+        echo "💡 HINT: Use 'docker build --build-arg FEX_VERSION=latest' or specify a specific version" && \
+        exit 1; \
+    fi && \
+    # Create directory for FEX source code
+    mkdir -p /tmp/fex-source && \
     if [ "${FEX_VERSION}" = "latest" ]; then \
         echo "🔍 Cloning latest FEX source code..." && \
-        git clone --depth 1 https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
+        git clone --recursive --depth 1 https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
         echo "✅ Latest FEX source code cloned"; \
     else \
         echo "🔍 Cloning FEX source code for version: ${FEX_VERSION}..." && \
-        git clone --depth 1 --branch ${FEX_VERSION} https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
+        git clone --recursive --depth 1 --branch ${FEX_VERSION} https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
         echo "✅ FEX source code for version ${FEX_VERSION} cloned"; \
     fi && \
     cd /tmp/fex-source && \
@@ -197,6 +205,26 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         echo "🔄 Using Ubuntu default tools"; \
     fi && \
     echo "✅ Ubuntu archiver tools configured: $AR_TOOL" && \
+    \
+    # Enhanced patching to conditionally include unittests in all CMakeLists.txt files
+    echo "🔍 Patching all CMakeLists.txt to conditionally include unittests..." && \
+    find /tmp/fex-source -name "CMakeLists.txt" -exec sed -i 's/add_subdirectory(unittests)/if(BUILD_TESTS)\n  add_subdirectory(unittests)\nendif()/g' {} + && \
+    echo "✅ All CMakeLists.txt files patched successfully" && \
+    \
+    # Patch CMake files that contain catch_discover_tests to ensure they're only processed when BUILD_TESTS is ON
+    echo "🔍 Patching CMake files with catch_discover_tests..." && \
+    find /tmp/fex-source -name "*.cmake" -o -name "CMakeLists.txt" -exec grep -l "catch_discover_tests" {} \; 2>/dev/null | while read -r file; do \
+        echo "Patching file: $file" && \
+        sed -i 's/catch_discover_tests(\([^)]*\))/if(BUILD_TESTS)\n  catch_discover_tests(\1)\nendif()/g' "$file" && \
+        sed -i 's/catch_discover_tests(\(.*\))/if(BUILD_TESTS)\n  catch_discover_tests(\1)\nendif()/g' "$file"; \
+    done && \
+    # Handle specific patterns in test files
+    find /tmp/fex-source -path "*/unittests/*" -name "*.cmake" -o -path "*/unittests/*" -name "CMakeLists.txt" 2>/dev/null | while read -r testfile; do \
+        if grep -q "catch_discover_tests" "$testfile"; then \
+            sed -i 's/catch_discover_tests(\([^)]*\))/if(BUILD_TESTS)\n  catch_discover_tests(\1)\nendif()/g' "$testfile"; \
+        fi; \
+    done && \
+    echo "✅ CMake files with catch_discover_tests patched successfully" && \
     \
     # Enhanced ccache configuration for Ubuntu
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \

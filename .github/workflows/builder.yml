@@ -76,21 +76,37 @@ jobs:
           case "$BUILD_SCOPE" in
             "latest-only")
               # Get latest Ubuntu and Fedora
-              UBUNTU_VERSION=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") | .value.DistroVersion' | sort -V | tail -1)
-              FEDORA_VERSION=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs") | .value.DistroVersion' | sort -n | tail -1)
+              UBUNTU_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | gsub("[^0-9.]"; "") | split(".") | map(tonumber)) | last')
+              FEDORA_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | tonumber) | last')
               
               MATRIX_JSON="{\"include\": ["
               NEED_COMMA=false
-              if [ -n "$UBUNTU_VERSION" ]; then
-                MATRIX_JSON="${MATRIX_JSON}{\"os\": \"ubuntu\", \"version\": \"$UBUNTU_VERSION\"}"
+              
+              if [ -n "$UBUNTU_ENTRY" ]; then
+                UBUNTU_OS=$(echo "$UBUNTU_ENTRY" | jq -r '.value.DistroMatch')
+                UBUNTU_VERSION=$(echo "$UBUNTU_ENTRY" | jq -r '.value.DistroVersion')
+                UBUNTU_URL=$(echo "$UBUNTU_ENTRY" | jq -r '.value.URL')
+                UBUNTU_HASH=$(echo "$UBUNTU_ENTRY" | jq -r '.value.Hash')
+                UBUNTU_TYPE=$(echo "$UBUNTU_ENTRY" | jq -r '.value.Type')
+                
+                MATRIX_JSON="${MATRIX_JSON}{\"os\": \"$UBUNTU_OS\", \"version\": \"$UBUNTU_VERSION\", \"url\": \"$UBUNTU_URL\", \"hash\": \"$UBUNTU_HASH\", \"type\": \"$UBUNTU_TYPE\"}"
                 NEED_COMMA=true
               fi
-              if [ -n "$FEDORA_VERSION" ]; then
+              
+              if [ -n "$FEDORA_ENTRY" ]; then
                 if [ "$NEED_COMMA" = true ]; then
                   MATRIX_JSON="${MATRIX_JSON},"
                 fi
-                MATRIX_JSON="${MATRIX_JSON}{\"os\": \"fedora\", \"version\": \"$FEDORA_VERSION\"}"
+                
+                FEDORA_OS=$(echo "$FEDORA_ENTRY" | jq -r '.value.DistroMatch')
+                FEDORA_VERSION=$(echo "$FEDORA_ENTRY" | jq -r '.value.DistroVersion')
+                FEDORA_URL=$(echo "$FEDORA_ENTRY" | jq -r '.value.URL')
+                FEDORA_HASH=$(echo "$FEDORA_ENTRY" | jq -r '.value.Hash')
+                FEDORA_TYPE=$(echo "$FEDORA_ENTRY" | jq -r '.value.Type')
+                
+                MATRIX_JSON="${MATRIX_JSON}{\"os\": \"$FEDORA_OS\", \"version\": \"$FEDORA_VERSION\", \"url\": \"$FEDORA_URL\", \"hash\": \"$FEDORA_HASH\", \"type\": \"$FEDORA_TYPE\"}"
               fi
+              
               MATRIX_JSON="${MATRIX_JSON}]}"
               ;;
             "ubuntu-all")
@@ -199,6 +215,7 @@ jobs:
             BASE_IMAGE=${{ github.event.inputs.base_image == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
             ROOTFS_OS=${{ matrix.os }}
             ROOTFS_VERSION=${{ matrix.version }}
+            ROOTFS_URL=${{ matrix.url }}
             LLVM_VERSION=${{ env.LLVM_VERSION }}
             FEX_VERSION=${{ steps.check-image.outputs.fex_version }}
 
