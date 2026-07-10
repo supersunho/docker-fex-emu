@@ -5,6 +5,7 @@ ARG BASE_IMAGE=fedora:40
 # Sources Stage - Clone FEX with submodules
 #==============================================
 FROM alpine:latest AS fex-sources
+SHELL ["/bin/bash", "-c"]
 
 ARG FEX_VERSION
 
@@ -19,6 +20,7 @@ RUN apk add --no-cache git && \
 # Build Stage - Fedora Base
 #==============================================
 FROM fedora:40 AS fex-builder
+SHELL ["/bin/bash", "-c"]
 
 ARG TARGETPLATFORM
 ARG ROOTFS_OS=fedora
@@ -259,6 +261,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
 # RootFS Preparation Stage (Root privileges)
 #==============================================
 FROM fedora:40 AS rootfs-preparer
+SHELL ["/bin/bash", "-c"]
 
 ARG FEX_VERSION
 ARG ROOTFS_OS=fedora
@@ -566,6 +569,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
 # Runtime Stage with Fedora Base
 #==============================================
 FROM fedora:40 AS runtime
+SHELL ["/bin/bash", "-c"]
 
 ARG FEX_VERSION
 ARG TARGETPLATFORM
