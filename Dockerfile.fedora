@@ -652,7 +652,7 @@ RUN echo "📦 Copying FEX binaries to Fedora runtime..." && \
     set -euo pipefail && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
-    echo "🔧 Final FEX binary optimization for Fedora..." && \
+    echo "🔧 Final FEX binary optimization for Fedora..."
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 

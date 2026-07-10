@@ -706,7 +706,7 @@ RUN echo "📦 Copying FEX binaries to Ubuntu runtime..." && \
     set -euo pipefail && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
-    echo "🔧 Final FEX binary optimization for Ubuntu..." && \
+    echo "🔧 Final FEX binary optimization for Ubuntu..."
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 
