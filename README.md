@@ -1,4 +1,4 @@
-# 🚀 FEXBash Base Images for ARM64 (FEX-2601)
+# 🚀 FEXBash Base Images for ARM64
 
 <p>
   <img src="https://img.shields.io/github/stars/supersunho/docker-fex-emu?style=for-the-badge&logo=github&color=gold" alt="GitHub Stars"/>
@@ -37,7 +37,7 @@ docker run --rm supersunho/fex-emu:ubuntu-24.04 FEXBash -c "uname -a"
 
 | Tag Category              | Example                        | Description                       |
 | :------------------------ | :----------------------------- | :-------------------------------- |
-| **Latest Multi-Platform** | `latest`                       | Auto-selects optimal distribution |
+| **Latest Image**          | `latest`                       | Always points to the most recent Ubuntu-based build (auto-generated when version=latest) |
 | **LTS Recommended**       | `ubuntu-24.04`, `ubuntu-22.04` | Long-term support versions        |
 | **Current Stable**        | `fedora-40`                    | Latest stable Fedora              |
 | **Version-Specific**      | `ubuntu-24.04-2506`            | Pinned FEX version 2506           |
@@ -46,7 +46,7 @@ docker run --rm supersunho/fex-emu:ubuntu-24.04 FEXBash -c "uname -a"
 
 | Tag                 | Description                              |
 | :------------------ | :--------------------------------------- |
-| `latest`            | Multi-platform auto-selection            |
+| `latest`            | Latest Ubuntu-based build (updated on new FEX releases) |
 | `ubuntu-24.04`      | Ubuntu 24.04 LTS                         |
 | `ubuntu-22.04`      | Ubuntu 22.04 LTS                         |
 | `ubuntu-24.04-2506` | Ubuntu 24.04 LTS (FEX Version: FEX-2506) |
@@ -127,8 +127,8 @@ FEXBash -c "ls /usr/bin | head -10"
 -   **Source**: Built from official [FEX-Emu project](https://github.com/FEX-Emu/FEX)
 -   **Base Architecture**: ARM64 (AArch64) optimized
 -   **Target Emulation**: x86 and x86_64 applications
--   **Build Platform**: Ubuntu 24.04 LTS base for maximum compatibility
--   **Supported Platforms**: `linux/arm64`
+-   **Build Platform**: Ubuntu 24.04 LTS (ARM64 only)
+-   **Supported Platform**: `linux/arm64`
 
 ## 📋 Supported RootFS Distributions
 
@@ -158,6 +158,11 @@ FEXBash -c "ls /usr/bin | head -10"
 -   **FEX Documentation**: [Official Wiki](https://wiki.fex-emu.com)
 
 ## ⚠️ Requirements
+
+> **Note:** Auto-detection workflows are configured for manual trigger only.
+> Cron schedules for FEX release and RootFS detection are disabled by default.
+> Use GitHub Actions UI → "Auto-detect FEX Releases" or "Auto-detect RootFS Updates" → "Run workflow" to trigger.
+
 
 -   **Host Architecture**: ARM64/AArch64 system required
 -   **Docker Version**: Docker 20.10+ recommended

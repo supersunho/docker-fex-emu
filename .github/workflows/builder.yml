@@ -62,7 +62,12 @@ jobs:
         outputs:
             matrix: ${{ steps.generate-matrix.outputs.matrix }}
             has-builds: ${{ steps.generate-matrix.outputs.has-builds }}
+            build_date: ${{ steps.set-build-date.outputs.build_date }}
         steps:
+            - name: Set build date
+              id: set-build-date
+              run: echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
             - name: Generate build matrix
               id: generate-matrix
               run: |
@@ -111,6 +116,7 @@ jobs:
         strategy:
             matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
             fail-fast: false
+            max-parallel: 2
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
@@ -170,10 +176,13 @@ jobs:
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.os }}-${{ matrix.version }}
                       ${{ env.DOCKERHUB_REPO }}:${{ steps.check-image.outputs.release_tag }}
                       ${{ env.DOCKERHUB_REPO }}:${{ matrix.os }}-${{ matrix.version }}
-                  cache-from: type=gha,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
-                  cache-to: type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}-${{ matrix.os }}-${{ matrix.version }}-${{ steps.check-image.outputs.fex_version }}
+                      ${{ steps.check-image.outputs.fex_version == 'latest' && format('{0}/docker-fex-emu:latest', env.REGISTRY) || '' }}
+                      ${{ steps.check-image.outputs.fex_version == 'latest' && format('{0}:latest', env.DOCKERHUB_REPO) || '' }}
+                  cache-from: type=gha,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}
+                  cache-to: type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}
                   build-args: |
                       TARGETPLATFORM=linux/arm64
+                      BUILD_DATE=${{ needs.prepare-matrix.outputs.build_date || 'unknown' }}
                       BASE_IMAGE=${{ github.event.inputs.base_image == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
                       ROOTFS_OS=${{ matrix.os }}
                       ROOTFS_VERSION=${{ matrix.version }}
