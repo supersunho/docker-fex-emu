@@ -5,13 +5,14 @@ ARG BASE_IMAGE=fedora:40
 # Sources Stage - Clone FEX with submodules
 #==============================================
 FROM alpine:latest AS fex-sources
-SHELL ["/bin/bash", "-c"]
+# Alpine uses ash (busybox), not bash
+SHELL ["/bin/ash", "-c"]
 
 ARG FEX_VERSION
 
 # Install git and clone FEX with submodules
 RUN apk add --no-cache git && \
-    set -euo pipefail && \
+    set -eu && \
     echo "🔍 Cloning FEX source with submodules..." && \
     git clone --recursive --depth 1 --branch ${FEX_VERSION} https://github.com/FEX-Emu/FEX /tmp/fex-source && \
     echo "✅ FEX source with submodules cloned successfully"
