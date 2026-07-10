@@ -74,8 +74,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         curl wget \
         openssl-devel \
         squashfs-tools erofs-utils \
-        qt5-qtbase-devel qt5-qtdeclarative-devel qt5-linguist \
-        >/dev/null 2>&1 && \
+        qt5-qtbase-devel qt5-qtdeclarative-devel qt5-linguist && \
     echo "✅ Base packages installed successfully" && \
     \
     # Install LLVM ${LLVM_VERSION} from Fedora repositories
@@ -85,8 +84,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         lld \
         llvm \
         llvm-devel \
-        llvm-static \
-        >/dev/null 2>&1 && \
+        llvm-static && \
     echo "✅ LLVM ${LLVM_VERSION} installed from Fedora repository" && \
     \
     # Verify final installation
@@ -100,8 +98,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         libstdc++-static \
         glibc-devel \
         gcc \
-        gcc-c++ \
-        >/dev/null 2>&1 && \
+        gcc-c++ && \
     \
     echo "✅ All RootFS tools and dependencies installed successfully" && \
     \
@@ -300,7 +297,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         e2fsprogs \
         util-linux \
         ca-certificates \
-        >/dev/null 2>&1 && \
+        && \
     update-ca-trust && \
     echo "✅ CA certificates updated"
 
@@ -636,7 +633,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         squashfs-tools \
         erofs-utils \
         ca-certificates \
-        >/dev/null 2>&1 && \
+        && \
     update-ca-trust && \
     echo "✅ Fedora runtime packages installed successfully" && \
     echo "📊 Runtime package summary:" && \

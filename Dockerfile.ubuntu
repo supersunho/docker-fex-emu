@@ -47,15 +47,19 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     set -euo pipefail && \
     echo "🔍 Using Ubuntu 24.04 LTS packages for maximum stability..." && \
     apt-get update -qq >/dev/null 2>&1 && \
+    echo "🔧 Enabling universe repository for Qt5 packages..." && \
+    apt-get install -qq -y software-properties-common >/dev/null 2>&1 && \
+    add-apt-repository -y universe >/dev/null 2>&1 && \
+    apt-get update -qq >/dev/null 2>&1 && \
     echo "📦 Installing development packages..." && \
     apt-get install -qq -y --no-install-recommends  \
         git cmake ninja-build pkg-config ccache \
-        nasm python3-dev python3-clang python3-setuptools \
+        nasm python3-dev python3-setuptools \
         curl wget \
         software-properties-common openssl libssl-dev \
         squashfs-tools squashfuse erofs-utils \
         qtbase5-dev qttools5-dev qtdeclarative5-dev \
-        >/dev/null 2>&1 && \
+        && \
     echo "✅ Base packages installed successfully" && \
     \
     # Smart LLVM installation with apt-cache check + script fallback
@@ -80,7 +84,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
             llvm-${LLVM_VERSION} \
             llvm-${LLVM_VERSION}-dev \
             llvm-${LLVM_VERSION}-tools \
-            libedit-dev libffi-dev >/dev/null 2>&1 && \
+            python3-clang-${LLVM_VERSION} \
+            libedit-dev libffi-dev \
+            && \
         echo "✅ LLVM ${LLVM_VERSION} installed from Ubuntu repository"; \
     else \
         echo "🔄 Using official LLVM installation script..." && \
@@ -94,7 +100,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         else \
             echo "❌ LLVM installation failed" && \
             exit 1; \
-        fi; \
+        fi && \
+        apt-get install -qq -y python3-clang-${LLVM_VERSION} || \
+            echo "⚠️ python3-clang-${LLVM_VERSION} not available (non-fatal)"; \
     fi && \
     \
     # Verify final installation
@@ -107,7 +115,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libunwind-dev \
         libc6-dev \
         build-essential \
-        libgcc-s1 >/dev/null 2>&1 && \
+        libgcc-s1 \
+        && \
     \
     echo "✅ All RootFS tools and dependencies installed successfully" && \
     \
@@ -343,7 +352,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         squashfs-tools \
         erofs-utils \
         e2fsprogs \
-        util-linux >/dev/null 2>&1 && \
+        util-linux \
+        && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
     apt-get install -qq -y apt-utils ca-certificates && \
     update-ca-certificates && \
@@ -685,7 +695,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         libzstd1 \
         squashfs-tools \
         erofs-utils \
-        binfmt-support >/dev/null 2>&1 && \
+        binfmt-support \
+        && \
     echo "✅ Ubuntu runtime packages installed successfully" && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
     apt-get install -qq -y apt-utils ca-certificates && \
