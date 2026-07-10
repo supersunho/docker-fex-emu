@@ -92,7 +92,7 @@ jobs:
                         local entry="$1"
                         local os=$(echo "$entry" | jq -r '.value.DistroMatch')
                         local df=$(os_to_df "$os")
-                        echo "$entry" | jq -c '{os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type, dockerfile: \"'"$df"'\"}'
+                        echo "$entry" | jq -c --arg df "$df" '{os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type, dockerfile: $df}'
                       }
                       
                       MATRIX_JSON="{\"include\": ["
