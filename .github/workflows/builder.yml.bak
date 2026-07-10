@@ -73,50 +73,34 @@ jobs:
               run: |
                   ROOTFS_DATA=$(curl -s https://rootfs.fex-emu.gg/RootFS_links.json)
                   BUILD_SCOPE="${{ github.event.inputs.build_scope || 'latest-only' }}"
-                  BASE_IMAGE_INPUT="${{ github.event.inputs.base_image || 'ubuntu' }}"
 
                   case "$BUILD_SCOPE" in
                     "latest-only")
                       UBUNTU_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | gsub("[^0-9.]"; "") | split(".") | map(tonumber)) | last')
                       FEDORA_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | tonumber) | last')
                       
-                      # Map OS to Dockerfile name
-                      os_to_df() {
-                        case "$1" in
-                          ubuntu) echo "ubuntu" ;;
-                          fedora) echo "fedora" ;;
-                          *) echo "" ;;
-                        esac
-                      }
-                      add_matrix_entry() {
-                        local entry="$1"
-                        local os=$(echo "$entry" | jq -r '.value.DistroMatch')
-                        local df=$(os_to_df "$os")
-                        echo "$entry" | jq -c '{os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type, dockerfile: \"'"$df"'\"}'
-                      }
-                      
                       MATRIX_JSON="{\"include\": ["
                       NEED_COMMA=false
-                      if [ -n "$UBUNTU_ENTRY" ] && { [ "$BASE_IMAGE_INPUT" = "ubuntu" ] || [ "$BASE_IMAGE_INPUT" = "all" ]; }; then
-                        MATRIX_JSON="${MATRIX_JSON}$(add_matrix_entry "$UBUNTU_ENTRY")"
+                      if [ -n "$UBUNTU_ENTRY" ]; then
+                        MATRIX_JSON="${MATRIX_JSON}$(echo "$UBUNTU_ENTRY" | jq -c '{os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}')"
                         NEED_COMMA=true
                       fi
-                      if [ -n "$FEDORA_ENTRY" ] && { [ "$BASE_IMAGE_INPUT" = "fedora" ] || [ "$BASE_IMAGE_INPUT" = "all" ]; }; then
+                      if [ -n "$FEDORA_ENTRY" ]; then
                         [ "$NEED_COMMA" = true ] && MATRIX_JSON="${MATRIX_JSON},"
-                        MATRIX_JSON="${MATRIX_JSON}$(add_matrix_entry "$FEDORA_ENTRY")"
+                        MATRIX_JSON="${MATRIX_JSON}$(echo "$FEDORA_ENTRY" | jq -c '{os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}')"
                       fi
                       MATRIX_JSON="${MATRIX_JSON}]}"
                       ;;
                     "ubuntu-all")
-                      UBUNTU_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type, dockerfile: .value.DistroMatch}' | jq -cs '{"include": .}')
+                      UBUNTU_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs") | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}' | jq -cs '{"include": .}')
                       MATRIX_JSON="$UBUNTU_ENTRIES"
                       ;;
                     "fedora-all")
-                      FEDORA_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs") | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type, dockerfile: .value.DistroMatch}' | jq -cs '{"include": .}')
+                      FEDORA_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs") | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}' | jq -cs '{"include": .}')
                       MATRIX_JSON="$FEDORA_ENTRIES"
                       ;;
                     "full-matrix")
-                      ALL_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.Type == "squashfs" and (.value.DistroMatch == "ubuntu" or .value.DistroMatch == "fedora")) | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type, dockerfile: .value.DistroMatch}' | jq -cs '{"include": .}')
+                      ALL_ENTRIES=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.Type == "squashfs" and (.value.DistroMatch == "ubuntu" or .value.DistroMatch == "fedora")) | {os: .value.DistroMatch, version: .value.DistroVersion, url: .value.URL, hash: .value.Hash, type: .value.Type}' | jq -cs '{"include": .}')
                       MATRIX_JSON="$ALL_ENTRIES"
                       ;;
                   esac
@@ -182,7 +166,7 @@ jobs:
               uses: docker/build-push-action@v5
               with:
                   context: .
-                  file: ./Dockerfile.${{ matrix.dockerfile }}
+                  file: ./Dockerfile.${{ github.event.inputs.base_image }}
                   platforms: linux/arm64
                   push: true
                   # 강제 재빌드 시 캐시를 사용하지 않고 새로 빌드하여 릴리즈 보장
@@ -199,7 +183,7 @@ jobs:
                   build-args: |
                       TARGETPLATFORM=linux/arm64
                       BUILD_DATE=${{ needs.prepare-matrix.outputs.build_date || 'unknown' }}
-                      BASE_IMAGE=${{ matrix.os == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
+                      BASE_IMAGE=${{ github.event.inputs.base_image == 'ubuntu' && 'ubuntu:24.04' || 'fedora:40' }}
                       ROOTFS_OS=${{ matrix.os }}
                       ROOTFS_VERSION=${{ matrix.version }}
                       ROOTFS_URL=${{ matrix.url }}

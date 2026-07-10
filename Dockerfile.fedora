@@ -20,8 +20,10 @@ RUN apk add --no-cache git && \
         git clone --recursive --depth 1 https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
         echo "✅ Latest FEX source code cloned"; \
     else \
+        echo "🔍 Validating FEX version: ${FEX_VERSION}..." && \
+        echo "${FEX_VERSION}" | grep -qE '^[a-zA-Z0-9._-]+$' || { echo "❌ Invalid FEX_VERSION format"; exit 1; } && \
         echo "🔍 Cloning FEX source code for version: ${FEX_VERSION}..." && \
-        git clone --recursive --depth 1 --branch ${FEX_VERSION} https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
+        git clone --recursive --depth 1 --branch "${FEX_VERSION}" https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
         echo "✅ FEX source code for version ${FEX_VERSION} cloned"; \
     fi && \
     echo "✅ FEX source with submodules cloned successfully"
@@ -30,6 +32,7 @@ RUN apk add --no-cache git && \
 # Build Stage - Fedora Base
 #==============================================
 FROM fedora:40 AS fex-builder
+ARG FEX_VERSION
 SHELL ["/bin/bash", "-c"]
 
 ARG TARGETPLATFORM
@@ -131,7 +134,7 @@ RUN echo "📦 Setting up ccache for Fedora build..." && \
 ENV PATH="/usr/local/bin/:$PATH"
 
 # Copy FEX source from build context and build with Fedora
-COPY --from=fex-sources / /tmp/fex-source
+COPY --from=fex-sources /tmp/fex-source /tmp/fex-source
 # Patch CMakeLists.txt files to conditionally include unittests when BUILD_TESTS=True
 # This addresses the issue where add_subdirectory(unittests) is called unconditionally
 # causing the build to fail when tests are disabled but the unittests directory exists
@@ -366,7 +369,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "🎯 Attempting FEXRootFSFetcher (primary method)..." && \
     for attempt in 1 2 3; do \
         echo "⏳ FEXRootFSFetcher attempt $attempt/3..." && \
-        if sudo -u $FEX_USER timeout 300 bash -c "cd $FEX_USER_HOME && FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty" 2>/dev/null; then \
+        if sudo -u $FEX_USER timeout 300 bash -c "cd $FEX_USER_HOME 2>&1 && FEXRootFSFetcher -yx --distro-name=${ROOTFS_OS} --distro-version=${ROOTFS_VERSION} --force-ui=tty" 2>&1; then \
             echo "✅ FEXRootFSFetcher completed successfully (attempt $attempt)" && \
             FEXROOTFS_SUCCESS=true && \
             break; \
@@ -395,7 +398,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
             ROOTFS_FILE=$(basename "$ROOTFS_URL") && \
             ROOTFS_LOCAL_PATH="/tmp/fex-rootfs/$ROOTFS_FILE" && \
         \
-        # 🔧 Fixed curl command (remove syntax errors)
+        # Download FEX rootfs image
         DOWNLOAD_SUCCESS=false && \
         echo "🔍 Starting download with corrected curl command..." && \
         for download_attempt in 1 2 3; do \
@@ -432,7 +435,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         echo "✅ Found RootFS file: $ROOTFS_FILE" && \
         echo "📊 File size: $(du -h "$ROOTFS_LOCAL_PATH" | cut -f1)" && \
         \
-        # 🔧 Use dynamic paths instead of hardcoded ones
+        # Use OS-specific dynamic paths
         ROOTFS_DIRNAME="$(echo ${ROOTFS_OS} | sed 's/^./\U&/')_$(echo ${ROOTFS_VERSION} | sed 's/\./_/g')" && \
         EXTRACT_DIR="$FEX_ROOTFS_DIR/${ROOTFS_DIRNAME}" && \
         echo "📁 RootFS directory name: $ROOTFS_DIRNAME" && \
