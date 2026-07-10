@@ -632,7 +632,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         glibc \
         libstdc++ \
         openssl-libs \
-        zstd-libs \
+        libzstd \
         squashfs-tools \
         erofs-utils \
         ca-certificates \
