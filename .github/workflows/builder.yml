@@ -230,69 +230,119 @@ jobs:
 
     release:
         needs: [prepare-matrix, build]
-        if: always() && needs.build.result == 'success'
+        if: always() && needs.prepare-matrix.outputs.has-builds == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped')
         runs-on: ubuntu-latest
+        permissions:
+            contents: write
         steps:
-            - name: Generate release tag
+            - name: 🕐 Set build timestamp
               id: release-tag
               run: |
                   VERSION="${{ github.event.inputs.version || 'latest' }}"
                   FEX_VERSION=${VERSION#FEX-}
                   FEX_VERSION=${FEX_VERSION#v}
                   [ "$FEX_VERSION" = "latest" ] && FEX_VERSION="latest"
-                  TIMESTAMP=$(date -u +'%Y%m%dT%H%M%S')
                   echo "fex_version=$FEX_VERSION" >> $GITHUB_OUTPUT
-                  echo "release_tag=v${FEX_VERSION}-build-${TIMESTAMP}" >> $GITHUB_OUTPUT
-                  echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+                  TIMESTAMP=$(date -u +'%Y%m%dT%H%M%S')
+                  echo "release_tag=${FEX_VERSION}-build-${TIMESTAMP}" >> $GITHUB_OUTPUT
+                  echo "build_date=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
 
-            - name: Checkout
-              uses: actions/checkout@v7
+            - name: Create comprehensive GitHub Release
+              uses: softprops/action-gh-release@v2
               with:
-                  fetch-depth: 0
+                  tag_name: ${{ steps.release-tag.outputs.release_tag }}
+                  name: "FEXBash Build ${{ steps.release-tag.outputs.fex_version }} (Build #${{ github.run_number }})"
+                  body: |
+                      # 🚀 FEXBash ARM64 Container Release ${{ steps.release-tag.outputs.fex_version }}
 
-            - name: Create GitHub Release
-              uses: actions/github-script@v7
-              with:
-                  script: |
-                      const fexVersion = '${{ steps.release-tag.outputs.fex_version }}';
-                      const releaseTag = '${{ steps.release-tag.outputs.release_tag }}';
-                      const buildDate = '${{ steps.release-tag.outputs.build_date }}';
-                      const scope = '${{ github.event.inputs.build_scope || "latest-only" }}';
-                      const runner = '${{ github.event.inputs.runner || "self-hosted-arm64" }}';
-                      const forceRebuild = '${{ github.event.inputs.force_rebuild || "false" }}';
+                      **Build Date**: ${{ steps.release-tag.outputs.build_date }}
+                      **FEX Version**: ${{ steps.release-tag.outputs.fex_version }}
+                      **Build Scope**: ${{ github.event.inputs.build_scope || 'latest-only' }}
+                      **Runner**: ${{ github.event.inputs.runner || 'self-hosted-arm64' }}
+                      **Force Rebuild**: ${{ github.event.inputs.force_rebuild || 'false' }}
+                      **Base Architecture**: Ubuntu 24.04 LTS
+                      **Architecture**: ARM64 native compilation and execution
+                      **Container Registries**: GitHub Container Registry (GHCR) + Docker Hub
+                      **Build Workflow**: #${{ github.run_number }}
 
-                      const body = [
-                        `## FEXBash Builder Release`,
-                        ``,
-                        `- **FEX Version**: ${fexVersion}`,
-                        `- **Build Date**: ${buildDate}`,
-                        `- **Build Scope**: ${scope}`,
-                        `- **Runner**: ${runner}`,
-                        `- **Force Rebuild**: ${forceRebuild}`,
-                        ``,
-                        `### Docker Images`,
-                        ``,
-                        `| Registry | Tag |`,
-                        `|----------|-----|`,
-                        `| ghcr.io | \`${context.repo.repo}:latest\` |`,
-                        `| ghcr.io | \`${context.repo.repo}:ubuntu-24.04\` |`,
-                        `| Docker Hub | \`supersunho/fex-emu:latest\` |`,
-                        `| Docker Hub | \`supersunho/fex-emu:ubuntu-24.04\` |`,
-                        ``,
-                        `### Build Information`,
-                        ``,
-                        `- **Workflow**: ${context.workflow}`,
-                        `- **Run ID**: ${context.runId}`,
-                        `- **Branch**: ${context.ref}`,
-                        `- **Commit**: ${context.sha}`,
-                      ].join('\n');
+                      ## 📦 Available Container Images
 
-                      await github.rest.repos.createRelease({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        tag_name: releaseTag,
-                        name: \`FEXBash Build v${fexVersion} - \${buildDate}\`,
-                        body: body,
-                        draft: false,
-                        prerelease: (fexVersion === 'latest'),
-                      });
+                      ### 🎯 Fast Download (Docker Hub - Recommended)
+                      ```
+                      # Latest release
+                      docker pull ${{ env.DOCKERHUB_REPO }}:latest
+
+                      # Version-specific build
+                      docker pull ${{ env.DOCKERHUB_REPO }}:${{ steps.release-tag.outputs.fex_version }}
+                      ```
+
+                      ### 🐧 Ubuntu RootFS
+                      ```
+                      # All Ubuntu RootFS versions built in this run
+                      # Format: ${{ env.DOCKERHUB_REPO }}:{distro}-{version}
+                      # Format: ${{ env.DOCKERHUB_REPO }}:{distro}-{version}-{fex_version}
+                      docker pull ${{ env.DOCKERHUB_REPO }}:${{ steps.release-tag.outputs.fex_version }}
+                      ```
+
+                      ### 🎩 Fedora RootFS
+                      ```
+                      # All Fedora RootFS versions built in this run
+                      # See registry for complete tag list
+                      ```
+
+                      ### 🔄 Alternative Registry (GitHub Container Registry)
+                      ```
+                      # Latest build
+                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                      # Distribution-specific tags: {os}-{version}
+                      docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:ubuntu-24.04
+                      ```
+
+                      ## 🚀 Quick Start
+
+                      ### Interactive x86 Shell on ARM64
+                      ```
+                      docker run -it --rm ${{ env.DOCKERHUB_REPO }}:latest
+                      ```
+
+                      ### Execute x86 Command
+                      ```
+                      docker run --rm ${{ env.DOCKERHUB_REPO }}:latest \
+                          FEXBash -c "uname -a"
+                      ```
+
+                      ## 🔧 Build Information
+
+                      | Parameter | Value |
+                      |-----------|-------|
+                      | **FEX Version** | ${{ steps.release-tag.outputs.fex_version }} |
+                      | **Build Date** | ${{ steps.release-tag.outputs.build_date }} |
+                      | **Build Scope** | ${{ github.event.inputs.build_scope || 'latest-only' }} |
+                      | **Runner** | ${{ github.event.inputs.runner || 'self-hosted-arm64' }} |
+                      | **Force Rebuild** | ${{ github.event.inputs.force_rebuild || 'false' }} |
+                      | **Workflow** | ${{ github.workflow }} |
+                      | **Run ID** | ${{ github.run_id }} |
+                      | **Branch** | ${{ github.ref }} |
+                      | **Commit** | ${{ github.sha }} |
+
+                      ## 🛠️ Technical Specifications
+
+                      - **Base Image**: Ubuntu 24.04 LTS
+                      - **LLVM Version**: ${{ env.LLVM_VERSION }}
+                      - **Build System**: CMake + Ninja
+                      - **Target Platform**: linux/arm64
+                      - **Emulation Target**: x86/x86_64
+                      - **RootFS**: Ubuntu and Fedora distributions
+
+                      ---
+
+                      **🚀 Ready to run x86 applications on ARM64?**
+                      **Start with**: `docker run -it --rm ${{ env.DOCKERHUB_REPO }}:ubuntu-24.04`
+
+                      **📖 Need help?** Check the [Repository README](https://github.com/${{ github.repository }})
+
+                      **⭐ Enjoying FEX on Docker?** Star the repository!
+                  draft: false
+                  prerelease: ${{ steps.release-tag.outputs.fex_version == 'latest' }}
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
