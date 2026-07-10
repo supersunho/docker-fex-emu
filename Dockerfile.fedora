@@ -13,8 +13,17 @@ ARG FEX_VERSION
 # Install git and clone FEX with submodules
 RUN apk add --no-cache git && \
     set -eu && \
-    echo "🔍 Cloning FEX source with submodules..." && \
-    git clone --recursive --depth 1 --branch ${FEX_VERSION} https://github.com/FEX-Emu/FEX /tmp/fex-source && \
+    echo "🔍 Getting FEX source code..." && \
+    mkdir -p /tmp/fex-source && \
+    if [ "${FEX_VERSION}" = "latest" ]; then \
+        echo "🔍 Cloning latest FEX source code..." && \
+        git clone --recursive --depth 1 https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
+        echo "✅ Latest FEX source code cloned"; \
+    else \
+        echo "🔍 Cloning FEX source code for version: ${FEX_VERSION}..." && \
+        git clone --recursive --depth 1 --branch ${FEX_VERSION} https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
+        echo "✅ FEX source code for version ${FEX_VERSION} cloned"; \
+    fi && \
     echo "✅ FEX source with submodules cloned successfully"
 
 #==============================================
