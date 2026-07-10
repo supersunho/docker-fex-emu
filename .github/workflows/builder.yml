@@ -149,8 +149,11 @@ jobs:
 
                   # GHCR 및 Docker Hub 존재 여부 확인
                   EXISTS=false
-                  docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${RELEASE_TAG} >/dev/null 2>&1 && EXISTS=true
-                  docker manifest inspect ${{ env.DOCKERHUB_REPO }}:${RELEASE_TAG} >/dev/null 2>&1 && EXISTS=true
+                  # latest 태그는 항상 재빌드 (버전 릴리스와 관계없이 최신 유지)
+                  if [ "${FEX_VERSION}" != "latest" ]; then
+                    docker manifest inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${RELEASE_TAG} >/dev/null 2>&1 && EXISTS=true
+                    docker manifest inspect ${{ env.DOCKERHUB_REPO }}:${RELEASE_TAG} >/dev/null 2>&1 && EXISTS=true
+                  fi
 
                   echo "exists=$EXISTS" >> $GITHUB_OUTPUT
                   echo "release_tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
@@ -192,8 +195,8 @@ jobs:
                       ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.os }}-${{ matrix.version }}
                       ${{ env.DOCKERHUB_REPO }}:${{ steps.check-image.outputs.release_tag }}
                       ${{ env.DOCKERHUB_REPO }}:${{ matrix.os }}-${{ matrix.version }}
-                      ${{ steps.check-image.outputs.fex_version == 'latest' && format('{0}/docker-fex-emu:latest', env.REGISTRY) || '' }}
-                      ${{ steps.check-image.outputs.fex_version == 'latest' && format('{0}:latest', env.DOCKERHUB_REPO) || '' }}
+                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                      ${{ env.DOCKERHUB_REPO }}:latest
                   cache-from: type=gha,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}
                   cache-to: type=gha,mode=max,scope=${{ env.CACHE_VERSION }}-${{ github.event.inputs.base_image }}
                   build-args: |
