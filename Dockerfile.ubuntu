@@ -23,11 +23,13 @@ ENV ENABLE_CCACHE=${ENABLE_CCACHE}
 LABEL org.opencontainers.image.version="${FEX_VERSION}"
 LABEL fex.emulator.version="${FEX_VERSION}"
 LABEL build.platform="${TARGETPLATFORM}"
-LABEL build.date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+ARG BUILD_DATE
+LABEL build.date="${BUILD_DATE}"
 
 # Configure Ubuntu environment for FEX build
 RUN echo "🔍 Setting up Ubuntu 24.04 LTS build environment..." && \
     echo "🏗️ Configuring Ubuntu for maximum compatibility..." && \
+    set -euo pipefail && \
     export DEBIAN_FRONTEND=noninteractive && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone && \
@@ -40,6 +42,7 @@ RUN echo "🔍 Setting up Ubuntu 24.04 LTS build environment..." && \
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     echo "📦 Installing Ubuntu build packages..." && \
+    set -euo pipefail && \
     echo "🔍 Using Ubuntu 24.04 LTS packages for maximum stability..." && \
     apt-get update -qq >/dev/null 2>&1 && \
     echo "📦 Installing development packages..." && \
@@ -115,6 +118,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # ccache setup for Ubuntu
 RUN echo "📦 Setting up ccache for Ubuntu build..." && \
     echo "🔍 Ubuntu system information:" && \
+    set -euo pipefail && \
     echo "  - GLIBC version: $(ldd --version | head -1)" && \
     echo "  - Ubuntu version: $(lsb_release -rs 2>/dev/null || echo '24.04')" && \
     echo "  - Architecture: $(uname -m)" && \
@@ -135,6 +139,7 @@ ENV PATH="/usr/local/bin/:$PATH"
 
 # Clone FEX source code from GitHub or copy from build context
 RUN echo "📥 Getting FEX source code..." && \
+    set -euo pipefail && \
     # Validate FEX_VERSION is not empty
     if [ -z "${FEX_VERSION}" ]; then \
         echo "❌ ERROR: FEX_VERSION is not set. Please provide a valid FEX version." && \
@@ -161,6 +166,7 @@ RUN echo "📥 Getting FEX source code..." && \
 
 RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🏗️ Starting FEX build process on Ubuntu..." && \
+    set -euo pipefail && \
     echo "🏷️ Building FEX version: ${FEX_VERSION}" && \
     echo "🎯 Target platform: ${TARGETPLATFORM}" && \
     echo "📊 Ubuntu build configuration:" && \
@@ -206,25 +212,38 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     fi && \
     echo "✅ Ubuntu archiver tools configured: $AR_TOOL" && \
     \
-    # Enhanced patching to conditionally include unittests in all CMakeLists.txt files
-    echo "🔍 Patching all CMakeLists.txt to conditionally include unittests..." && \
-    find /tmp/fex-source -name "CMakeLists.txt" -exec sed -i 's/add_subdirectory(unittests)/if(BUILD_TESTS)\n  add_subdirectory(unittests)\nendif()/g' {} + && \
-    echo "✅ All CMakeLists.txt files patched successfully" && \
-    \
-    # Patch CMake files that contain catch_discover_tests to ensure they're only processed when BUILD_TESTS is ON
-    echo "🔍 Patching CMake files with catch_discover_tests..." && \
-    find /tmp/fex-source -name "*.cmake" -o -name "CMakeLists.txt" -exec grep -l "catch_discover_tests" {} \; 2>/dev/null | while read -r file; do \
-        echo "Patching file: $file" && \
-        sed -i 's/catch_discover_tests(\([^)]*\))/if(BUILD_TESTS)\n  catch_discover_tests(\1)\nendif()/g' "$file" && \
-        sed -i 's/catch_discover_tests(\(.*\))/if(BUILD_TESTS)\n  catch_discover_tests(\1)\nendif()/g' "$file"; \
-    done && \
-    # Handle specific patterns in test files
-    find /tmp/fex-source -path "*/unittests/*" -name "*.cmake" -o -path "*/unittests/*" -name "CMakeLists.txt" 2>/dev/null | while read -r testfile; do \
-        if grep -q "catch_discover_tests" "$testfile"; then \
-            sed -i 's/catch_discover_tests(\([^)]*\))/if(BUILD_TESTS)\n  catch_discover_tests(\1)\nendif()/g' "$testfile"; \
+    # Conditionally patch only older FEX versions
+    # FEX v2506+ handles BUILD_TESTS properly; older versions need manual patching
+    echo "🔍 Checking if CMakeLists.txt patching is needed..." && \
+    FEX_MAJOR_VERSION=$(echo "${FEX_VERSION}" | grep -oE '[0-9]{4}' | head -1 || echo "0") && \
+    NEED_PATCH=false && \
+    if [ "${FEX_VERSION}" = "latest" ] || [ -z "$FEX_MAJOR_VERSION" ]; then \
+        echo "ℹ️ Latest/main FEX - checking if unittests are unconditionally included..." && \
+        if grep -rq "add_subdirectory(unittests)" /tmp/fex-source/CMakeLists.txt 2>/dev/null || grep -rq "add_subdirectory(unittests)" /tmp/fex-source/FEXCore/CMakeLists.txt 2>/dev/null; then \
+            NEED_PATCH=true; \
         fi; \
-    done && \
-    echo "✅ CMake files with catch_discover_tests patched successfully" && \
+    elif [ "$FEX_MAJOR_VERSION" -lt 2506 ] 2>/dev/null; then \
+        echo "ℹ️ FEX version < 2506 detected, applying compatibility patches..." && \
+        NEED_PATCH=true; \
+    fi && \
+    \
+    if [ "$NEED_PATCH" = "true" ]; then \
+        echo "🔍 Patching CMakeLists.txt for older FEX compatibility..." && \
+        add_subdirectory_patched=false && \
+        for cmake_file in /tmp/fex-source/CMakeLists.txt /tmp/fex-source/FEXCore/CMakeLists.txt; do \
+            if [ -f "$cmake_file" ] && grep -q "add_subdirectory(unittests)" "$cmake_file" 2>/dev/null; then \
+                sed -i 's/add_subdirectory(unittests)/if(BUILD_TESTS)\n  add_subdirectory(unittests)\nendif()/' "$cmake_file" && \
+                echo "✅ Patched: $cmake_file" && \
+                add_subdirectory_patched=true; \
+            fi; \
+        done && \
+        if [ "$add_subdirectory_patched" = "false" ]; then \
+            echo "ℹ️ No CMakeLists.txt needed patching"; \
+        fi && \
+        echo "✅ CMakeLists.txt patching completed"; \
+    else \
+        echo "ℹ️ CMakeLists.txt patching not needed (FEX version handles BUILD_TESTS correctly)"; \
+    fi && \
     \
     # Enhanced ccache configuration for Ubuntu
     if [ "${ENABLE_CCACHE:-false}" = "true" ] && [ "${CCACHE_SOURCE}" != "disabled" ]; then \
@@ -300,12 +319,13 @@ LABEL fex.rootfs.os="${ROOTFS_OS}"
 LABEL fex.rootfs.version="${ROOTFS_VERSION}"
 LABEL fex.rootfs.type="shared"
 
-ENV DEBIAN_FRONTEND=noninteractive 
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install RootFS extraction tools and dependencies for Ubuntu
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
+    set -euo pipefail && \
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
     echo "📦 Installing RootFS extraction tools and dependencies..." && \
     echo "🐧 Using Ubuntu for RootFS preparation (maximum compatibility)" && \
@@ -318,7 +338,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         squashfs-tools \
         erofs-utils \
         e2fsprogs \
-        util-linux >/dev/null 2>&1 && \   
+        util-linux >/dev/null 2>&1 && \
     echo "🔒 Updating CA certificates for maximum compatibility..." && \
     apt-get install -qq -y apt-utils ca-certificates && \
     update-ca-certificates && \
@@ -326,6 +346,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 # Create shared RootFS directory (as root)
 RUN echo "📁 Creating shared RootFS directory structure..." && \
+    set -euo pipefail && \
     mkdir -p /opt/fex-rootfs && \
     chmod 755 /opt/fex-rootfs && \
     echo "✅ RootFS directory created: /opt/fex-rootfs"
@@ -334,27 +355,27 @@ RUN echo "📁 Creating shared RootFS directory structure..." && \
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
 RUN echo "📦 Copying FEX binaries from Ubuntu builder..." && \
     echo "✅ FEX binaries copied successfully" && \
+    set -euo pipefail && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
     echo "🔧 Optimizing FEX binaries for production..." && \
-    strip /usr/local/fex/bin/* 2>/dev/null || true && \
-    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
-    echo "✅ FEX binary optimization completed" && \
     echo "🎉 Ubuntu-built FEX ready for RootFS operations!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 
 # Create temporary fex user for FEXRootFSFetcher (but stay as root)
 RUN echo "👤 Creating temporary fex user for RootFS operations..." && \
+    set -euo pipefail && \
     useradd -m -s /bin/bash fex && \
     usermod -aG sudo fex && \
     echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
     echo "✅ fex user created with sudo privileges"
 
 # RootFS setup (as root with privilege escalation capabilities)
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     echo "🚀 Starting RootFS setup process as root..." && \
+    set -euo pipefail && \
     echo "📊 RootFS configuration summary:" && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
@@ -418,7 +439,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "🔍 Starting download with corrected curl command..." && \
         for download_attempt in 1 2 3; do \
             echo "⏳ Download attempt $download_attempt/3..." && \
-            if curl -L -k -S -H 'Cache-Control: no-cache' \
+            if curl -L -S -H 'Cache-Control: no-cache' \
                     --connect-timeout 30 --max-time 600 \
                     --retry 3 --retry-delay 5 \
                     -o "$ROOTFS_LOCAL_PATH" \
@@ -532,6 +553,34 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         exit 1; \
     fi && \
     \
+    # 🔧 Configure shared RootFS paths for runtime
+    # 🔧 Set FEX_ROOTFS_PATH environment variable for runtime
+    # 🔧 FEX_ROOTFS_PATH is set via ENV in runtime stage
+    \
+    # 🔧 Create a symbolic link to the RootFS in the default FEX location
+    echo "🔗 Creating symbolic link to RootFS in default FEX location..." && \
+    FEX_USER_HOME="/home/fex" && \
+    FEX_ROOTFS_DIR="$FEX_USER_HOME/.fex-emu/RootFS" && \
+    mkdir -p "$FEX_ROOTFS_DIR" && \
+    # Find the actual RootFS directory name (e.g., Ubuntu_24_04)
+    ACTUAL_ROOTFS_DIR=$(ls -1 /opt/fex-rootfs | head -n 1) && \
+    if [ -n "$ACTUAL_ROOTFS_DIR" ]; then \
+        ln -s "/opt/fex-rootfs/$ACTUAL_ROOTFS_DIR" "$FEX_ROOTFS_DIR/$ACTUAL_ROOTFS_DIR" && \
+        echo "✅ Symbolic link created: $FEX_ROOTFS_DIR/$ACTUAL_ROOTFS_DIR -> /opt/fex-rootfs/$ACTUAL_ROOTFS_DIR"; \
+    else \
+        echo "❌ No RootFS directory found in /opt/fex-rootfs to create symbolic link" && \
+        exit 1; \
+    fi && \
+    \
+    # 🔧 Write FEX configuration file to point to the shared RootFS
+    echo "⚙️ Writing FEX configuration file to point to shared RootFS..." && \
+    FEX_CONFIG_PATH="$FEX_USER_HOME/.fex-emu/Config.json" && \
+    mkdir -p "$(dirname "$FEX_CONFIG_PATH")" && \
+    printf '{"Config":{"RootFS":"/opt/fex-rootfs/%s"},"ThunksDB":{}}' "$ACTUAL_ROOTFS_DIR" > "$FEX_CONFIG_PATH" && \
+    chown -R $FEX_USER:$FEX_USER "$FEX_USER_HOME/.fex-emu" && \
+    echo "✅ FEX configuration file written to $FEX_CONFIG_PATH" && \
+    echo "🎯 FEX configuration updated to use shared RootFS!" && \
+    \
     # Final verification with improved debugging
     echo "🔍 Final RootFS verification and summary..." && \
     if [ -d "/opt/fex-rootfs" ]; then \
@@ -563,94 +612,12 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     find /opt/fex-rootfs -name "*.ero" -delete 2>/dev/null || true && \
     echo "✅ Cleanup completed successfully" && \
     echo "🚀 Ready for immediate x86 application execution with RootFS!" && \
-    echo "🎯 RootFS preparation stage complete!" && \
-    \
-    # 🔧 Set FEX_ROOTFS_PATH environment variable for runtime
-    echo "🔧 Setting FEX_ROOTFS_PATH environment variable..." && \
-    echo "export FEX_ROOTFS_PATH=/opt/fex-rootfs" >> /etc/environment && \
-    echo "✅ FEX_ROOTFS_PATH environment variable set" && \
-    \
-    # 🔧 Create a symbolic link to the RootFS in the default FEX location
-    echo "🔗 Creating symbolic link to RootFS in default FEX location..." && \
-    FEX_USER_HOME="/home/fex" && \
-    FEX_ROOTFS_DIR="$FEX_USER_HOME/.fex-emu/RootFS" && \
-    mkdir -p "$FEX_ROOTFS_DIR" && \
-    # Find the actual RootFS directory name (e.g., Ubuntu_24_04)
-    ACTUAL_ROOTFS_DIR=$(ls -1 /opt/fex-rootfs | head -n 1) && \
-    if [ -n "$ACTUAL_ROOTFS_DIR" ]; then \
-        ln -s "/opt/fex-rootfs/$ACTUAL_ROOTFS_DIR" "$FEX_ROOTFS_DIR/$ACTUAL_ROOTFS_DIR" && \
-        echo "✅ Symbolic link created: $FEX_ROOTFS_DIR/$ACTUAL_ROOTFS_DIR -> /opt/fex-rootfs/$ACTUAL_ROOTFS_DIR"; \
-    else \
-        echo "❌ No RootFS directory found in /opt/fex-rootfs to create symbolic link" && \
-        exit 1; \
-    fi && \
-    \
-    # 🔧 Write FEX configuration file to point to the shared RootFS
-    echo "⚙️ Writing FEX configuration file to point to shared RootFS..." && \
-    FEX_CONFIG_PATH="$FEX_USER_HOME/.fex-emu/Config.json" && \
-    mkdir -p "$(dirname "$FEX_CONFIG_PATH")" && \
-    printf '{"Config":{"RootFS":"/opt/fex-rootfs/%s"},"ThunksDB":{}}' "$ACTUAL_ROOTFS_DIR" > "$FEX_CONFIG_PATH" && \
-    chown -R $FEX_USER:$FEX_USER "$FEX_USER_HOME/.fex-emu" && \
-    echo "✅ FEX configuration file written to $FEX_CONFIG_PATH" && \
-    echo "🎯 FEX configuration updated to use shared RootFS!" && \
-    \
-    # 🔧 Move user-specific RootFS to shared directory using dynamic paths
-    echo "📁 Moving RootFS to shared directory: /opt/fex-rootfs/..." && \
-    echo "🔍 Checking source directory: $FEX_ROOTFS_DIR" && \
-    if [ -d "$FEX_ROOTFS_DIR" ] && [ "$(ls -A "$FEX_ROOTFS_DIR" 2>/dev/null)" ]; then \
-        echo "📊 Source directory contents: $(ls -la "$FEX_ROOTFS_DIR/")" && \
-        cp -r "$FEX_ROOTFS_DIR"/* /opt/fex-rootfs/ && \
-        chown -R root:root /opt/fex-rootfs && \
-        chmod -R 755 /opt/fex-rootfs && \
-        echo "✅ RootFS successfully moved to shared directory"; \
-    else \
-        echo "❌ No RootFS found to move to shared directory" && \
-        echo "🔍 Debug: Checking alternative locations..." && \
-        find /home -name "*.sqsh" -o -name "Ubuntu_*" -type d 2>/dev/null || true && \
-        find /root -name "*.sqsh" -o -name "Ubuntu_*" -type d 2>/dev/null || true && \
-        exit 1; \
-    fi && \
-    \
-    # Final verification with improved debugging
-    echo "🔍 Final RootFS verification and summary..." && \
-    if [ -d "/opt/fex-rootfs" ]; then \
-        ROOTFS_COUNT=$(find /opt/fex-rootfs -maxdepth 1 -type d | wc -l) && \
-        ROOTFS_FILES=$(find /opt/fex-rootfs -type f | wc -l) && \
-        echo "🎉 RootFS setup completed successfully!" && \ 
-        echo "📊 Final RootFS verification summary:" && \
-        echo "  - RootFS directories: $ROOTFS_COUNT" && \
-        echo "  - RootFS files: $ROOTFS_FILES" && \
-        echo "  - Method used: $( [ "$FEXROOTFS_SUCCESS" = "true" ] && echo "FEXRootFSFetcher (primary)" || echo "Manual setup (fallback)" )" && \
-        echo "  - RootFS size: $(du -sh /opt/fex-rootfs 2>/dev/null || echo 'Unknown')" && \
-        echo "  - Location: /opt/fex-rootfs/" && \
-        echo "  - Contents: $(ls -la /opt/fex-rootfs/ 2>/dev/null || echo 'Directory empty or not accessible')" && \
-        if [ "$ROOTFS_FILES" -gt 0 ]; then \
-            echo "✅ Final RootFS verification passed successfully"; \
-        else \
-            echo "❌ Final RootFS verification failed - no files found" && \
-            exit 1; \
-        fi; \
-    else \
-        echo "❌ RootFS directory not found" && \
-        exit 1; \
-    fi && \
-    \
-    # Cleanup (as root - no permission issues)
-    echo "🧹 Cleaning up temporary RootFS artifacts..." && \
-    rm -rf /tmp/fex-rootfs && \
-    find /opt/fex-rootfs -name "*.sqsh" -delete 2>/dev/null || true && \
-    find /opt/fex-rootfs -name "*.ero" -delete 2>/dev/null || true && \
-    echo "✅ Cleanup completed successfully" && \
-    echo "🚀 Ready for immediate x86 application execution with RootFS!" && \
     echo "🎯 RootFS preparation stage complete!"
 
-#==============================================
-# Runtime Stage with Ubuntu LTS Base
-#==============================================
 FROM ubuntu:24.04 AS runtime
 
 ARG FEX_VERSION
-ARG TARGETPLATFORM 
+ARG TARGETPLATFORM
 ARG ROOTFS_OS=ubuntu
 ARG ROOTFS_VERSION="24.04"
 ARG ROOTFS_TYPE=squashfs
@@ -667,15 +634,17 @@ LABEL build.platform="${TARGETPLATFORM}"
 LABEL base.image="ubuntu:24.04"
 
 # Set environment variables for Ubuntu runtime
-ENV DEBIAN_FRONTEND=noninteractive 
+ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Seoul
 ENV FEX_VERSION=${FEX_VERSION}
 ENV ROOTFS_INFO="${ROOTFS_OS}-${ROOTFS_VERSION}"
 ENV FEX_SHARED_ROOTFS="/opt/fex-rootfs"
+ENV FEX_ROOTFS_PATH="/opt/fex-rootfs"
 
 # Configure Ubuntu runtime environment
 RUN echo "🏗️ Setting up Ubuntu 24.04 LTS runtime environment with RootFS..." && \
     echo "📊 Ubuntu runtime configuration:" && \
+    set -euo pipefail && \
     echo "  - Base: Ubuntu 24.04 LTS" && \
     echo "  - Target: High-performance x86 emulation runtime" && \
     echo "  - Features: Native glibc + LTS stability + RootFS" && \
@@ -688,10 +657,11 @@ RUN echo "🏗️ Setting up Ubuntu 24.04 LTS runtime environment with RootFS...
     echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && \
     echo "✅ Ubuntu runtime environment configured"
 
-# Install minimal Ubuntu runtime dependencies 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \ 
+# Install minimal Ubuntu runtime dependencies
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     echo "📦 Installing minimal Ubuntu runtime packages..." && \
+    set -euo pipefail && \
     echo "🔍 Selecting only essential runtime components..." && \
     echo "📊 Runtime build parameters:" && \
     echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \
@@ -721,7 +691,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     echo "  - RootFS: Enabled" && \
     \
     # Ubuntu cleanup for size optimization
-    echo "🧹 Performing Ubuntu cleanup for size optimization..." && \ 
+    echo "🧹 Performing Ubuntu cleanup for size optimization..." && \
     rm -rf /var/tmp/* && \
     echo "✅ Ubuntu runtime setup completed successfully" && \
     echo "🎉 Ubuntu runtime environment ready!"
@@ -730,13 +700,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
 RUN echo "📦 Copying FEX binaries to Ubuntu runtime..." && \
     echo "✅ FEX binaries copied to Ubuntu runtime successfully" && \
+    set -euo pipefail && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
     echo "🔧 Final FEX binary optimization for Ubuntu..." && \
-    strip /usr/local/fex/bin/* 2>/dev/null || true && \
-    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
-    echo "✅ FEX binary optimization completed for Ubuntu runtime" && \
-    echo "🚀 Ubuntu-optimized FEX ready!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 
@@ -748,6 +715,7 @@ RUN echo "📦 Installing RootFS in Ubuntu runtime..." && \
     chown -R root:root /opt/fex-rootfs && \
     chmod -R 755 /opt/fex-rootfs && \
     echo "✅ RootFS ownership configured for Ubuntu" && \
+    set -euo pipefail && \
     \
     echo "📋 Creating template configuration for new users..." && \
     mkdir -p /etc/skel/.fex-emu && \
@@ -775,18 +743,20 @@ RUN echo "📦 Installing RootFS in Ubuntu runtime..." && \
 # Create default fex user (finally, as the last step)
 RUN echo "👤 Creating default fex user for Ubuntu runtime..." && \
     echo "🔧 Configuring Ubuntu user management..." && \
+    set -euo pipefail && \
     useradd -m -s /bin/bash fex && \
     usermod -aG sudo fex && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
+    echo "fex ALL=(ALL) ALL" > /etc/sudoers.d/fex && \
     echo "✅ Ubuntu user configuration completed successfully" && \
     echo "🎯 User 'fex' ready for x86 emulation with RootFS!"
 
 # Switch to fex user (final step)
 USER fex
-WORKDIR /home/fex 
+WORKDIR /home/fex
 
 # Verify RootFS configuration status for fex user
 RUN echo "🔍 Verifying RootFS configuration for user..." && \
+    set -euo pipefail && \
     if [ -f "/home/fex/.fex-emu/Config.json" ]; then \
         echo "✅ User configuration found: $(cat /home/fex/.fex-emu/Config.json)"; \
     else \

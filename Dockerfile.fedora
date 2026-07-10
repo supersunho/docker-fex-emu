@@ -10,6 +10,7 @@ ARG FEX_VERSION
 
 # Install git and clone FEX with submodules
 RUN apk add --no-cache git && \
+    set -euo pipefail && \
     echo "🔍 Cloning FEX source with submodules..." && \
     git clone --recursive --depth 1 --branch ${FEX_VERSION} https://github.com/FEX-Emu/FEX /tmp/fex-source && \
     echo "✅ FEX source with submodules cloned successfully"
@@ -34,10 +35,12 @@ ENV TZ=Asia/Seoul
 LABEL org.opencontainers.image.version="${FEX_VERSION}"
 LABEL fex.emulator.version="${FEX_VERSION}"
 LABEL build.platform="${TARGETPLATFORM}"
-LABEL build.date="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+ARG BUILD_DATE
+LABEL build.date="${BUILD_DATE}"
 
 # Configure Fedora environment for FEX build
 RUN echo "🔍 Setting up Fedora 40 build environment..." && \
+    set -euo pipefail && \
     echo "🏗️ Configuring Fedora for maximum compatibility..." && \
     ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone && \
@@ -46,6 +49,7 @@ RUN echo "🔍 Setting up Fedora 40 build environment..." && \
 # Install build dependencies with Fedora packages
 RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "📦 Installing Fedora build packages..." && \
+    set -euo pipefail && \
     echo "🔍 Using Fedora 40 packages for maximum stability..." && \
     dnf update -y -q && \
     echo "📦 Installing development packages..." && \
@@ -95,6 +99,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
 # ccache setup for Fedora
 RUN echo "📦 Setting up ccache for Fedora build..." && \
     echo "🔍 Fedora system information:" && \
+    set -euo pipefail && \
     echo "  - GLIBC version: $(ldd --version | head -1)" && \
     echo "  - Fedora version: $(cat /etc/fedora-release)" && \
     echo "  - Architecture: $(uname -m)" && \
@@ -118,17 +123,35 @@ COPY --from=fex-sources / /tmp/fex-source
 # Patch CMakeLists.txt files to conditionally include unittests when BUILD_TESTS=True
 # This addresses the issue where add_subdirectory(unittests) is called unconditionally
 # causing the build to fail when tests are disabled but the unittests directory exists
-RUN echo "🔍 Patching CMakeLists.txt files to conditionally include unittests..." && \
-    # Patch root CMakeLists.txt to conditionally include unittests
-    sed -i 's/add_subdirectory(unittests)/if(BUILD_TESTS)\n  add_subdirectory(unittests)\nendif()/' /tmp/fex-source/CMakeLists.txt && \
-    if grep -q "add_subdirectory(unittests)" /tmp/fex-source/FEXCore/CMakeLists.txt 2>/dev/null; then \
-        sed -i 's/add_subdirectory(unittests)/if(BUILD_TESTS)\n  add_subdirectory(unittests)\nendif()/' /tmp/fex-source/FEXCore/CMakeLists.txt; \
+RUN echo "🔍 Checking if CMakeLists.txt patching is needed..." && \
+    FEX_MAJOR_VERSION=$(echo "${FEX_VERSION}" | grep -oE '[0-9]{4}' | head -1 || echo "0") && \
+    NEED_PATCH=false && \
+    set -euo pipefail && \
+    if [ "${FEX_VERSION}" = "latest" ] || [ -z "$FEX_MAJOR_VERSION" ]; then \
+        echo "ℹ️ Latest/main FEX - checking if unittests are unconditionally included..." && \
+        if grep -rq "add_subdirectory(unittests)" /tmp/fex-source/CMakeLists.txt 2>/dev/null || grep -rq "add_subdirectory(unittests)" /tmp/fex-source/FEXCore/CMakeLists.txt 2>/dev/null; then \
+            NEED_PATCH=true; \
+        fi; \
+    elif [ "$FEX_MAJOR_VERSION" -lt 2506 ] 2>/dev/null; then \
+        echo "ℹ️ FEX version < 2506 detected, applying compatibility patches..." && \
+        NEED_PATCH=true; \
     fi && \
-    echo "✅ CMakeLists.txt files patched successfully" && \
     \
-    \
+    if [ "$NEED_PATCH" = "true" ]; then \
+        echo "🔍 Patching CMakeLists.txt for older FEX compatibility..." && \
+        for cmake_file in /tmp/fex-source/CMakeLists.txt /tmp/fex-source/FEXCore/CMakeLists.txt; do \
+            if [ -f "$cmake_file" ] && grep -q "add_subdirectory(unittests)" "$cmake_file" 2>/dev/null; then \
+                sed -i 's/add_subdirectory(unittests)/if(BUILD_TESTS)\n  add_subdirectory(unittests)\nendif()/' "$cmake_file" && \
+                echo "✅ Patched: $cmake_file"; \
+            fi; \
+        done && \
+        echo "✅ CMakeLists.txt patching completed"; \
+    else \
+        echo "ℹ️ CMakeLists.txt patching not needed (FEX version handles BUILD_TESTS correctly)"; \
+    fi
 RUN --mount=type=cache,target=/tmp/.ccache \
     echo "🏗️ Starting FEX build process on Fedora..." && \
+    set -euo pipefail && \
     echo "🏷️ Building FEX version: ${FEX_VERSION}" && \
     echo "🎯 Target platform: ${TARGETPLATFORM}" && \
     echo "📊 Fedora build configuration:" && \
@@ -183,7 +206,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         export CCACHE_SLOPPINESS=pch_defines,time_macros && \
         export CC="ccache $CC_COMPILER" && \
         export CXX="ccache $CXX_COMPILER" && \
-        ccache --zero-stats && \        
+        ccache --zero-stats && \
         CCACHE_CMAKE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache" && \
         echo "✅ ccache enabled with Fedora optimizations"; \
     else \
@@ -253,6 +276,7 @@ ENV TZ=Asia/Seoul
 # Install RootFS extraction tools and dependencies for Fedora
 RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "📦 Installing RootFS extraction tools and dependencies..." && \
+    set -euo pipefail && \
     echo "🐧 Using Fedora for RootFS preparation" && \
     echo "🔧 Setting up extraction toolchain..." && \
     dnf update -y -q && \
@@ -271,6 +295,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
 
 # Create shared RootFS directory (as root)
 RUN echo "📁 Creating shared RootFS directory structure..." && \
+    set -euo pipefail && \
     mkdir -p /opt/fex-rootfs && \
     chmod 755 /opt/fex-rootfs && \
     echo "✅ RootFS directory created: /opt/fex-rootfs"
@@ -279,18 +304,17 @@ RUN echo "📁 Creating shared RootFS directory structure..." && \
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
 RUN echo "📦 Copying FEX binaries from Fedora builder..." && \
     echo "✅ FEX binaries copied successfully" && \
+    set -euo pipefail && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
     echo "🔧 Optimizing FEX binaries for production..." && \
-    strip /usr/local/fex/bin/* 2>/dev/null || true && \
-    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
-    echo "✅ FEX binary optimization completed" && \
     echo "🎉 Fedora-built FEX ready for RootFS operations!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 
 # Create temporary fex user for FEXRootFSFetcher (but stay as root)
 RUN echo "👤 Creating temporary fex user for RootFS operations..." && \
+    set -euo pipefail && \
     useradd -m -s /bin/bash fex && \
     usermod -aG wheel fex && \
     echo "fex ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
@@ -299,6 +323,7 @@ RUN echo "👤 Creating temporary fex user for RootFS operations..." && \
 # RootFS setup (as root with privilege escalation capabilities)
 RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "🚀 Starting RootFS setup process as root..." && \
+    set -euo pipefail && \
     echo "📊 RootFS configuration summary:" && \
     echo "  - Target OS: ${ROOTFS_OS}" && \
     echo "  - Target Version: ${ROOTFS_VERSION}" && \
@@ -362,7 +387,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         echo "🔍 Starting download with corrected curl command..." && \
         for download_attempt in 1 2 3; do \
             echo "⏳ Download attempt $download_attempt/3..." && \
-            if curl -L -k -S -H 'Cache-Control: no-cache' \
+            if curl -L -S -H 'Cache-Control: no-cache' \
                     --connect-timeout 30 --max-time 600 \
                     --retry 3 --retry-delay 5 \
                     -o "$ROOTFS_LOCAL_PATH" \
@@ -511,9 +536,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "🎯 RootFS preparation stage complete!" && \
     \
     # 🔧 Set FEX_ROOTFS_PATH environment variable for runtime
-    echo "🔧 Setting FEX_ROOTFS_PATH environment variable..." && \
-    echo "export FEX_ROOTFS_PATH=/opt/fex-rootfs" >> /etc/environment && \
-    echo "✅ FEX_ROOTFS_PATH environment variable set" && \
+    # 🔧 FEX_ROOTFS_PATH is set via ENV in runtime stage
     \
     # 🔧 Create a symbolic link to the RootFS in the default FEX location
     echo "🔗 Creating symbolic link to RootFS in default FEX location..." && \
@@ -545,7 +568,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
 FROM fedora:40 AS runtime
 
 ARG FEX_VERSION
-ARG TARGETPLATFORM 
+ARG TARGETPLATFORM
 ARG ROOTFS_OS=fedora
 ARG ROOTFS_VERSION="40"
 ARG ROOTFS_TYPE=squashfs
@@ -566,10 +589,12 @@ ENV TZ=Asia/Seoul
 ENV FEX_VERSION=${FEX_VERSION}
 ENV ROOTFS_INFO="${ROOTFS_OS}-${ROOTFS_VERSION}"
 ENV FEX_SHARED_ROOTFS="/opt/fex-rootfs"
+ENV FEX_ROOTFS_PATH="/opt/fex-rootfs"
 
 # Configure Fedora runtime environment
 RUN echo "🏗️ Setting up Fedora 40 runtime environment with RootFS..." && \
     echo "📊 Fedora runtime configuration:" && \
+    set -euo pipefail && \
     echo "  - Base: Fedora 40" && \
     echo "  - Target: High-performance x86 emulation runtime" && \
     echo "  - Features: Native glibc + Fedora stability + RootFS" && \
@@ -578,9 +603,10 @@ RUN echo "🏗️ Setting up Fedora 40 runtime environment with RootFS..." && \
     echo $TZ > /etc/timezone && \
     echo "✅ Fedora runtime environment configured"
 
-# Install minimal Fedora runtime dependencies 
+# Install minimal Fedora runtime dependencies
 RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "📦 Installing minimal Fedora runtime packages..." && \
+    set -euo pipefail && \
     echo "🔍 Selecting only essential runtime components..." && \
     echo "📊 Runtime build parameters:" && \
     echo "  - ROOTFS_OS: ${ROOTFS_OS}" && \
@@ -597,7 +623,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         zstd-libs \
         squashfs-tools \
         erofs-utils \
-        binfmt-support \
+       systemd-container \
         ca-certificates \
         >/dev/null 2>&1 && \
     update-ca-trust && \
@@ -609,7 +635,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     echo "  - RootFS: Enabled" && \
     \
     # Fedora cleanup for size optimization
-    echo "🧹 Performing Fedora cleanup for size optimization..." && \ 
+    echo "🧹 Performing Fedora cleanup for size optimization..." && \
     dnf clean all -q && \
     rm -rf /var/tmp/* && \
     echo "✅ Fedora runtime setup completed successfully" && \
@@ -619,13 +645,10 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
 COPY --from=fex-builder /usr/local/fex /usr/local/fex
 RUN echo "📦 Copying FEX binaries to Fedora runtime..." && \
     echo "✅ FEX binaries copied to Fedora runtime successfully" && \
+    set -euo pipefail && \
     echo "📊 FEX installation summary:" && \
     ls -la /usr/local/fex/bin/ && \
     echo "🔧 Final FEX binary optimization for Fedora..." && \
-    strip /usr/local/fex/bin/* 2>/dev/null || true && \
-    find /usr/local/fex -name "*.so*" -exec strip --strip-unneeded {} + 2>/dev/null || true && \
-    echo "✅ FEX binary optimization completed for Fedora runtime" && \
-    echo "🚀 Fedora-optimized FEX ready!"
 
 ENV PATH="/usr/local/fex/bin:$PATH"
 
@@ -637,6 +660,7 @@ RUN echo "📦 Installing RootFS in Fedora runtime..." && \
     chown -R root:root /opt/fex-rootfs && \
     chmod -R 755 /opt/fex-rootfs && \
     echo "✅ RootFS ownership configured for Fedora" && \
+    set -euo pipefail && \
     \
     echo "📋 Creating template configuration for new users..." && \
     mkdir -p /etc/skel/.fex-emu && \
@@ -664,18 +688,20 @@ RUN echo "📦 Installing RootFS in Fedora runtime..." && \
 # Create default fex user (finally, as the last step)
 RUN echo "👤 Creating default fex user for Fedora runtime..." && \
     echo "🔧 Configuring Fedora user management..." && \
+    set -euo pipefail && \
     useradd -m -s /bin/bash fex && \
     usermod -aG wheel fex && \
-    echo "fex ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/fex && \
+    echo "fex ALL=(ALL) ALL" > /etc/sudoers.d/fex && \
     echo "✅ Fedora user configuration completed successfully" && \
     echo "🎯 User 'fex' ready for x86 emulation with RootFS!"
 
 # Switch to fex user (final step)
 USER fex
-WORKDIR /home/fex 
+WORKDIR /home/fex
 
 # Verify RootFS configuration status for fex user
 RUN echo "🔍 Verifying RootFS configuration for user..." && \
+    set -euo pipefail && \
     if [ -f "/home/fex/.fex-emu/Config.json" ]; then \
         echo "✅ User configuration found: $(cat /home/fex/.fex-emu/Config.json)"; \
     else \
