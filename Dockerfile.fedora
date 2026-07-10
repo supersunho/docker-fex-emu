@@ -22,6 +22,8 @@ RUN apk add --no-cache git && \
     else \
         echo "🔍 Validating FEX version: ${FEX_VERSION}..." && \
         echo "${FEX_VERSION}" | grep -qE '^[a-zA-Z0-9._-]+$' || { echo "❌ Invalid FEX_VERSION format"; exit 1; } && \
+        echo "🔍 Validating FEX version: ${FEX_VERSION}..." && \
+        echo "${FEX_VERSION}" | grep -qE '^[a-zA-Z0-9._-]+$' || { echo "❌ Invalid FEX_VERSION format"; exit 1; } && \
         echo "🔍 Cloning FEX source code for version: ${FEX_VERSION}..." && \
         git clone --recursive --depth 1 --branch "${FEX_VERSION}" https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
         echo "✅ FEX source code for version ${FEX_VERSION} cloned"; \
@@ -81,22 +83,23 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     # Install LLVM ${LLVM_VERSION} from Fedora repositories
     echo "🔧 Installing LLVM ${LLVM_VERSION} from Fedora repositories..." && \
     dnf install -y -q \
-        clang-${LLVM_VERSION} \
-        lld-${LLVM_VERSION} \
-        llvm-${LLVM_VERSION} \
-        llvm-${LLVM_VERSION}-devel \
-        llvm-${LLVM_VERSION}-static \
+        clang \
+        lld \
+        llvm \
+        llvm-devel \
+        llvm-static \
         >/dev/null 2>&1 && \
     echo "✅ LLVM ${LLVM_VERSION} installed from Fedora repository" && \
     \
     # Verify final installation
     echo "🔍 Verifying LLVM ${LLVM_VERSION} installation..." && \
-    clang-${LLVM_VERSION} --version && \
+    clang --version && \
     echo "✅ LLVM ${LLVM_VERSION} verification completed" && \
     \
     echo "🎯 Installing critical FEX JIT dependencies..." && \
     dnf install -y -q \
         libunwind-devel \
+        libstdc++-static \
         glibc-devel \
         gcc \
         gcc-c++ \
@@ -106,7 +109,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
     \
     # Fedora cleanup
     echo "🧹 Cleaning up Fedora packages..." && \
-    alternatives --install /usr/bin/lld lld /usr/bin/lld-${LLVM_VERSION} 100 && \
+    alternatives --install /usr/bin/lld lld /usr/bin/lld 100 && \
     dnf clean all -q && \
     rm -rf /var/tmp/* && \
     echo "✅ Fedora build environment setup completed successfully"
@@ -181,33 +184,27 @@ RUN --mount=type=cache,target=/tmp/.ccache \
     echo "  - ENABLE_CCACHE: ${ENABLE_CCACHE}" && \
     echo "  - CCACHE_SOURCE: ${CCACHE_SOURCE}" && \
     echo "  - LLVM_VERSION: ${LLVM_VERSION}" && \
-    echo "  - CCACHE_BINARY: $(which ccache 2>/dev/null || echo 'not found')" && \
+    echo "  - CCACHE_BINARY: $(command -v ccache 2>/dev/null || echo 'not found')" && \
     echo "  - Build directory: $(pwd)" && \
     \
     mkdir -p Build && cd Build && \
     \
     # Fedora compiler detection
     echo "🔍 Detecting Fedora compilers..." && \
-    if command -v clang-${LLVM_VERSION} >/dev/null 2>&1; then \
-        CC_COMPILER=clang-${LLVM_VERSION} && \
-        CXX_COMPILER=clang++-${LLVM_VERSION} && \
-        echo "🎯 Found version-specific Fedora compilers"; \
-    else \
-        CC_COMPILER=clang && \
-        CXX_COMPILER=clang++ && \
-        echo "🔄 Using default Fedora compiler names"; \
-    fi && \
+    CC_COMPILER=clang && \
+    CXX_COMPILER=clang++ && \
+    echo "🎯 Using Fedora compilers: $CC_COMPILER / $CXX_COMPILER" && \
     echo "✅ Fedora compilers configured: $CC_COMPILER / $CXX_COMPILER" && \
     \
     # Fedora AR tools detection
     echo "🔍 Detecting Fedora archiver tools..." && \
-    if command -v llvm-ar-${LLVM_VERSION} >/dev/null 2>&1; then \
-        AR_TOOL=$(which llvm-ar-${LLVM_VERSION}) && \
-        RANLIB_TOOL=$(which llvm-ranlib-${LLVM_VERSION}) && \
-        echo "🎯 Found LLVM-specific Fedora tools"; \
+    if command -v llvm-ar >/dev/null 2>&1; then \
+        AR_TOOL=$(command -v llvm-ar) && \
+        RANLIB_TOOL=$(command -v llvm-ranlib) && \
+        echo "🎯 Found LLVM archiver tools"; \
     else \
-        AR_TOOL=$(which ar) && \
-        RANLIB_TOOL=$(which ranlib) && \
+        AR_TOOL=$(command -v ar) && \
+        RANLIB_TOOL=$(command -v ranlib) && \
         echo "🔄 Using Fedora default tools"; \
     fi && \
     echo "✅ Fedora archiver tools configured: $AR_TOOL" && \
