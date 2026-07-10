@@ -22,8 +22,6 @@ RUN apk add --no-cache git && \
     else \
         echo "🔍 Validating FEX version: ${FEX_VERSION}..." && \
         echo "${FEX_VERSION}" | grep -qE '^[a-zA-Z0-9._-]+$' || { echo "❌ Invalid FEX_VERSION format"; exit 1; } && \
-        echo "🔍 Validating FEX version: ${FEX_VERSION}..." && \
-        echo "${FEX_VERSION}" | grep -qE '^[a-zA-Z0-9._-]+$' || { echo "❌ Invalid FEX_VERSION format"; exit 1; } && \
         echo "🔍 Cloning FEX source code for version: ${FEX_VERSION}..." && \
         git clone --recursive --depth 1 --branch "${FEX_VERSION}" https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
         echo "✅ FEX source code for version ${FEX_VERSION} cloned"; \
@@ -76,7 +74,7 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         curl wget \
         openssl-devel \
         squashfs-tools erofs-utils \
-        qt5-qtbase-devel qt5-linguist \
+        qt5-qtbase-devel qt5-qtdeclarative-devel qt5-linguist \
         >/dev/null 2>&1 && \
     echo "✅ Base packages installed successfully" && \
     \
@@ -637,7 +635,6 @@ RUN --mount=type=cache,target=/var/cache/dnf,sharing=locked \
         zstd-libs \
         squashfs-tools \
         erofs-utils \
-       systemd-container \
         ca-certificates \
         >/dev/null 2>&1 && \
     update-ca-trust && \
