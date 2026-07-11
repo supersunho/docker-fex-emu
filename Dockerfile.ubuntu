@@ -166,8 +166,10 @@ RUN echo "📥 Getting FEX source code..." && \
     else \
         echo "🔍 Validating FEX version: ${FEX_VERSION}..." && \
         echo "${FEX_VERSION}" | grep -qE '^[a-zA-Z0-9._-]+$' || { echo "❌ Invalid FEX_VERSION format"; exit 1; } && \
-        echo "🔍 Cloning FEX source code for version: ${FEX_VERSION}..." && \
-        git clone --recursive --depth 1 --branch "${FEX_VERSION}" https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
+        FEX_TAG="${FEX_VERSION}" && \
+        case "${FEX_TAG}" in FEX-*) ;; *) FEX_TAG="FEX-${FEX_TAG}";; esac && \
+        echo "🔍 Cloning FEX source code for version: ${FEX_VERSION} (tag: ${FEX_TAG})..." && \
+        git clone --recursive --depth 1 --branch "${FEX_TAG}" https://github.com/FEX-Emu/FEX.git /tmp/fex-source && \
         echo "✅ FEX source code for version ${FEX_VERSION} cloned"; \
     fi && \
     cd /tmp/fex-source && \
