@@ -41,22 +41,19 @@ RUN echo "🔍 Setting up Ubuntu 24.04 LTS build environment..." && \
     echo "✅ Ubuntu environment configuration completed"
 
 # Install build dependencies with Ubuntu packages
+# Ubuntu 24.04's official image already enables the universe repository.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     echo "📦 Installing Ubuntu build packages..." && \
     set -euo pipefail && \
     echo "🔍 Using Ubuntu 24.04 LTS packages for maximum stability..." && \
     apt-get update -qq >/dev/null 2>&1 && \
-    echo "🔧 Enabling universe repository for Qt5 packages..." && \
-    apt-get install -qq -y software-properties-common >/dev/null 2>&1 && \
-    add-apt-repository -y universe >/dev/null 2>&1 && \
-    apt-get update -qq >/dev/null 2>&1 && \
     echo "📦 Installing development packages..." && \
     apt-get install -qq -y --no-install-recommends  \
         git cmake ninja-build pkg-config ccache \
         nasm python3-dev python3-setuptools \
         curl wget \
-        software-properties-common openssl libssl-dev \
+        openssl libssl-dev \
         squashfs-tools squashfuse erofs-utils \
         qtbase5-dev qttools5-dev qtdeclarative5-dev \
         && \
