@@ -294,6 +294,7 @@ RUN --mount=type=cache,target=/tmp/.ccache \
         -DCMAKE_RANLIB="$RANLIB_TOOL" \
         -DCMAKE_C_COMPILER_AR="$AR_TOOL" \
         -DCMAKE_CXX_COMPILER_AR="$AR_TOOL" \
+        -DFMT_MODULE=OFF \
         -DCMAKE_EXE_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
         -DCMAKE_SHARED_LINKER_FLAGS="-static-libgcc -static-libstdc++" \
         -G Ninja .. && \

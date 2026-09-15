@@ -27,7 +27,7 @@ jobs:
             new_version: ${{ steps.get-release.outputs.version }}
         steps:
             - name: Download previous release info
-              uses: dawidd6/action-download-artifact@v11
+              uses: dawidd6/action-download-artifact@v18
               with:
                   name: fex-release-info
                   workflow_conclusion: success

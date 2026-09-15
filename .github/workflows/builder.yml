@@ -6,9 +6,9 @@ on:
             runner:
                 description: "Runner type"
                 type: choice
-                default: "self-hosted-arm64"
+                default: "self-hosted"
                 options:
-                    - "self-hosted-arm64"
+                    - "self-hosted"
                     - "ubuntu-latest"
             base_image:
                 description: "Base image"
@@ -78,7 +78,7 @@ jobs:
                   case "$BUILD_SCOPE" in
                     "latest-only")
                       UBUNTU_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "ubuntu" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | gsub("[^0-9.]"; "") | split(".") | map(tonumber)) | last')
-                      FEDORA_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | tonumber) | last')
+                      FEDORA_ENTRY=$(echo "$ROOTFS_DATA" | jq -r '.v1 | to_entries[] | select(.value.DistroMatch == "fedora" and .value.Type == "squashfs")' | jq -s 'sort_by(.value.DistroVersion | gsub("[^0-9.]"; "") | split(".") | map(tonumber)) | last')
                       
                       # Map OS to Dockerfile name
                       os_to_df() {
@@ -128,7 +128,7 @@ jobs:
     build:
         needs: prepare-matrix
         if: needs.prepare-matrix.outputs.has-builds == 'true'
-        runs-on: ${{ github.event.inputs.runner || 'self-hosted-arm64' }}
+        runs-on: ${{ github.event.inputs.runner || 'self-hosted' }}
         strategy:
             matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
             fail-fast: false
@@ -164,7 +164,9 @@ jobs:
               uses: docker/setup-buildx-action@v4
               with:
                   driver: docker-container
-                  driver-opts: image=moby/buildkit:master,network=host
+                  driver-opts:
+                    - image=moby/buildkit:master
+                    - network=host
 
             - name: Login to GHCR
               uses: docker/login-action@v4
@@ -213,7 +215,7 @@ jobs:
         needs: build
         # 빌드가 성공했거나, 이미 이미지가 있어서 skip된 경우에도 검증을 원하면 condition 수정 가능
         if: github.event.inputs.verify_build == 'true'
-        runs-on: ${{ github.event.inputs.runner || 'self-hosted-arm64' }}
+        runs-on: ${{ github.event.inputs.runner || 'self-hosted' }}
         strategy:
             matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
         steps:
@@ -248,7 +250,7 @@ jobs:
                   echo "build_date=$(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
 
             - name: Create comprehensive GitHub Release
-              uses: softprops/action-gh-release@v2
+              uses: softprops/action-gh-release@v3
               with:
                   tag_name: ${{ steps.release-tag.outputs.release_tag }}
                   name: "FEXBash Build ${{ steps.release-tag.outputs.fex_version }} (Build #${{ github.run_number }})"
@@ -258,7 +260,7 @@ jobs:
                       **Build Date**: ${{ steps.release-tag.outputs.build_date }}
                       **FEX Version**: ${{ steps.release-tag.outputs.fex_version }}
                       **Build Scope**: ${{ github.event.inputs.build_scope || 'latest-only' }}
-                      **Runner**: ${{ github.event.inputs.runner || 'self-hosted-arm64' }}
+                      **Runner**: ${{ github.event.inputs.runner || 'self-hosted' }}
                       **Force Rebuild**: ${{ github.event.inputs.force_rebuild || 'false' }}
                       **Base Architecture**: Ubuntu 24.04 LTS
                       **Architecture**: ARM64 native compilation and execution
@@ -318,7 +320,7 @@ jobs:
                       | **FEX Version** | ${{ steps.release-tag.outputs.fex_version }} |
                       | **Build Date** | ${{ steps.release-tag.outputs.build_date }} |
                       | **Build Scope** | ${{ github.event.inputs.build_scope || 'latest-only' }} |
-                      | **Runner** | ${{ github.event.inputs.runner || 'self-hosted-arm64' }} |
+                      | **Runner** | ${{ github.event.inputs.runner || 'self-hosted' }} |
                       | **Force Rebuild** | ${{ github.event.inputs.force_rebuild || 'false' }} |
                       | **Workflow** | ${{ github.workflow }} |
                       | **Run ID** | ${{ github.run_id }} |

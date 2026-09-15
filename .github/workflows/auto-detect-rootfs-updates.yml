@@ -26,7 +26,7 @@ jobs:
             rootfs_changed: ${{ steps.compare.outputs.changed }}
         steps:
             - name: Download previous RootFS data
-              uses: dawidd6/action-download-artifact@v11
+              uses: dawidd6/action-download-artifact@v18
               with:
                   name: rootfs-data-snapshot
                   workflow_conclusion: success
