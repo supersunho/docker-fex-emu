@@ -179,7 +179,7 @@ RUN echo "📥 Getting FEX source code..." && \
     echo "  - Date: $(git log -1 --format='%cd')" && \
     echo "✅ FEX source code ready for build"
 
-RUN --mount=type=cache,target=/tmp/.ccache \
+RUN --mount=type=cache,target=/tmp/.ccache,sharing=locked \
     echo "🏗️ Starting FEX build process on Ubuntu..." && \
     set -euo pipefail && \
     echo "🏷️ Building FEX version: ${FEX_VERSION}" && \
