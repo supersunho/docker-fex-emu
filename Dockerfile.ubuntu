@@ -61,7 +61,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     \
     # Smart LLVM installation with apt-cache check + script fallback
     echo "🔧 Installing LLVM ${LLVM_VERSION} with smart detection..." && \
-    REQUIRED_LLVM_PACKAGES="clang-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools" && \
+    REQUIRED_LLVM_PACKAGES="clang-${LLVM_VERSION} clang-tools-${LLVM_VERSION} lld-${LLVM_VERSION} llvm-${LLVM_VERSION} llvm-${LLVM_VERSION}-dev llvm-${LLVM_VERSION}-tools" && \
     SYSTEM_LLVM_AVAILABLE=true && \
     echo "🔍 Checking system repository for LLVM ${LLVM_VERSION}..." && \
     for pkg in $REQUIRED_LLVM_PACKAGES; do \
@@ -77,6 +77,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         echo "🎯 Installing LLVM ${LLVM_VERSION} from Ubuntu repository..." && \
         apt-get install -qq -y \
             clang-${LLVM_VERSION} \
+            clang-tools-${LLVM_VERSION} \
             lld-${LLVM_VERSION} \
             llvm-${LLVM_VERSION} \
             llvm-${LLVM_VERSION}-dev \
